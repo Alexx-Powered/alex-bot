@@ -77,5 +77,22 @@
     },
     "github_updated": false,
     "live_qq_test_messages": 0
+  },
+  "compact_region_followup": {
+    "date": "2026-10-29",
+    "output": "Single 1080px orange compact recommendation image, code-generated candidates/timestamps/wait notices plus verified model explanation; facts-only image if explanation fails",
+    "building": "Default 三号楼 on each request; explicit current-message building selection using actual campus building names; 学院路全部教学楼 supported; unknown/unsupported areas fail explicitly",
+    "other_buildings": "No Building 3 small-room, excluded-room or adjacency assumptions; preserve building and source room names",
+    "fresh_queries": "Explicit other-building query fetches bounded Xueyuanlu data and returns matching compact image",
+    "permissions": "Owner or white group only; recheck before rendering and delivery",
+    "tests": {
+      "node_passed": 380,
+      "python_passed": 122,
+      "failed": 0,
+      "real_worker_png_validated": true,
+      "synthetic_images_visually_inspected": true,
+      "live_qq_test_messages": 0
+    },
+    "github_updated": false
   }
 }

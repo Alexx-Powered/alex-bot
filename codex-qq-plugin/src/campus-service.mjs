@@ -13,10 +13,10 @@ const codes=['OK','CAMPUS_NOT_CONFIGURED','CAMPUS_DISABLED','CAMPUS_CONFIG_UNAVA
   'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED','CAMPUS_OWNER_ONLY'];
 export const campusArgs=z.object({date:z.string().regex(/^(?:\d{4}-\d{2}-\d{2})?$/).default('')}).strict();
 export const recommendationArgs=campusArgs.extend({session:z.enum(['now','morning','afternoon','evening']).default('now'),
-  limit:z.number().int().min(1).max(12).default(8),exclude_room:z.string().regex(/^(?:[1-9]\d{2})?$/).default('')}).strict();
+  limit:z.number().int().min(1).max(12).default(8),exclude_room:z.string().max(64).regex(/^[\p{L}\p{N}_（）()· .-]*$/u).default(''),building:z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u).default('三号楼')}).strict();
 const recommendationSchema=z.object({schema_version:z.literal('buaa-recommendations.v1'),ok:z.boolean(),code:z.string().regex(/^(?:OK|CAMPUS_[A-Z_]+)$/),
   date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),now:z.string().datetime({offset:true}),fetched_at:z.union([z.literal(''),z.string().datetime({offset:true})]),
-  session:z.enum(['','上午','下午','晚上']),message:z.string().max(1400),candidates:z.array(z.object({room:z.string().regex(/^[1-9]\d{2}$/),
+  building:z.string().min(1).max(64).default('三号楼'),session:z.enum(['','上午','下午','晚上']),message:z.string().max(3000),candidates:z.array(z.object({room:z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u),building:z.string().min(1).max(64).default('三号楼'),
     small:z.boolean(),tier:z.number().int().min(1).max(6),start_period:z.number().int().min(1).max(14),end_period:z.number().int().min(1).max(14),
     usable_from:z.string().regex(/^\d{2}:\d{2}$/),usable_until:z.string().regex(/^\d{2}:\d{2}$/),available_now:z.boolean(),
     complete_remaining:z.boolean(),period5_busy:z.boolean(),full_afternoon:z.boolean(),just_released:z.boolean().default(false),release_pending:z.boolean().default(false)}).strict()).max(12)}).strict();
@@ -78,7 +78,7 @@ export class CampusService{
     let status;try{status=await this.configStore.status();}catch{status={enabled:false,configured:false,code:'CAMPUS_CONFIG_UNAVAILABLE'};}
     return {...status,busy:this.#busy,lastCode:this.#last?.code||null,lastFetchedAt:this.#last?.fetched_at||null};
   }
-  async run(args={},mode='query'){
+  async run(args={},mode='query',options={}){
     let parsed;try{parsed=campusArgs.parse(args);}catch{return {data:campusFailure('CAMPUS_INVALID_DATE')};}
     if(!['query','report','login'].includes(mode))return {data:campusFailure('CAMPUS_QUERY_FAILED')};
     if(this.#busy)return {data:campusFailure('CAMPUS_BUSY',parsed.date)};
@@ -87,7 +87,7 @@ export class CampusService{
       let credentials;try{credentials=await this.configStore.read();}catch{return {data:campusFailure('CAMPUS_CONFIG_UNAVAILABLE',parsed.date)};}
       if(!credentials.username||!credentials.password)return {data:campusFailure('CAMPUS_NOT_CONFIGURED',parsed.date)};
       if(!credentials.enabled)return {data:campusFailure('CAMPUS_DISABLED',parsed.date)};
-      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
+      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,request_text:options.requestText},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
         const data=validateCampusData(value.data);
         const output=path.join(this.home,'.private','campus-output');
         if(data.ok){await fs.mkdir(output,{recursive:true});await atomicJson(path.join(output,'latest.json'),data);await this.#remember(data);}
@@ -104,15 +104,18 @@ export class CampusService{
     }catch{return {data:campusFailure('CAMPUS_QUERY_FAILED',parsed.date)};}
     finally{this.#busy=false;}
   }
-  async execute(args,context){
+  async execute(args,context,requestText){
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     if(context?.progress&&await context.progress('campus-fetch')!==true)return {cancelled:true};
     if(!fullAccess(context))return {cancelled:true};
-    const result=await this.run(args,'report');
+    const {building,...queryArgs}=args||{};
+    const scoped=building&&building!=='三号楼';
+    const result=await this.run(queryArgs,scoped?'query':'report',{requestText});
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
+    if(scoped&&result.data.ok)return this.recommend({date:result.data.date,building},context,requestText);
     return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify(result.data),requiredAccess:'white'};
   }
-  async recommend(args,context){
+  async recommend(args,context,requestText){
     if(!fullAccess(context))return {text:'当前会话未开放教室推荐。',requiredAccess:'chat'};
     let parsed;try{parsed=recommendationArgs.parse(args);}catch{return {text:'请指定今天或之后的日期，以及上午、下午、晚上或现在。',requiredAccess:'white'};}
     const status=await this.configStore.status();
@@ -122,9 +125,21 @@ export class CampusService{
     const now=new Date(this.now()).toISOString();
     const day=parsed.date||new Date(this.now()+8*3600000).toISOString().slice(0,10);
     const snapshot=this.#cache.get(day)||null;
-    const report=await this.worker.run({type:'campus',mode:'recommend',args:parsed,now,snapshot},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>recommendationSchema.parse(value.recommendation));
+    const report=await this.worker.run({type:'campus',mode:'recommend',args:parsed,now,snapshot,request_text:requestText},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>recommendationSchema.parse(value.recommendation));
     if(!fullAccess(context))return null;
     return {text:report.message,campusRecommendation:report,requiredAccess:'white'};
+  }
+  async renderRecommendation(report,explanation,context){
+    if(!fullAccess(context))return null;
+    report=recommendationSchema.parse(report);
+    const id=await this.worker.run({type:'campus',mode:'recommend_render',report,explanation:typeof explanation==='string'?explanation.slice(0,180):''},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>{
+      if(!/^[a-f0-9]{32}$/.test(value.artifact_id||''))throw Error('CAMPUS_RENDER_FAILED');return value.artifact_id;
+    });
+    if(!fullAccess(context))return null;
+    const file=path.join(this.home,'.private','campus-output',id+'.png');
+    if((await fs.stat(file)).size>1_500_000)throw Error('CAMPUS_RENDER_FAILED');
+    const image=await studyImage({idempotencyKey:'study:'+id.repeat(2),pngBase64:(await fs.readFile(file)).toString('base64')});
+    return fullAccess(context)?{image,text:'',requiredAccess:'white'}:null;
   }
   async handle(text,context){const args=parseCampusCommand(text);return args?this.execute(args,context):null;}
   close(){this.worker.close();}

@@ -61,11 +61,11 @@ export class ConversationAgent{
         if(name==='local_weather_briefing')throw new Error('TOOL_DENIED');
         if(name==='buaa_classroom_query'){
           if(!this.campusTools||!fullAccess(context))return denied();
-          return this.campusTools.execute(args,context);
+          return this.campusTools.execute(args,context,requestText);
         }
         if(name==='buaa_classroom_recommend'){
           if(!this.campusTools||!fullAccess(context))return denied();
-          return this.campusTools.recommend(args,context);
+          return this.campusTools.recommend(args,context,requestText);
         }
         if(gray||!basicAccess(context))return denied();
         return decorate(await this.toolbox.execute(name,args));
@@ -86,15 +86,18 @@ export class ConversationAgent{
       if(!result?.campusRecommendation)return result?.cancelled?null:result;
       if(!fullAccess(context))return null;
       if(!result.campusRecommendation.ok)return result;
+      let advice=result;
       try{
-        return await this.worker.run({type:'campus_advice',text:requestText,sessionKey,
+        advice=await this.worker.run({type:'campus_advice',text:requestText,sessionKey,
           context:{scope:context.scope,...(context.scope==='group'?{access:context.access}:{})},
           config,report:result.campusRecommendation},async()=>{throw Error('ADVICE_TOOL_DENIED');},value=>{
           if(!fullAccess(context)||value.source!=='campus-recommendation'||typeof value.text!=='string')return null;
           const text=value.text.split('\n').slice(0,15).map(line=>naturalChatReply(line,600)).join('\n').slice(0,1400);
-          return decorate({text});
+          return decorate({text,explanation:typeof value.explanation==='string'?naturalChatReply(value.explanation,180):''});
         });
-      }catch{return fullAccess(context)?result:null;} // Keep verified cache facts if the explainer fails.
+      }catch{ /* Render verified facts even if model explanation is unavailable. */ }
+      if(!fullAccess(context)||!advice)return null;
+      return this.campusTools.renderRecommendation?this.campusTools.renderRecommendation(result.campusRecommendation,advice.explanation||'',context):advice;
     }catch(error){
       const messages={MODEL_AUTH_ERROR:'模型接口鉴权失败，请检查本机保存的 Key 和权限。',MODEL_BALANCE_INSUFFICIENT:'模型接口提示余额不足，可以私聊问“查余额”确认。',MODEL_PROVIDER_RATE_LIMITED:'模型接口暂时限流了，稍等再问我。',MODEL_PROVIDER_UNAVAILABLE:'模型服务暂时异常，稍后再试一下。',MODEL_TIMEOUT:'模型回复超时了，稍后再问一次吧。',MODEL_CONNECTION_ERROR:'这次没连上模型接口，稍后再试一下。',MODEL_TOOL_ROUTING_FAILED:'这次没能正确识别工具参数，请换个说法再试。'};
       const reason=Object.hasOwn(messages,error?.reason)?error.reason:'WORKER_FAILED';

@@ -12,9 +12,13 @@ LIMIT=262144
 def process(packet,*,collector=None):
     private=Path.cwd()/'.private'
     options={} if collector is None else {'collector':collector}
+    if packet.get('type')=='campus' and packet.get('mode')=='recommend_render':
+        from campus_compact import render_compact
+        artifact=render_compact(packet['report'],private,packet.get('explanation',''))
+        return {'kind':'campus','artifact_id':artifact}
     if packet.get('type')=='campus' and packet.get('mode')=='recommend':
         from campus_recommendations import build_recommendation_tool
-        report=build_recommendation_tool(packet.get('snapshot'),packet['now']).invoke(packet['args'])
+        report=build_recommendation_tool(packet.get('snapshot'),packet['now'],packet.get('request_text')).invoke(packet['args'])
         return {'kind':'campus','recommendation':report,'artifact_id':None}
     if packet.get('type')!='campus' or packet.get('mode') not in {'query','report','login'} or not isinstance(packet.get('args'),dict):
         return {'kind':'campus','data':envelope(code='CAMPUS_QUERY_FAILED'),'artifact_id':None}
@@ -22,8 +26,14 @@ def process(packet,*,collector=None):
     artifact=None
     if data['ok'] and packet['mode']=='report':
         try:
-            from campus_report import render_report
-            artifact=render_report(data,private)
+            from campus_recommendations import select_building,recommend
+            building=select_building(data,request_text=packet.get('request_text'))
+            if building=='三号楼':
+                from campus_report import render_report
+                artifact=render_report(data,private)
+            else:
+                from campus_compact import render_compact
+                artifact=render_compact(recommend(data,dict(building=building),data['fetched_at']),private)
         except Exception:return {'kind':'campus','data':data,'artifact_id':None,'render_error':True}
     return {'kind':'campus','data':data,'artifact_id':artifact}
 
