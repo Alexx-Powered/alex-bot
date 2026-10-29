@@ -101,7 +101,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     let mutationHeld = false;
     try {
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status() });
-      if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status()});
+      if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status(),transportDiagnostics:adapter.diagnostics?.()});
       if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req, pathname === '/api/study-briefing' ? 2100000 : maxBody);

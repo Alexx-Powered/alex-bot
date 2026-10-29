@@ -8,6 +8,9 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const OPENID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const TERMINAL_CODES = new Set(['GATEWAY_FATAL_CLOSE', 'GATEWAY_RETRY_EXHAUSTED']);
+// Used only to stop a later @ copy from re-admitting a command already received
+// through an alias. BridgeCore remains responsible for routing and permissions.
+const ALIAS_ADDRESS = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+\S/u;
 
 /** Deliberately excludes the SDK's message, URL, response body and cause. */
 export class QQAdapterError extends Error {
@@ -54,6 +57,35 @@ function isMessageId(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\s\u0000-\u001f\u007f]/u.test(value);
 }
 
+function groupMention(message, appId) {
+  const mentions = Array.isArray(message.mentions) ? message.mentions.slice(0, 100) : [];
+  const own = mentions.filter(item => item?.is_you === true);
+  const ids = new Set(isId(appId) ? [appId] : []);
+  const names = new Set();
+  // SDK dispatcher forwards these fields from the authenticated gateway event.
+  // Never infer self identity from nickname, bot:true, or message text alone.
+  for (const item of own) for (const field of ['id', 'user_openid', 'member_openid']) if (isId(item[field])) ids.add(item[field]);
+  for (const item of own) for (const field of ['nickname', 'username']) {
+    const name = item[field];
+    if (typeof name === 'string' && name === name.trim() && name.length > 0 && [...name].length <= 80 && !/[@＠<>\p{Cc}\p{Cf}\p{Cs}]/u.test(name)) names.add(name);
+  }
+  const text = typeof message.content === 'string' ? message.content : '';
+  const hasNativeSelfTag = [...ids].some(id => text.includes(`<@!${id}>`) || text.includes(`<@${id}>`));
+  return {
+    // The installed official SDK also supports an exact configured self tag
+    // in all-message payloads whose structured mentions field is absent.
+    mentioned: message.rawEventType === 'GROUP_AT_MESSAGE_CREATE' || own.length > 0 || hasNativeSelfTag,
+    ids, names,
+    diagnostic: {
+      rawType: message.rawEventType, structuredSelf: own.length > 0,
+      mentionsCount: mentions.length,
+      hasNativeSelfTag,
+      hasAnyNativeTag: /<@!?[A-Za-z0-9_-]{1,128}>/u.test(text),
+      decision: 'invalid',
+    },
+  };
+}
+
 const observedKey = (scope, targetId, msgId) => `${scope}:${targetId}:${msgId}`;
 
 /** Accept only the in-memory images produced by our trusted weather service. */
@@ -87,6 +119,7 @@ export class QQAdapter {
   #generation = 0;
   #current = { state: 'disconnected', code: null };
   #observed = new Map();
+  #lastGroupDiagnostic = null;
 
   constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true } = {}) {
     if (typeof canSend !== 'function') throw new TypeError('INVALID_SEND_GUARD');
@@ -101,6 +134,11 @@ export class QQAdapter {
     return { ...this.#current };
   }
 
+  /** Addressing diagnostics only, never IDs, content, names or authorization. */
+  diagnostics() {
+    return { lastGroup: this.#lastGroupDiagnostic ? { ...this.#lastGroupDiagnostic } : null };
+  }
+
   #emitStatus(state, code = null) {
     this.#current = { state, code };
     // Consumer callbacks must not create unhandled rejections or SDK log data.
@@ -113,6 +151,7 @@ export class QQAdapter {
     this.#bot = null;
     this.#botMentionId = null;
     this.#observed.clear();
+    this.#lastGroupDiagnostic = null;
     // SDK 1.0.5 stop() is synchronous and aborts its background connection.
     try { old?.stop(); } catch {}
   }
@@ -193,21 +232,30 @@ export class QQAdapter {
   }
 
   #normalize(message) {
-    if (!message || !['c2c', 'group'].includes(message.kind) || message.senderIsBot === true) return null;
+    if (!message || !['c2c', 'group'].includes(message.kind)) return null;
     const isGroup = message.kind === 'group';
+    const mention = isGroup && ['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE'].includes(message.rawEventType)
+      ? groupMention(message, this.#botMentionId) : null;
+    if (mention) this.#lastGroupDiagnostic = mention.diagnostic;
+    if (message.senderIsBot === true) { if (mention) mention.diagnostic.decision = 'ignored'; return null; }
     // Plain group messages require QQ's "receive all messages" permission.
-    // The core independently enforces the group whitelist and alias prefix.
+    // The core independently enforces the group whitelist and addressing rules.
     if (isGroup && (!['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE'].includes(message.rawEventType) || !isId(message.groupOpenid))) return null;
     if (!isId(message.senderId) || !isMessageId(message.messageId)) return null;
     if (typeof message.content !== 'string' || !message.content.trim()) return null;
     let text = message.content;
-    if (isGroup && message.rawEventType === 'GROUP_AT_MESSAGE_CREATE' && this.#botMentionId) {
-      // Current group events may already omit the bot mention. For older
-      // payloads remove only one leading marker for this connection's AppID.
-      // Mentions of other people and markers inside the body remain intact.
+    if (mention?.mentioned) {
+      // Current group events may already omit the bot mention. Remove just one
+      // exact leading self marker, using this connection's AppID or the
+      // gateway's is_you row; other people and inner mentions stay intact.
       const leading = text.trimStart();
-      for (const prefix of [`<@!${this.#botMentionId}>`, `<@${this.#botMentionId}>`]) {
-        if (leading.startsWith(prefix)) { text = leading.slice(prefix.length).trimStart(); break; }
+      let stripped = false;
+      for (const prefix of [...mention.ids].flatMap(id => [`<@!${id}>`, `<@${id}>`])) {
+        if (leading.startsWith(prefix)) { text = leading.slice(prefix.length).trimStart(); stripped = true; break; }
+      }
+      if (!stripped) for (const name of mention.names) {
+        const prefix = '@' + name, remaining = leading.slice(prefix.length);
+        if (leading.startsWith(prefix) && (!remaining || /^\s/u.test(remaining))) { text = remaining.trimStart(); break; }
       }
     }
     if (!text.trim()) return null;
@@ -223,12 +271,27 @@ export class QQAdapter {
       if (value.expiresAt <= now) this.#observed.delete(key);
     }
     const key = observedKey(scope, targetId, message.messageId);
-    if (this.#observed.has(key)) return null;
-    if (this.#observed.size >= MAX_OBSERVED_MESSAGES) this.#observed.delete(this.#observed.keys().next().value);
-    this.#observed.set(key, { expiresAt: Math.min(now, issuedAt) + REPLY_WINDOW_MS });
+    const addressed = !isGroup || mention?.mentioned === true || ALIAS_ADDRESS.test(text.trim());
+    const previous = this.#observed.get(key);
+    if (previous) {
+      // All-message mode may deliver the ordinary copy before its trusted @
+      // copy. Upgrade just once, without extending the original reply window.
+      if (!(isGroup && mention?.mentioned === true && !previous.addressed && previous.senderId === message.senderId)) {
+        if (mention) mention.diagnostic.decision = 'duplicate';
+        return null;
+      }
+      previous.addressed = true;
+    } else {
+      if (this.#observed.size >= MAX_OBSERVED_MESSAGES) this.#observed.delete(this.#observed.keys().next().value);
+      this.#observed.set(key, { expiresAt: Math.min(now, issuedAt) + REPLY_WINDOW_MS, addressed, senderId: message.senderId });
+    }
+    // Ignored here means no wake-up; the core may still retain ordinary group
+    // background. It does not claim a business action or a successful QQ reply.
+    if (mention) mention.diagnostic.decision = addressed ? 'accepted' : 'ignored';
     return {
       kind: scope,
       ...(isGroup ? { groupId: targetId } : {}),
+      ...(mention?.mentioned === true ? { mentioned: true } : {}),
       id: message.messageId,
       senderId: message.senderId,
       text,

@@ -17,7 +17,7 @@ class AccessTierTests(unittest.TestCase):
     def test_gray_tool_set_has_chat_and_conversion_but_no_queries(self):
         result=self.run_model('gray','reply_chat',{'topic':'日常','text':'你好呀。'},text='你好')
         self.assertEqual(result['kind'],'chat')
-        self.assertEqual(set(self.model.bound[0]),{'reply_chat','convert_units','clarify_or_ignore'})
+        self.assertEqual(set(self.model.bound[0]),{'reply_chat','convert_units','convert_previous_result','clarify_or_ignore'})
         self.assertEqual(self.calls,[])
 
     def test_gray_fixed_conversion_uses_real_tool_and_explainer_with_no_tool_privileges(self):
@@ -26,7 +26,7 @@ class AccessTierTests(unittest.TestCase):
         result=runner.run(packet(text='1马里多少公里',context={**GROUP,'access':'gray'}))
         self.assertEqual(result['kind'],'reasoned');self.assertEqual(result['source'],'conversion')
         self.assertIn('3.08',result['text'])
-        self.assertEqual(set(self.model.bound[0]),{'convert_units','clarify_or_ignore'})
+        self.assertEqual(set(self.model.bound[0]),{'convert_units','convert_previous_result','clarify_or_ignore'})
         self.assertEqual(len(self.model.bound),1)  # The explainer is unbound, with tools=[].
         self.assertEqual(len(self.model.seen),2)
 

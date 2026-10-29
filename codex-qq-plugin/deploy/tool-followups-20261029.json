@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-29",
+  "release": "linux-d924c9c8fad0",
+  "archiveSha256": "ecf1a941af3add6c5541b578fbcb0e9b44681be5d7eb4bc51a7a97c31b579414",
+  "runtime": {"pid": 23169, "startedAt": "2026-10-29T23:03:36+08:00", "uid": 998, "sourceManifestVerified": true, "sourceInstalledBeforeStart": true, "listener": "127.0.0.1:19327", "localTunnelPid": 70700, "connected": true, "paired": true, "paused": false, "dailyAttemptsBefore": 74, "dailyAttemptsAfter": 74, "uncertainDeliveries": 0},
+  "tests": {"windowsNodeFullPassed": 437, "windowsPythonFullPassed": 214, "linuxNodeFullBeforeFinalMentionCompatibilityPassed": 428, "linuxNodeFullSkippedWindowsOnly": 5, "linuxNodeFinalRelatedPassed": 94, "linuxPythonFullPassed": 214, "realNodePythonLangChainFollowups": true, "realInstalledSdkDispatcherToAdapterToCore": true},
+  "modelEvaluation": {"balanceSource": "synthetic_fixture", "realBalanceRequested": false, "qqMessagesSent": 0, "finalChainChecksPassed": 10, "finalChainChecksTotal": 10, "complexFollowupStillModelSelected": true, "explicitSingleTargetFollowupsInvokeFixedTool": true, "notes": "Earlier unrestricted model routing sometimes asked for known quantities; explicit single-target followups now use the same validated fixed tool. Complex model interpretation remains probabilistic."},
+  "toolFacts": {"backend": "bounded in-process typed quantities", "maxSessions": 64, "ttlSeconds": 600, "partition": "trusted session key, scope and group access; group session includes member", "diskPersistence": false, "longTermMemoryStorage": false, "balanceAmountInModelPrompt": false, "sensitiveDerivedResultsRequireWhiteAccess": true, "preciseOriginalAnchorPreserved": true, "apiKeyRotationInvalidatesOldAccountFacts": true, "newQuantityInChatInvalidatesOldReference": true, "legacyExecuteWithoutNewFieldsCompatible": true},
+  "mentionCompatibility": {"dedicatedAtEvent": true, "strictStructuredIsYou": true, "exactConfiguredSelfNativeTag": true, "plainNicknameDoesNotWake": true, "otherPersonTagDoesNotWake": true, "singleUpgradeOfUnaddressedDuplicate": true, "noDuplicateOwnMessageInPriorContext": true, "adminOnlyContentFreeDiagnostics": true, "whiteGrayPauseAndQuotasPreserved": true},
+  "userVerification": {"groupPrefixBalanceFollowup": "confirmed by user screenshot", "firstDedicatedOnlyImplementationMention": "failed and reported by user; final compatibility patch applied", "finalMentionHelp": "pending user confirmation"},
+  "backup": {"at": "2026-10-29T15:03:36.338Z", "files": 17, "wholePackageEncrypted": true, "monitoringKeyAndSqliteSnapshotIncluded": true, "localInMemoryRecoveryVerified": true, "plaintextWritten": false},
+  "githubUpdated": false,
+  "notes": "PID and counters are audit snapshots. Deployment clears ephemeral tool facts; query once again before following up. Synthetic fixture balances are not current account data."
+}

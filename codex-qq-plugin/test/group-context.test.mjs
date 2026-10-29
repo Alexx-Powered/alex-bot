@@ -23,6 +23,18 @@ function fixture({handler=async()=>null,send=async()=>({ok:true}),beforeSave=asy
 async function ready(options){const f=fixture(options);await f.core.init();return f;}
 async function probe(f,id='probe',groupId=A,senderId=MEMBER){await f.core.handleMessage(group('梁祖 看看上下文',id,groupId,senderId));return f.calls.at(-1).context;}
 
+test('a plain event upgraded to a trusted mention excludes its own earlier background row',async()=>{
+  const f=await ready();
+  await f.core.handleMessage(group('更早的一条背景','earlier'));
+  const message=group('换算成古月币呢','upgraded-message');
+  await f.core.handleMessage(message);
+  assert.equal(f.calls.length,0);
+  await f.core.handleMessage({...message,mentioned:true});
+  assert.equal(f.calls.length,1);
+  assert.deepEqual(f.calls[0].context.groupContext.map(row=>row.text),['更早的一条背景']);
+  assert.equal((await f.core.handleMessage({...message,mentioned:true})).code,'DUPLICATE');
+});
+
 test('forgetting personal memory discards ephemeral group context so erased facts cannot leak back through recent messages',async()=>{
   const f=await ready({handler:async text=>text==='清空我的记忆'?{text:'已经清空',memoryReset:true,requiredAccess:'chat'}:null});
   await f.core.handleMessage(group('我叫需要忘掉的名字','old-name'));
@@ -173,8 +185,8 @@ test('pending and in-flight queries share a four-request cap while ordinary grou
   const entered=deferred(),release=deferred();
   const f=await ready({handler:async text=>{if(text==='阻塞'){entered.resolve();await release.promise;}return null;}});
   const first=f.core.handleMessage(group('梁祖 阻塞','first'));await entered.promise;
-  const accepted=[f.core.handleMessage(group('梁圣 请求二','q2')),f.core.handleMessage(privateMessage('请求三','q3')),f.core.handleMessage(group('梁嗨 请求四','q4',B))];
-  for(let i=0;i<20;i++)assert.equal((await f.core.handleMessage(group('小难梁 超量请求','extra-'+i))).code,'BUSY');
+  const accepted=[f.core.handleMessage({...group('请求二','q2'),mentioned:true}),f.core.handleMessage(privateMessage('请求三','q3')),f.core.handleMessage(group('梁嗨 请求四','q4',B))];
+  for(let i=0;i<20;i++)assert.equal((await f.core.handleMessage(i%2?{...group('超量请求','extra-'+i),mentioned:true}:group('小难梁 超量请求','extra-'+i))).code,'BUSY');
   assert.equal((await f.core.handleMessage(group('背景仍可记录','background'))).code,'IGNORED');
   assert.equal((await f.core.handleMessage(group('梁圣 未知群','unknown','not-allowed'))).code,'GROUP_DENIED');
   assert.equal((await f.core.handleMessage(privateMessage('陌生私聊','stranger','not-owner'))).code,'SENDER_DENIED');
@@ -244,8 +256,8 @@ test('caller mutation cannot change the captured sender, target or trigger snaps
   const entered=deferred(),release=deferred();
   const f=await ready({handler:async text=>{if(text==='阻塞'){entered.resolve();await release.promise;}return null;}});
   const first=f.core.handleMessage(group('梁祖 阻塞','first'));await entered.promise;
-  const request=group('梁祖 原始请求','queued'),queued=f.core.handleMessage(request);
-  request.senderId='attacker';request.groupId=B;request.text='梁祖 被替换请求';request.replyTarget.targetId=B;
+  const request={...group('原始请求','queued'),mentioned:true},queued=f.core.handleMessage(request);
+  request.senderId='attacker';request.groupId=B;request.text='梁祖 被替换请求';request.replyTarget.targetId=B;request.mentioned=false;
   release.resolve();await Promise.all([first,queued]);
   assert.equal(f.calls[1].text,'原始请求');assert.equal(f.calls[1].context.scopeKey,hash('chat-scope-group:'+A));
   assert.equal(f.calls[1].context.userKey,hash('chat-user:'+MEMBER));

@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
+import { dispatchEvent } from '@tencent-connect/qqbot-nodejs/protocol';
 import { QQAdapter } from '../src/qq-adapter.mjs';
+import { BridgeCore } from '../src/core.mjs';
 
 const APP_ID = '12345';
 const OWNER = 'C2C_OWNER';
@@ -63,6 +65,13 @@ function group(groupId = 'GROUP_A', id = 'group-message', overrides = {}) {
   };
 }
 
+function dispatchedGroup(type, id, overrides = {}) {
+  const event = {id,content:'平台消息',timestamp:'2026-10-28T10:00:00Z',group_openid:'GROUP_A',author:{member_openid:'GROUP_MEMBER'},...overrides};
+  const dispatched = dispatchEvent(type, event, 'synthetic-account');
+  assert.equal(dispatched.action,'message');
+  return {...dispatched.msg,replyTarget:{scope:'group',targetId:dispatched.msg.groupOpenid,msgId:dispatched.msg.messageId}};
+}
+
 const request = (message, extra = {}) => ({
   ownerId: OWNER, groupId: message.groupOpenid, text: '回复', replyTarget: message.replyTarget, ...extra,
 });
@@ -98,7 +107,7 @@ test('platform group @ event with already-stripped text produces only the normal
   const event = group();
   await bot.emit('message', {}, event);
   assert.deepEqual(f.messages, [{
-    kind: 'group', groupId: 'GROUP_A', id: 'group-message', senderId: 'GROUP_MEMBER',
+    kind: 'group', groupId: 'GROUP_A', mentioned: true, id: 'group-message', senderId: 'GROUP_MEMBER',
     text: '发 雷达 北京', replyTarget: { scope: 'group', targetId: 'GROUP_A', msgId: 'group-message' },
   }]);
   assert.doesNotMatch(JSON.stringify(f.messages) + JSON.stringify(f.statuses), /private-attachment|private-marker|attachments|rawEventType/);
@@ -158,8 +167,96 @@ test('official plain group events are accepted without mentions and text is pres
   await f.adapter.send(request(event, { text: '回复' }));
   assert.deepEqual(bot.texts[0], { target: groupWireTarget(), text: '回复' });
   await bot.emit('message', {}, group('GROUP_A', 'literal-mention', { rawEventType: 'GROUP_MESSAGE_CREATE', content: `<@!${APP_ID}> 梁祖 发 雷达 华北` }));
-  assert.equal(f.messages.at(-1).text, `<@!${APP_ID}> 梁祖 发 雷达 华北`);
+  assert.equal(f.messages.at(-1).text, '梁祖 发 雷达 华北');
+  assert.equal(f.messages.at(-1).mentioned, true);
+  await bot.emit('message', {}, group('GROUP_A', 'forged-mention-flag', { rawEventType: 'GROUP_MESSAGE_CREATE', content: '没有前缀', mentioned: true }));
+  assert.equal(f.messages.at(-1).mentioned, undefined, 'caller text or extra SDK fields cannot fabricate an official @ event');
   await f.adapter.disconnect();
+});
+
+test('official @ and exact native self tags reach core without an alias, while other names and ordinary traffic do not', async () => {
+  const queries=[];let core,state={version:1,ownerId:OWNER,paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,allowedGroups:[{id:'GROUP_A',name:'测试群'}]};
+  const f=fixture({onMessage:message=>core.handleMessage(message)});
+  core=new BridgeCore({loadState:async()=>structuredClone(state),saveState:async value=>{state=structuredClone(value);},now:()=>f.clock.value,limits:{minuteAttempts:10},
+    send:request=>f.adapter.send(request),commandHandler:async text=>{queries.push(text);return {text:'已回复'};}});
+  await core.init();const bot=await f.connect();
+  try{
+    await bot.emit('message',{},group('GROUP_A','direct-at',{content:`<@!${APP_ID}> 今天去哪自习？`}));
+    await bot.emit('message',{},group('GROUP_A','at-and-alias',{content:`<@!${APP_ID}> 梁祖 你好`}));
+    await bot.emit('message',{},group('GROUP_A','alias-only',{rawEventType:'GROUP_MESSAGE_CREATE',content:'大肥鱼 你好呀'}));
+    await bot.emit('message',{},group('GROUP_A','native-self',{rawEventType:'GROUP_MESSAGE_CREATE',content:`<@!${APP_ID}> 原生自标签`}));
+    for(const [index,content] of ['普通闲聊','@亚历克斯 你好',`<@!${APP_ID}9> 你好`,'<@!OTHER_PERSON> 你好'].entries()){
+      await bot.emit('message',{},group('GROUP_A','ordinary-'+index,{rawEventType:'GROUP_MESSAGE_CREATE',content,mentioned:true}));
+    }
+    assert.deepEqual(queries,['今天去哪自习？','你好','你好呀','原生自标签']);assert.equal(bot.texts.length,4);
+    assert.ok(bot.texts.every(row=>row.target.scope==='group'&&row.target.targetId==='GROUP_A'));
+  }finally{await f.adapter.disconnect();}
+});
+
+test('installed dispatcher preserves structured self mentions in all-message events and they reach core without aliases',async()=>{
+  const queries=[],normalized=[];let core,state={version:1,ownerId:OWNER,paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,allowedGroups:[{id:'GROUP_A',name:'测试群'}]};
+  const f=fixture({onMessage:message=>{normalized.push(message);return core.handleMessage(message);}});
+  core=new BridgeCore({loadState:async()=>structuredClone(state),saveState:async value=>{state=structuredClone(value);},now:()=>f.clock.value,
+    send:request=>f.adapter.send(request),commandHandler:async text=>{queries.push(text);return {text:'已回复'};}});
+  await core.init();const bot=await f.connect();
+  try{
+    const event=dispatchedGroup('GROUP_MESSAGE_CREATE','structured-self',{content:'<@!BOT_SCOPED_SELF> 换算成古月币呢？',mentions:[{id:'BOT_SCOPED_SELF',is_you:true,nickname:'亚历克斯'},{id:'OTHER_PERSON',bot:true}]});
+    assert.equal(event.mentions[0].is_you,true);
+    await bot.emit('message',{},event);
+    assert.deepEqual(queries,['换算成古月币呢？']);assert.equal(normalized[0].mentioned,true);assert.equal(bot.texts.length,1);
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','structured-name',{content:'@亚历克斯 帮助',mentions:[{id:'BOT_SCOPED_SELF',is_you:true,nickname:'亚历克斯'}]}));
+    assert.equal(bot.texts.length,2);assert.match(bot.texts[1].text,/白名单群/);assert.equal(normalized.at(-1).text,'帮助');
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','native-self-help',{content:`<@!${APP_ID}> 帮助`}));
+    assert.equal(bot.texts.length,3);assert.match(bot.texts[2].text,/白名单群/);assert.equal(normalized.at(-1).mentioned,true);
+    for(const [index,mentions] of [undefined,[{id:APP_ID,bot:true}],[{id:APP_ID,is_you:false}],[{id:APP_ID,is_you:'true'}],[{id:APP_ID,is_you:1}]].entries()){
+      await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','not-self-'+index,{content:'<@!OTHER_PERSON> 你好',mentions}));
+      assert.equal(normalized.at(-1).mentioned,undefined);
+    }
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','name-alone',{content:'@亚历克斯 你好',mentions:[{nickname:'亚历克斯',bot:true}]}));
+    assert.equal(normalized.at(-1).mentioned,undefined);assert.equal(bot.texts.length,3);assert.deepEqual(queries,['换算成古月币呢？']);
+  }finally{await f.adapter.disconnect();}
+});
+
+test('structured self IDs strip one exact prefix, preserve other mentions, and diagnostic snapshots contain no private values',async()=>{
+  const f=fixture(),bot=await f.connect();
+  try{
+    for(const [index,field] of ['id','user_openid','member_openid'].entries()){
+      await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','self-field-'+index,{content:'<@!SCOPED_BOT_SELF> <@!OTHER_PERSON> 私密问题',mentions:[{[field]:'SCOPED_BOT_SELF',is_you:true,nickname:'私密昵称'}]}));
+      assert.equal(f.messages.at(-1).text,'<@!OTHER_PERSON> 私密问题');assert.equal(f.messages.at(-1).mentioned,true);
+    }
+    const diagnostic=f.adapter.diagnostics();
+    assert.deepEqual(diagnostic,{lastGroup:{rawType:'GROUP_MESSAGE_CREATE',structuredSelf:true,mentionsCount:1,hasNativeSelfTag:true,hasAnyNativeTag:true,decision:'accepted'}});
+    assert.doesNotMatch(JSON.stringify(diagnostic),/SCOPED_BOT_SELF|OTHER_PERSON|私密|GROUP_MEMBER|GROUP_A|self-field|12345|apiKey/);
+    diagnostic.lastGroup.decision='invalid';assert.equal(f.adapter.diagnostics().lastGroup.decision,'accepted');
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','empty-self',{content:'<@!SCOPED_BOT_SELF> ',mentions:[{id:'SCOPED_BOT_SELF',is_you:true}]}));
+    assert.equal(f.messages.length,3);assert.equal(f.adapter.diagnostics().lastGroup.decision,'invalid');
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','lookalike-name',{content:'@亚历克斯的朋友 你好',mentions:[{nickname:'亚历克斯',is_you:true}]}));
+    assert.equal(f.messages.at(-1).text,'@亚历克斯的朋友 你好');
+  }finally{await f.adapter.disconnect();}
+});
+
+test('ordinary copies can upgrade to one trusted self mention without replaying already-addressed aliases or mentions',async()=>{
+  const queries=[],normalized=[];let core,state={version:1,ownerId:OWNER,paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,allowedGroups:[{id:'GROUP_A',name:'测试群'}]};
+  const f=fixture({onMessage:message=>{normalized.push(message);return core.handleMessage(message);}});
+  core=new BridgeCore({loadState:async()=>structuredClone(state),saveState:async value=>{state=structuredClone(value);},now:()=>f.clock.value,
+    send:request=>f.adapter.send(request),commandHandler:async text=>{queries.push(text);return {text:'已回复'};}});
+  await core.init();const bot=await f.connect();
+  try{
+    for(const [index,type] of ['GROUP_AT_MESSAGE_CREATE','GROUP_MESSAGE_CREATE'].entries()){
+      const id='upgrade-'+index,content=`<@!${APP_ID}> 问题${index}`;
+      await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE',id,{content:`问题${index}`}));
+      const trusted=dispatchedGroup(type,id,{content,...type==='GROUP_MESSAGE_CREATE'?{mentions:[{id:APP_ID,is_you:true}]}:{}});
+      await bot.emit('message',{},trusted);await bot.emit('message',{},trusted);
+      assert.equal(f.adapter.diagnostics().lastGroup.decision,'duplicate');
+    }
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','alias-first',{content:'大肥鱼 已经唤醒'}));
+    const received=normalized.length;
+    await bot.emit('message',{},dispatchedGroup('GROUP_AT_MESSAGE_CREATE','alias-first',{content:'大肥鱼 已经唤醒'}));
+    assert.equal(normalized.length,received);assert.equal(f.adapter.diagnostics().lastGroup.decision,'duplicate');
+    await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','different-sender',{content:'普通背景'}));
+    await bot.emit('message',{},dispatchedGroup('GROUP_AT_MESSAGE_CREATE','different-sender',{content:'不允许升级',author:{member_openid:'OTHER_MEMBER'}}));
+    assert.deepEqual(queries,['问题0','问题1','已经唤醒']);assert.equal(bot.texts.length,3);
+  }finally{await f.adapter.disconnect();}
 });
 
 test('same message ID in two groups and C2C is independently observed, deduplicated and addressed', async () => {

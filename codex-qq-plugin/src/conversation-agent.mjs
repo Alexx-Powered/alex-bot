@@ -2,7 +2,7 @@ import {loadChatPolicy} from './chat-policy.mjs';
 import {createHash} from 'node:crypto';
 import {checkChatInput,boundChatReply,sanitizeContextText,naturalChatReply} from './chat-safety.mjs';
 import {isBalanceQuery,balanceReply} from './balance-tools.mjs';
-import {conversionReply} from './conversion-tools.mjs';
+import {conversionReply,fixedToolContext} from './conversion-tools.mjs';
 import {isGray,fullAccess,basicAccess,RESTRICTED_REPLY} from './access-policy.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
@@ -21,10 +21,10 @@ export class ConversationAgent{
       if(!fullAccess(context))return gray?denied():{text:'账户余额仅支持本人私聊或白名单群主动查询。'};
       let config;try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机检查。'};}
       if(!config.apiKey)return {text:'尚未配置 DeepSeek API Key，请在本机配置页保存。'};
-      try{return await this.worker.run({type:'execute',name:'deepseek_account_balance',args:{},config,context:{scope:context.scope,...(context.scope==='group'?{access:'white'}:{})}},async()=>{throw Error('BALANCE_RPC_DENIED');},value=>fullAccess(context)?decorate(balanceReply(value),'white',true):denied());}
+      try{return await this.worker.run({type:'execute',name:'deepseek_account_balance',args:{},config,context:{scope:context.scope,...(context.scope==='group'?{access:'white'}:{})},...fixedToolContext(context)},async()=>{throw Error('BALANCE_RPC_DENIED');},value=>fullAccess(context)?decorate(balanceReply(value),'white',true):denied());}
       catch{return {text:'余额查询暂不可用，请稍后再试。'};}
     }
-    const conversion=await this.conversionTools?.handle(text);if(conversion)return decorate(conversion,'chat');
+    const conversion=await this.conversionTools?.handle(text,context);if(conversion)return decorate(conversion,'chat');
     if(!gray){const fixed=await this.toolbox.handle(text);if(fixed)return decorate(fixed);}
     if(!basicAccess(context))return null;
     let config,policy;
@@ -72,9 +72,11 @@ export class ConversationAgent{
       },result=>{
         if(result.kind==='balance')return fullAccess(context)?decorate(balanceReply(result),'white',true):gray?denied():null;
         if(result.kind==='reasoned'){
+          const sensitive=result.sensitive===true;
+          if(sensitive&&!fullAccess(context))return denied();
           if(gray&&result.source!=='conversion')return denied();
           const text=naturalChatReply(result.text,540);const source=result.source==='openai-status'?'\nhttps://status.openai.com/':'';
-          return text?decorate({text:text+source},result.source==='conversion'?'chat':'white'):null;
+          return text?decorate({text:text+source,...(sensitive?{requiredAccess:'white',sensitive:true}:{})},sensitive||result.source!=='conversion'?'white':'chat',sensitive):null;
         }
         const converted=conversionReply(result);if(converted)return decorate(converted,'chat');
         if(result.kind==='chat'&&policy.enabled&&policy.topics.includes(result.topic)){

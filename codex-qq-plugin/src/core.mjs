@@ -19,6 +19,10 @@ const GROUP_CONTEXT_SIZE = 10;
 const GROUP_CONTEXT_SEEN_LIMIT = 512;
 const MAX_PENDING_INCOMING = 4;
 const GROUP_PREFIX = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+(\S[\s\S]*)$/u;
+function groupCommand(text, mentioned) {
+  const raw = text.trim(), prefixed = GROUP_PREFIX.exec(raw);
+  return { command: prefixed ? prefixed[1] : raw, addressed: Boolean(prefixed) || mentioned === true };
+}
 const ownerControlCommands = new Set(['/pause', '/status']);
 const contextControl = text => text.startsWith('/') || /\/(?:pair|group-bind|pause|resume|status|notify|help|ping)\b/i.test(text) || ['帮助','菜单'].includes(text);
 function sendingLimits(overrides) {
@@ -266,15 +270,15 @@ export class BridgeCore {
     const now = this.#time();
     context.seen.set(key, now);
     while (context.seen.size > GROUP_CONTEXT_SEEN_LIMIT) context.seen.delete(context.seen.keys().next().value);
-    context.rows.push({ at: now, speaker, role, text: cleaned });
+    context.rows.push({ key, at: now, speaker, role, text: cleaned });
     context.rows = context.rows.slice(-GROUP_CONTEXT_SIZE);
   }
 
-  #groupMessageContext(groupId, senderId) {
+  #groupMessageContext(groupId, senderId, excludeKey) {
     const currentSpeaker = 'member-' + hash('group-sender:' + groupId + ':' + senderId).slice(0, 12);
     return { scope: 'group', access:this.groupAccess(groupId), sessionKey: hash('chat:group:' + groupId + ':' + senderId),
       scopeKey: hash('chat-scope-group:' + groupId), userKey: hash('chat-user:' + senderId), currentSpeaker,
-      groupContext: this.#groupContext(groupId).rows.map(({ speaker, role, text }) => ({ speaker, role, text })) };
+      groupContext: this.#groupContext(groupId).rows.filter(row=>excludeKey===undefined||row.key!==excludeKey).map(({ speaker, role, text }) => ({ speaker, role, text })) };
   }
 
   async #persist(next) {
@@ -509,8 +513,8 @@ export class BridgeCore {
     // Capture only normalized scalar fields: a queued caller cannot replace its
     // identity/target while another request is waiting for a model or provider.
     if (message && typeof message === 'object') {
-      const { kind, groupId, id, senderId, text, replyTarget } = message;
-      message = { kind, groupId, id, senderId, text, ...(replyTarget ? { replyTarget: { ...replyTarget } } : {}) };
+      const { kind, groupId, id, senderId, text, replyTarget, mentioned } = message;
+      message = { kind, groupId, id, senderId, text, ...(mentioned === true ? { mentioned: true } : {}), ...(replyTarget ? { replyTarget: { ...replyTarget } } : {}) };
     }
     if (!this.#ready) return result(false, 'NOT_READY');
     if (!message || !['c2c','group'].includes(message.kind)) return result(false, 'SCOPE_DENIED');
@@ -533,16 +537,15 @@ export class BridgeCore {
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
       if (this.#canRememberGroup(groupId)) {
-        const rawCommand = text.trim(), prefixed = GROUP_PREFIX.exec(rawCommand);
-        const command = prefixed ? prefixed[1] : rawCommand;
-        if (prefixed && this.#state.incoming.includes(hash(`incoming:group:${groupId}:${id}`))) return result(false, 'DUPLICATE');
+        const { command, addressed } = groupCommand(text, message.mentioned);
+        if (addressed && this.#state.incoming.includes(hash(`incoming:group:${groupId}:${id}`))) return result(false, 'DUPLICATE');
         // Freeze preceding context at receipt, before recording this message.
-        groupContext = this.#groupMessageContext(groupId, senderId);
+        groupContext = this.#groupMessageContext(groupId, senderId,hash(`context:member:${groupId}:${id}`));
         if (!contextControl(command)) this.#rememberGroup(groupId, {
           key: hash(`context:member:${groupId}:${id}`), speaker: groupContext.currentSpeaker, role: 'member', text: command,
         });
         // Ordinary allowed-group chatter never joins the expensive serial queue.
-        if (!prefixed) return result(true, 'IGNORED');
+        if (!addressed || !command) return result(true, 'IGNORED');
         if (command.startsWith('/') && !['/ping', '/help'].includes(command)) return result(true, 'IGNORED');
       } else if (!this.#groupPairing) return result(false, 'GROUP_DENIED');
     } else if (this.#ready && this.#state.ownerId && message?.kind === 'c2c') {
@@ -633,10 +636,9 @@ export class BridgeCore {
       // Candidate capture is memory-only and sends no group acknowledgement.
       return result(true, 'GROUP_PAIRING_PENDING', { ...describeGroup(this.#groupCandidate), expiresAt: this.#groupCandidate.expiresAt });
     }
-    // Only an explicit leading alias opens the group command path.
-    const prefixed = GROUP_PREFIX.exec(rawCommand);
-    if (!prefixed) return result(true, 'IGNORED');
-    const command = prefixed[1];
+    // Official normalized @ events and leading aliases share the same path.
+    const { command, addressed } = groupCommand(rawCommand, message.mentioned);
+    if (!addressed || !command) return result(true, 'IGNORED');
     // No group participant, including the owner, may invoke private management
     // or inspect owner status through group commands. /help is a fixed menu.
     if (command.startsWith('/') && !['/ping', '/help'].includes(command)) return result(true, 'IGNORED');
@@ -649,7 +651,7 @@ export class BridgeCore {
     const target = { scope: 'group', targetId: groupId, msgId: id };
     if (command === '/ping') return this.#notify({ text: '连接正常（固定测试回复）', idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     if (['帮助', '菜单', '/help'].includes(command)) return this.#notify({
-      text: this.groupAccess(groupId)==='gray'?'灰名单群：仅开放基础聊天与换算。\n前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n例如：梁祖 你好\n梁祖 1马里换公里\n余额、三号楼及其他查询未开放。\n帮助\n/ping':'白名单群：主动询问可使用全部业务功能。\n前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n天气、雷达、空气、换算、生活费、官方状态、DeepSeek余额、三号楼简报均可自然询问。\n例如：梁祖 今天学院路有哪些空教室\n固定命令：发 天气 城市或区县、发 雷达 地点、雷达目录、发 雾霾 城市或区县、查DeepSeek余额、查空教室、换算 0.6 HU$ 人民币。\n帮助\n/ping',
+      text: this.groupAccess(groupId)==='gray'?'灰名单群：仅开放基础聊天与换算。\n可直接@机器人，无需前缀；也可用前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n例如：梁祖 你好\n梁祖 1马里换公里\n余额、三号楼及其他查询未开放。\n帮助\n/ping':'白名单群：主动询问可使用全部业务功能。\n可直接@机器人，无需前缀；也可用前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n天气、雷达、空气、换算、生活费、官方状态、DeepSeek余额、三号楼简报均可自然询问。\n例如：梁祖 今天学院路有哪些空教室\n固定命令：发 天气 城市或区县、发 雷达 地点、雷达目录、发 雾霾 城市或区县、查DeepSeek余额、查空教室、换算 0.6 HU$ 人民币。\n帮助\n/ping',
       idempotencyKey: `reply:${incomingKey}`,
     }, target, groupId);
     if (this.#commandHandler) {

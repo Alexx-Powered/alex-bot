@@ -161,7 +161,8 @@ test('group admin commands do nothing and fixed help exposes no private settings
   for (const sent of f.sent) {
     assert.match(sent.text, /发 天气 城市或区县/); assert.match(sent.text, /发 雷达/); assert.match(sent.text, /雷达目录/); assert.match(sent.text, /发 雾霾 城市或区县/);
     for (const alias of ['梁圣', '梁祖', '梁嗨', '小难梁', '大肥鱼']) assert.ok(sent.text.includes(alias));
-    assert.ok(!/@|pause|status|08|每日|已配对|本人/.test(sent.text));
+    assert.match(sent.text, /直接@机器人，无需前缀/);
+    assert.ok(!/pause|status|08|每日|已配对|本人/.test(sent.text));
     assert.equal(sent.groupId, GROUP);
   }
 });
@@ -181,6 +182,48 @@ test('all five leading aliases accept whitespace separators and strip exactly on
   assert.deepEqual(f.queries, inputs.map(([, command]) => command));
   assert.equal(f.state().incoming.length, inputs.length);
   assert.equal(f.sent.length, 0);
+});
+
+test('trusted mentions allow commands without an alias, preserve single-prefix stripping and stay deduplicated', async () => {
+  const f=fixture({handler:async()=>null});await pairOwner(f);await allowGroup(f);
+  const mentioned=(text,id)=>({...group(text,id),mentioned:true});
+  await f.core.handleMessage(mentioned('今天去哪自习？','direct-at'));
+  await f.core.handleMessage(mentioned('梁祖 梁嗨 你好','at-and-prefix'));
+  await f.core.handleMessage(group('大肥鱼 正常前缀','prefix-only'));
+  assert.deepEqual(f.queries,['今天去哪自习？','梁嗨 你好','正常前缀']);
+  const before=f.state(),writes=f.snapshots.length;
+  assert.equal((await f.core.handleMessage(mentioned('今天去哪自习？','direct-at'))).code,'DUPLICATE');
+  for(const value of [undefined,false,'true',1,{}]){
+    assert.equal((await f.core.handleMessage({...group('不带前缀的普通消息','ordinary-'+String(value)),mentioned:value})).code,'IGNORED');
+  }
+  assert.equal((await f.core.handleMessage(mentioned('  ','empty-at'))).code,'IGNORED');
+  assert.deepEqual(f.state(),before);assert.equal(f.snapshots.length,writes);assert.equal(f.queries.length,3);
+  const restarted=fixture({initial:f.state(),handler:async()=>null});await restarted.core.init();
+  assert.equal((await restarted.core.handleMessage(mentioned('今天去哪自习？','direct-at'))).code,'DUPLICATE');
+});
+
+test('mentions do not bypass unknown-group, pause, private management or send limits',async()=>{
+  const f=fixture();await pairOwner(f);await allowGroup(f);
+  const mentioned=(text,id,groupId=GROUP)=>({...group(text,id,groupId),mentioned:true});
+  assert.equal((await f.core.handleMessage(mentioned('你好','unknown',OTHER_GROUP))).code,'GROUP_DENIED');
+  for(const [index,text] of ['/pause','/status','/group-bind '+ 'a'.repeat(32)].entries()){
+    assert.equal((await f.core.handleMessage(mentioned(text,'control-'+index))).code,'IGNORED');
+  }
+  await f.core.setPaused(true);
+  assert.equal((await f.core.handleMessage(mentioned('/ping','paused'))).code,'PAUSED');
+  await f.core.setPaused(false);
+  for(let i=0;i<3;i++)assert.equal((await f.core.handleMessage(mentioned('/ping','ping-'+i))).code,'SENT');
+  assert.equal((await f.core.handleMessage(mentioned('天气 北京','over-limit'))).code,'RATE_LIMIT_MINUTE');
+  assert.equal(f.queries.length,0);assert.equal(f.sent.length,3);
+});
+
+test('mentioned gray-group requests retain chat access and cannot send white-only core results',async()=>{
+  const f=fixture({handler:async text=>text==='基础聊天'?{text:'鱼来啦',requiredAccess:'chat'}:{text:'核心账户结果',requiredAccess:'white',sensitive:true}});
+  await pairOwner(f);const key=await allowGroup(f);
+  assert.equal((await f.core.setGroupAccess({groupKey:key,access:'gray'})).code,'GROUP_ACCESS_CHANGED');
+  assert.equal((await f.core.handleMessage({...group('基础聊天','gray-chat'),mentioned:true})).code,'SENT');
+  assert.equal((await f.core.handleMessage({...group('查DeepSeek余额','gray-balance'),mentioned:true})).code,'GROUP_ACCESS_DENIED');
+  assert.equal(f.sent.length,1);assert.equal(f.sent[0].requiredAccess,'chat');assert.equal(f.core.groupAccess(GROUP),'gray');
 });
 
 test('unaddressed conversation, malformed aliases, bare mentions and empty commands have no side effects', async () => {

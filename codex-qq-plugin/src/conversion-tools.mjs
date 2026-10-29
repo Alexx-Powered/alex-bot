@@ -18,6 +18,15 @@ const prefixMoney=new RegExp(`^(HU\\$|CNY|RMB|[¥￥])\\s*(${amount})(?:\\s*${jo
 const canonical=value=>aliases[value.toLowerCase()];
 export const CONVERSION_HELP='请按同类单位换算，例如：换算 0.6 HU$ 人民币；1马里换公里；1马时换小时。';
 
+// Carry only core-owned scope data; fixed tools never need the shared transcript.
+// Omission preserves the legacy model-free execution packet.
+export function fixedToolContext(context){
+  if(!context||typeof context.sessionKey!=='string'||!/^[a-f0-9]{64}$/.test(context.sessionKey))return {};
+  const scope=context.scope;
+  if(scope!=='c2c'&&!(scope==='group'&&['white','gray'].includes(context.access)))return {};
+  return {sessionKey:context.sessionKey,context:{scope,...(scope==='group'?{access:context.access}:{})},now:new Date().toISOString()};
+}
+
 export function parseConversionCommand(text){
   if(typeof text!=='string'||text.length>120)return null;
   const input=text.trim();let found;
@@ -37,10 +46,10 @@ export function conversionReply(result){
 
 export class ConversionToolbox{
   constructor(worker){this.worker=worker;}
-  async handle(text){
+  async handle(text,context){
     const args=parseConversionCommand(text);if(!args)return null;
     try{
-      return await this.worker.run({type:'execute',name:'convert_units',args},async()=>{throw Error('CONVERSION_RPC_DENIED');},conversionReply);
+      return await this.worker.run({type:'execute',name:'convert_units',args,...fixedToolContext(context)},async()=>{throw Error('CONVERSION_RPC_DENIED');},conversionReply);
     }catch{return {text:'换算工具暂时不可用，请稍后再试。'};}
   }
 }

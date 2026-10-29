@@ -1,5 +1,9 @@
 # 亚历克斯 QQ Bot 开发交接
 
+工具接续与官方@（2026-10-29，本轮）：修复余额查询后“换算成古月币是多少”无法引用上一结果。Python新增按可信scope/session/member/access隔离的短期结构化工具事实，最多64会话、10分钟过期、重启清空，不写长期记忆。固定余额与换算execute新增可选会话字段并保持旧调用兼容；明确单目标的省略追问直接invoke同一受限LangChain工具，复杂表达由agent选择convert_previous_result(to_unit)。余额及派生值不进模型或共享群背景，后者仍sensitive/white，灰名单普通换算继续可用。按原始精确量连续转换，不反复使用6位近似值。Pydantic校验参数结构，工具上下文解决省略量衔接，两者各司其职。
+
+群聊现可直接官方@机器人，无需前缀，原五前缀仍可用；普通无@无前缀文字仅作筛选背景。按官方SDK支持GROUP_AT_MESSAGE_CREATE、全消息模式mentions[].is_you严格布尔，以及精确自身AppID原生标签三条路径。首轮上线只覆盖前者，用户实测暴露后已补SDK dispatcher边界与去重升级回归；仅写@昵称或他人标签不触发。准入和执行同一判定，名单/暂停/限额/去重不变。详见[接续说明](codex-qq-plugin/docs/tool-followups-20261029.md)与[本轮验收](codex-qq-plugin/deploy/tool-followups-20261029.json)。部署会清空短期数量，测试时先重新查询一次余额；截图数字只用于合成验证，不能冒充当前账户余额。仅本地Git，不推送GitHub。
+
 响应耗时与LangSmith（2026-10-29，本轮）：详见[诊断与监控](codex-qq-plugin/docs/latency-monitoring-20261029.md)。ECS合成实测冷首条7445ms、连续2123ms、间隔8秒2125ms；预热和连接复用后对应1904/2017/2156ms，不含QQ平台收发。主要冷开销为Python收包前3759ms和首次路由初始化1487ms；热路径主要为两次模型，记忆约2ms。已在生产启动阶段离线预热依赖，HTTP keepalive延至60秒，口吻第二阶段保留。Node/Python分段时序不存正文，通过独立有界队列手动上报LangSmith纯性能数据，自动tracing继续关闭；配置页第07节自行填写Key，平台加密保存，Key不进入Python或追踪。是否真实接通以SENT与远端trace为准，不能把可配置/入队当已连接。
 
 LangSmith已由用户自行保存并启用，正式上报SENT；根与模型/QQ发送阶段经远端API回读验证，父子关系正确、输入输出无内容，用户确认“可以看到”。首次HTTP400已定位为trace_id缺少配套dotted_order，补齐后202接受，未更换Key。真实QQ样本约3.35秒，其中两模型约1.92秒、QQ发送1.05秒，排队不足1ms。监控自检独立标记并从业务P50/P95剔除，旧agent-only自检同样剔除。新Key纳入整体加密备份并在本机内存验证可恢复。部署与测试记录见[本轮验收](codex-qq-plugin/deploy/latency-monitoring-20261029.json)；仅本地Git记录，不推送GitHub。
