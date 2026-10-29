@@ -1,0 +1,10 @@
+{
+  "date": "2026-10-29",
+  "cause": "Live model reproducibly classified an addressed server-upgrade joke as ignore; Node returned null without a reply",
+  "checked": ["service connected and unpaused", "chat enabled", "original text passes input checks", "model budget acquired"],
+  "second_unprefixed_message": "Not a trigger under the existing group-prefix rule",
+  "fix": ["Treat ordinary complaints and playful comparisons as policy-permitted chat", "Unsupported external operations have an explicit clarification reason", "Model ignore gets a fixed non-action reply only when chat is enabled and existing admission/budget checks passed", "Fixed MODEL_IGNORED diagnostic, no message-body logging"],
+  "permissions": "No third-party contact, no server control, no extra model call on fallback; gray tier and chat-disable switch retained",
+  "tests": {"node_passed":390,"python_passed":132,"failed":0,"live_model_original_and_two_paraphrases_replied":true,"qq_test_messages":0,"third_party_messages":0},
+  "github_updated": false
+}

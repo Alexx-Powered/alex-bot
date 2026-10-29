@@ -80,6 +80,11 @@ export class ConversationAgent{
         if(result.kind==='chat'&&policy.enabled&&policy.topics.includes(result.topic)){
           const text=naturalChatReply(result.text,policy.maxChars);return text?decorate({text},'chat'):null;
         }
+        if(result.kind==='ignore'&&policy.enabled){
+          console.warn('[qq-agent] MODEL_IGNORED');
+          return decorate({text:'这件事我帮不上忙，但鱼还在，可以陪你聊聊。'},'chat');
+        }
+        if(result.kind==='clarify'&&result.reason==='unsupported_action'&&policy.enabled)return decorate({text:'这件事我不能代你操作，也不能替你联系别人。'},'chat');
         if(result.kind==='clarify')return result.reason==='restricted_access'?denied():result.reason==='missing_place'?decorate({text:'请告诉我城市或区县；雷达也可以使用区域名，例如华北。'},'chat'):result.reason==='unsupported_time'?decorate({text:'天气三联图目前只支持今天；空气质量曲线展示未来48小时。'},'chat'):null;
         return null;
       });

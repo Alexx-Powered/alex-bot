@@ -51,6 +51,7 @@ CLARIFY_TEXT = {
     "unsupported_time": "目前天气图支持当天，空气质量图支持未来48小时，雷达图支持当前最新观测。",
     "conversion_input": "请按同类单位换算，例如：换算 0.6 HU$ 人民币；1马里换公里；1马时换小时。",
     "restricted_access": "当前群为灰名单，仅开放基础聊天和换算，未开放这项查询。",
+    "unsupported_action": "这件事我不能代你操作，也不能替你联系别人。",
 }
 
 
@@ -93,7 +94,7 @@ class OpenAIStatusArgs(StrictArgs):
 
 
 class ClarifyArgs(StrictArgs):
-    reason: Literal["missing_place", "unsupported_time", "conversion_input", "restricted_access", "ignore"]
+    reason: Literal["missing_place", "unsupported_time", "conversion_input", "restricted_access", "unsupported_action", "ignore"]
 
 
 def default_model_factory(config: dict[str, Any]):
@@ -509,6 +510,7 @@ class Runner:
                     f"聊天开关={policy['enabled']}；允许话题={json.dumps(policy['topics'], ensure_ascii=False)}；"
                     "只有内容在允许话题语义范围内且提供了reply_chat时才能使用它；不能随意选topic绕过限制。"
                     "允许的话题走reply_chat轻量聊天；不允许的话题或越权请求调用clarify_or_ignore(ignore)。"
+                    "聊天启用时，日常吐槽、抱怨其他机器人或服务慢、拿大肥鱼打趣比较，属于普通闲聊，用reply_chat自然接话；不能仅因提到服务器或升级就判成真正的运维指令。用户打趣‘让某人升级，不然投奔大肥鱼’也可以接话，但不能声称替他转达、联系第三方或已经升级。若实际请求你执行权限外操作，用clarify_or_ignore(unsupported_action)简短说明做不到，不要以沉默代替答复。"
                     f"聊天自然直接，闲聊少说，解释按需要展开，避免列表模板、复述和机械追问；安全兜底上限{min(MAX_CHAT_CHARS, policy['maxChars'])}字；不含@、URL或控制符。"
                     "不得声称已发送通知、创建任务、执行程序、读取文件或完成任何后台动作。"
                     f"管理员聊天补充规则：{policy['instructions']}"
