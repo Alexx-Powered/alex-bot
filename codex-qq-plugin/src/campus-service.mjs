@@ -17,9 +17,9 @@ export const recommendationArgs=campusArgs.extend({session:z.enum(['now','mornin
 const recommendationSchema=z.object({schema_version:z.literal('buaa-recommendations.v1'),ok:z.boolean(),code:z.string().regex(/^(?:OK|CAMPUS_[A-Z_]+)$/),
   date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),now:z.string().datetime({offset:true}),fetched_at:z.union([z.literal(''),z.string().datetime({offset:true})]),
   session:z.enum(['','上午','下午','晚上']),message:z.string().max(1400),candidates:z.array(z.object({room:z.string().regex(/^[1-9]\d{2}$/),
-    small:z.boolean(),tier:z.number().int().min(1).max(5),start_period:z.number().int().min(1).max(14),end_period:z.number().int().min(1).max(14),
+    small:z.boolean(),tier:z.number().int().min(1).max(6),start_period:z.number().int().min(1).max(14),end_period:z.number().int().min(1).max(14),
     usable_from:z.string().regex(/^\d{2}:\d{2}$/),usable_until:z.string().regex(/^\d{2}:\d{2}$/),available_now:z.boolean(),
-    complete_remaining:z.boolean(),period5_busy:z.boolean(),full_afternoon:z.boolean()}).strict()).max(12)}).strict();
+    complete_remaining:z.boolean(),period5_busy:z.boolean(),full_afternoon:z.boolean(),just_released:z.boolean().default(false),release_pending:z.boolean().default(false)}).strict()).max(12)}).strict();
 const name=z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u);
 const periods=z.array(z.number().int().min(1).max(14)).max(14);
 const schema=z.object({schema_version:z.literal('buaa-classrooms.v1'),ok:z.boolean(),code:z.enum(codes),

@@ -68,6 +68,11 @@ def recommend(snapshot, args, now):
                       if at(plan.RULES['periods'][b-1][1]) > current), None)
         if label is None:
             return fail('CAMPUS_DAY_FINISHED', '按当前北京时间，今天第14节已经结束，没有剩余自习时段；请查询明天。')
+        labels_in_order=list(plan.RULES['sessions'])
+        index=labels_in_order.index(label)
+        session_end=at(plan.RULES['periods'][plan.RULES['sessions'][label][1]-1][1])
+        if index+1<len(labels_in_order) and timedelta(0)<session_end-current<=timedelta(minutes=10):
+            label=labels_in_order[index+1]
     else:
         label = labels[args.session]
     result['session'] = label
@@ -88,22 +93,44 @@ def recommend(snapshot, args, now):
             kind = 'full' if complete else 'evening' if usual_evening else 'partial'
             item = dict(kind=kind, room=room, start=start, end=end, session=label)
             opening, closing = at(plan.RULES['periods'][start-1][0]), at(plan.RULES['periods'][end-1][1])
+            if args.session=='now':
+                free_start=start
+                while free_start>1 and slots[free_start-2]=='F':
+                    free_start-=1
+                opening=at(plan.RULES['periods'][free_start-1][0])
+            previous_end = at(plan.RULES['periods'][start-2][1]) if start>1 else None
+            # A scheduled lesson has ended: the break itself is usable when
+            # the next lesson is free. Do not wait for its scheduled start.
+            if previous_end is not None and previous_end <= current < opening:
+                opening = previous_end
+            release_pending = (args.session=='now' and previous_end is not None and slots[start-2]=='B'
+                               and current < previous_end <= current+timedelta(minutes=10))
+            if release_pending:
+                opening = previous_end
             usable_from = max(current, opening)
             available = opening <= current < closing
+            just_released = (args.session=='now' and available and previous_end is not None
+                             and slots[start-2]=='B' and previous_end<=current)
             tier = plan.recommendation_tier(item, rooms)
             candidate = dict(room=room, small=room in plan.SMALL, tier=tier,
                              start_period=start, end_period=end,
                              usable_from=usable_from.strftime('%H:%M'), usable_until=closing.strftime('%H:%M'),
                              available_now=available, complete_remaining=complete or usual_evening,
-                             period5_busy=slots[4]=='B', full_afternoon=plan.full_free(slots,6,10))
+                             period5_busy=slots[4]=='B', full_afternoon=plan.full_free(slots,6,10),just_released=just_released,release_pending=release_pending)
             # A "change now" request first needs a room that is usable now.
-            score = (not available if args.session=='now' else False, tier,
-                     not candidate['complete_remaining'], room not in plan.SMALL,
+            preferred = just_released or release_pending
+            score = (not preferred, not available if args.session=='now' else False,
+                     0 if preferred else tier,
+                     room not in plan.SMALL if preferred else not candidate['complete_remaining'],
+                     not candidate['complete_remaining'] if preferred else room not in plan.SMALL,
                      -(closing-usable_from).total_seconds(), int(room))
             choices.append((score, candidate))
         if choices:
             candidates.append(min(choices, key=lambda pair: pair[0]))
     candidates.sort(key=lambda pair: pair[0])
+    if any(candidate['just_released'] or candidate['release_pending'] for _,candidate in candidates):
+        for _,candidate in candidates:
+            candidate['tier'] = 1 if candidate['just_released'] or candidate['release_pending'] else candidate['tier']+1
     result['candidates'] = [candidate for _, candidate in candidates[:args.limit]]
     if not result['candidates']:
         return fail('CAMPUS_NO_CANDIDATES', f'缓存中没有{label}剩余时段内可推荐的三号楼教室；未使用排除教室或已结束时段凑数。')
@@ -120,7 +147,9 @@ def format_report(report, explanation=''):
     for item in report['candidates']:
         room_type = '小' if item['small'] else '普通'
         status = '现在可用' if item['available_now'] else '稍后可用'
-        partial = '' if item['complete_remaining'] else '，局部'
+        partial = ('' if item['complete_remaining'] else '，局部') + ('，刚下课优先' if item.get('just_released') else '')
+        if item.get('release_pending'):
+            partial += '，即将下课优先，须等下课'
         lines.append(f"{item['room']}（{room_type}，{item['tier']}级）{item['usable_from']}—{item['usable_until']}，{status}{partial}")
     if explanation:
         lines.append(explanation)

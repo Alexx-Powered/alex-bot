@@ -63,5 +63,19 @@
     "pairing_quotas_or_idempotency_reset": false,
     "github_updated": false
   },
-  "not_claimed": ["Live QQ acknowledgement plus image receipt", "Guaranteed model provider availability", "Long-running or sleep/resume verification"]
+  "not_claimed": ["Live QQ acknowledgement plus image receipt", "Guaranteed model provider availability", "Long-running or sleep/resume verification"],
+  "instant_recommendation_followup": {
+    "date": "2026-10-29",
+    "rule": "session=now: previous scheduled lesson busy and already ended without elapsed-time window, OR current lesson ends within 10 minutes and then contiguous free -> highest priority; pending release must wait until actual lesson end; includes noon/evening boundaries",
+    "break_availability": "May enter after the previous lesson ends without waiting for next lesson start",
+    "output": "just_released / release_pending flags passed to model and fixed list; pending release never claimed usable now",
+    "unchanged": "Explicit session rankings and full-day images",
+    "tests": {
+      "python_passed": 116,
+      "node_passed": 378,
+      "failed": 0
+    },
+    "github_updated": false,
+    "live_qq_test_messages": 0
+  }
 }
