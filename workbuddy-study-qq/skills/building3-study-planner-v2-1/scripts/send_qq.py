@@ -44,7 +44,9 @@ def send(manifest_path, *, transport=request, bot_home=BOT_HOME):
     image=image_path.read_bytes()
     if not image.startswith(b'\x89PNG\r\n\x1a\n') or hashlib.sha256(image).hexdigest()!=m.get('sha256'):
         return {'ok':False,'code':'IMAGE_CHANGED'}
-    token=(bot_home/'.private/admin-token').read_text().strip()
+    token_file=bot_home/'.private/integration-token'
+    if not token_file.exists():token_file=bot_home/'.private/admin-token'
+    token=token_file.read_text().strip()
     if not re.fullmatch('[0-9a-f]{64}',token):return {'ok':False,'code':'INVALID_LOCAL_AUTH'}
     status=transport('/api/status',token)
     if not status.get('ok') or not status.get('configured') or not status.get('core',{}).get('paired'):

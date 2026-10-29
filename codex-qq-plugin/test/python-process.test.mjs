@@ -1,3 +1,4 @@
+import {pythonExecutable} from '../src/runtime-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {existsSync} from 'node:fs';
@@ -8,7 +9,7 @@ import {ConversionToolbox,CONVERSION_HELP} from '../src/conversion-tools.mjs';
 const home=fileURLToPath(new URL('../',import.meta.url));
 
 test('real Python LangChain conversion tool runs offline, including reversals, without QQ RPC or key',async t=>{
-  if(!existsSync(resolve(home,'.venv/Scripts/python.exe'))){t.skip('Install Python environment first');return;}
+  if(!existsSync(pythonExecutable())){t.skip('Install Python environment first');return;}
   const worker=new PythonAgentWorker({home});const tools=new ConversionToolbox(worker);
   try{
     for(const [text,expected] of [['0.6HU$换人民币','0.6 HU$ = 70 元'],['70元换古月币','70 元 = 0.6 HU$'],
@@ -18,7 +19,7 @@ test('real Python LangChain conversion tool runs offline, including reversals, w
   }finally{worker.close();}
 });
 test('real Python LangChain process executes fixed weather and morning tools without a model key',async t=>{
-  if(!existsSync(resolve(home,'.venv/Scripts/python.exe'))){t.skip('Install Python environment first');return;}
+  if(!existsSync(pythonExecutable())){t.skip('Install Python environment first');return;}
   const worker=new PythonAgentWorker({home});let calls=0;
   try{
     for(const name of ['weather_image','local_weather_briefing']){

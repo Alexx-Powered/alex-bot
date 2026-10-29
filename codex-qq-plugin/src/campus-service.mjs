@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {PythonAgentWorker} from './python-agent.mjs';
-import {atomicJson} from './storage.mjs';
+import {atomicJson,protectCredential,unprotectCredential,credentialFormat} from './storage.mjs';
+import {APP_ROOT} from './runtime-paths.mjs';
+import {createHash} from 'node:crypto';
 import {studyImage} from './study-briefing.mjs';
 import {z} from 'zod';
 import {fullAccess} from './access-policy.mjs';
@@ -51,7 +53,7 @@ export class CampusService{
   #busy=false;#last=null;#cache=new Map();#cacheLoaded=false;
   constructor({home,configStore,worker,now=()=>Date.now()}){
     Object.assign(this,{home,configStore,now});
-    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(home,'python','campus_worker.py'),timeoutMs:210000,maxLineBytes:262144});
+    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','campus_worker.py'),timeoutMs:210000,maxLineBytes:262144});
   }
   async #loadCache(){
     if(this.#cacheLoaded)return;
@@ -88,8 +90,16 @@ export class CampusService{
       let credentials;try{credentials=await this.configStore.read();}catch{return {data:campusFailure('CAMPUS_CONFIG_UNAVAILABLE',parsed.date)};}
       if(!credentials.username||!credentials.password)return {data:campusFailure('CAMPUS_NOT_CONFIGURED',parsed.date)};
       if(!credentials.enabled)return {data:campusFailure('CAMPUS_DISABLED',parsed.date)};
-      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
+      const identity=createHash('sha256').update(credentials.username+'\0'+credentials.password).digest('hex');
+      const sessionFile=path.join(this.home,'.private','campus-session.json');let sessionState;
+      if(process.platform!=='win32'){
+        try{const saved=await unprotectCredential(JSON.parse(await fs.readFile(sessionFile,'utf8')).cipher);if(saved.identity===identity)sessionState=saved.state;}catch{ /* A missing/expired session requires a fresh login. */ }
+      }
+      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
         const data=validateCampusData(value.data);
+        if(process.platform!=='win32'&&data.ok&&value.session_state){
+          await atomicJson(sessionFile,{format:credentialFormat(),cipher:await protectCredential({identity,state:value.session_state})});
+        }
         const output=path.join(this.home,'.private','campus-output');
         if(data.ok){await fs.mkdir(output,{recursive:true});await atomicJson(path.join(output,'latest.json'),data);await this.#remember(data);}
         if(mode!=='report'||!data.ok){if(value.artifact_id!==null)throw Error('CAMPUS_SCHEMA_CHANGED');return {data};}

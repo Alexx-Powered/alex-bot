@@ -1,14 +1,15 @@
 import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
 export function pythonEnvironment(source=process.env){
-  const env={};for(const key of ['SystemRoot','WINDIR','PATH','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA'])if(source[key])env[key]=source[key];
+  const env={};for(const key of ['SystemRoot','WINDIR','PATH','TEMP','TMP','TMPDIR','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','PLAYWRIGHT_BROWSERS_PATH','QQ_FONT_REGULAR','QQ_FONT_BOLD'])if(source[key])env[key]=source[key];
   return {...env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8',PYTHONDONTWRITEBYTECODE:'1',LANGCHAIN_TRACING:'false',LANGCHAIN_TRACING_V2:'false',LANGSMITH_TRACING:'false',LANGCHAIN_VERBOSE:'false'};
 }
 const failure=()=>Object.assign(new Error('PYTHON_AGENT_UNAVAILABLE'),{code:'PYTHON_AGENT_UNAVAILABLE'});
 export class PythonAgentWorker{
   #child;#current;#tail=Promise.resolve();#buffer='';#closed=false;
-  constructor({home,pythonPath=resolve(home,'.venv','Scripts','python.exe'),workerPath=resolve(home,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000,maxLineBytes=65536,toolTimeouts={}}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs,maxLineBytes,toolTimeouts});}
+  constructor({home,pythonPath=pythonExecutable(),workerPath=resolve(APP_ROOT,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000,maxLineBytes=65536,toolTimeouts={}}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs,maxLineBytes,toolTimeouts});}
   #stop(){const child=this.#child;this.#child=null;this.#buffer='';if(child)child.kill();if(this.#current){const task=this.#current;this.#current=null;clearTimeout(task.timer);task.reject(Object.assign(failure(),{toolExecuted:task.called}));}}
   close(){this.#closed=true;this.#stop();}
   #write(value){if(!this.#child?.stdin.writable)throw failure();this.#child.stdin.write(JSON.stringify(value)+'\n');}

@@ -1,10 +1,11 @@
 import {createCanvas,loadImage} from '@napi-rs/canvas';
 import {renderWeatherChart} from './weather-chart.mjs';
+import {CHINESE_FONT} from './render-fonts.mjs';
 const colors={suitable:'#23805a',caution:'#a86b00',avoid:'#bb4545',unknown:'#66758a',expired:'#8792a0'};
 const labels={suitable:'较适宜',caution:'注意条件',avoid:'建议室内',unknown:'数据不足',expired:'已过时段'};
-function line(ctx,text,x,y,size=24,color='#263b52',width=1064){ctx.font=`${size}px Microsoft YaHei,sans-serif`;ctx.fillStyle=color;ctx.fillText(String(text??''),x,y,width);}
+function line(ctx,text,x,y,size=24,color='#263b52',width=1064){ctx.font=`${size}px ${CHINESE_FONT}`;ctx.fillStyle=color;ctx.fillText(String(text??''),x,y,width);}
 function wrap(ctx,text,x,y,width,size=24,maxLines=2){
-  ctx.font=`${size}px Microsoft YaHei,sans-serif`;let row='',n=0;
+  ctx.font=`${size}px ${CHINESE_FONT}`;let row='',n=0;
   for(const ch of String(text??'')){if(ctx.measureText(row+ch).width>width){line(ctx,row,x,y+n*(size+8),size);row='';if(++n>=maxLines)return;}row+=ch;}
   if(row)line(ctx,row,x,y+n*(size+8),size);
 }

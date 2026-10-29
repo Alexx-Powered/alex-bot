@@ -3,11 +3,11 @@ import { Chart, registerables } from 'chart.js';
 import { HOUR_MS, localDate, localTime, forecastNow } from './weather.mjs';
 import { TEMPERATURE_STOPS, PM25_BANDS, temperatureColor, temperatureTextColor } from './chart-colors.mjs';
 import { CITIES, validatePlace } from './locations.mjs';
+import {CHINESE_FONT} from './render-fonts.mjs';
 
 Chart.register(...registerables);
-try { GlobalFonts.registerFromPath('C:/Windows/Fonts/msyh.ttc', 'Microsoft YaHei'); } catch {}
 
-const FONT = 'Microsoft YaHei, sans-serif';
+const FONT = CHINESE_FONT;
 const WIDTH = 1200, HEIGHT = 1800;
 const COLORS = { ink: '#17263c', muted: '#596b82', faint: '#e6edf5' };
 const SERIES_COLORS = ['#2563eb', '#db721e'];

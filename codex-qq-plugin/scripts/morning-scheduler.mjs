@@ -1,9 +1,10 @@
-import {mkdir,open,appendFile} from 'node:fs/promises';
+import {mkdir,open,appendFile,stat} from 'node:fs/promises';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {createBridgeClient} from '../src/bridge-client.mjs';
+import {isEntrypoint} from '../src/entrypoint.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const run=promisify(execFile);
@@ -44,14 +45,16 @@ export function createMorningTick({client,stateDir,ensureService,log=async()=>{}
   };
 }
 
-if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
+if(await isEntrypoint(import.meta.url)){
   const privateDir=resolve(process.env.QQ_BRIDGE_HOME||root,'.private');
+  if(process.platform==='win32'&&await stat(resolve(privateDir,'cloud-mode.json')).then(()=>true,e=>{if(e.code==='ENOENT')return false;throw e;}))process.exit(0);
   await mkdir(privateDir,{recursive:true});
   const log=async event=>appendFile(resolve(privateDir,'morning-scheduler.log'),JSON.stringify({at:new Date().toISOString(),...event})+'\n');
   const tick=createMorningTick({
     client:createBridgeClient({timeoutMs:60000}),
     stateDir:resolve(privateDir,'morning-scheduler'),log,
     ensureService:async()=>{
+      if(process.platform!=='win32')return; // systemd owns Linux restarts.
       await run('powershell.exe',['-NoProfile','-NonInteractive','-File',resolve(root,'scripts/start-service.ps1'),'-AutoConnect'],{windowsHide:true,timeout:30000});
       await log({event:'service-started'});
     },

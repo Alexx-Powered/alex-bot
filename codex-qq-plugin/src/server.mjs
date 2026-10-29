@@ -18,6 +18,7 @@ import {ModelRequestBudget} from './chat-safety.mjs';
 import {ConversionToolbox} from './conversion-tools.mjs';
 import {CampusConfigStore} from './campus-config.mjs';
 import {CampusService} from './campus-service.mjs';
+import {isEntrypoint} from './entrypoint.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const maxBody = 16384;
@@ -89,7 +90,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       catch { return json(res, 500, { ok: false, code: 'ASSET_UNAVAILABLE' }); }
     }
     if (!pathname.startsWith('/api/')) return json(res, 404, { ok: false, code: 'NOT_FOUND' });
-    if (!validToken(req.headers.authorization, store.token)) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
+    const admin=validToken(req.headers.authorization,store.token);
+    const integration=store.integrationToken&&validToken(req.headers.authorization,store.integrationToken);
+    if(!admin&&!integration)return json(res,401,{ok:false,code:'UNAUTHORIZED'});
+    if(!admin&&!['/api/status','/api/notify','/api/notify-all-allowed','/api/weather/preview','/api/weather/briefing','/api/morning/test-all-allowed','/api/study-briefing'].includes(pathname))return json(res,403,{ok:false,code:'INTEGRATION_SCOPE_DENIED'});
     let mutationHeld = false;
     try {
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status() });
@@ -296,7 +300,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (await isEntrypoint(import.meta.url)) {
   try {
     const app = await createBridgeServer();
     const port = await app.listen();
@@ -308,7 +312,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     console.log('运行 scripts/open-setup.ps1 打开本机配置页。发送暂停状态会跨重启保留。');
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => app.close().finally(() => process.exit(0)));
   } catch {
-    console.error('启动失败：请检查端口19327、config/send-limits.json、私有目录权限和Windows当前用户加密能力。未输出凭据。');
+    console.error('启动失败：请检查端口19327、config/send-limits.json、私有目录权限和平台加密凭据。未输出凭据。');
     process.exitCode = 1;
   }
 }

@@ -4,6 +4,10 @@ $qqPluginRoot = Split-Path -Parent $PSScriptRoot
 $qqServerFile = Join-Path $qqPluginRoot 'src\server.mjs'
 $qqDataRoot = if ($env:QQ_BRIDGE_HOME) { [IO.Path]::GetFullPath($env:QQ_BRIDGE_HOME) } else { $qqPluginRoot }
 $qqPrivate = Join-Path $qqDataRoot '.private'
+if (Test-Path -LiteralPath (Join-Path $qqPrivate 'cloud-mode.json')) {
+    & powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -File (Join-Path $PSScriptRoot 'start-cloud-tunnel.ps1')
+    exit $LASTEXITCODE
+}
 New-Item -ItemType Directory -Path $qqPrivate -Force | Out-Null
 . (Join-Path $PSScriptRoot 'service-process.ps1')
 $qqLifecycleLock = Lock-QQBridgeLifecycle -PrivateDirectory $qqPrivate

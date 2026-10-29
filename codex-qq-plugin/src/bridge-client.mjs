@@ -133,7 +133,8 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
     }
     let token;
     try {
-      token = (await readFile(tokenPath, 'utf8')).trim();
+      try{token=(await readFile(resolve(home,'.private','integration-token'),'utf8')).trim();}
+      catch(error){if(error.code!=='ENOENT')throw error;token=(await readFile(tokenPath,'utf8')).trim();}
     } catch {
       throw new BridgeClientError('BRIDGE_NOT_INITIALIZED');
     }

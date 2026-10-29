@@ -1,5 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $qqRoot = Split-Path -Parent $PSScriptRoot
+if (Test-Path -LiteralPath (Join-Path $qqRoot '.private\cloud-mode.json')) {
+    & (Join-Path $PSScriptRoot 'install-cloud-tunnel.ps1')
+    exit $LASTEXITCODE
+}
 $qqNode = (Get-Command node.exe -ErrorAction Stop).Source
 $qqUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $qqAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -File "' + (Join-Path $PSScriptRoot 'run-morning-service.ps1') + '"') -WorkingDirectory $qqRoot

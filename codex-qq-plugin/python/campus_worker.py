@@ -5,12 +5,16 @@ import json
 import logging
 import sys
 from pathlib import Path
-from campus_classrooms import build_query_tool,envelope,CampusError
+from campus_classrooms import build_query_tool,envelope,CampusError,browser_collect
 
 LIMIT=262144
 
 def process(packet,*,collector=None):
     private=Path.cwd()/'.private'
+    session={}
+    if collector is None and sys.platform!='win32':
+        def collector(credentials,private_root,day,*,interactive=False):
+            return browser_collect(credentials,private_root,day,interactive=interactive,session_state=packet.get('session_state'),on_session=lambda state:session.update(state=state))
     options={} if collector is None else {'collector':collector}
     if packet.get('type')=='campus' and packet.get('mode')=='recognize':
         from campus_intent import recover_classroom_request
@@ -41,7 +45,7 @@ def process(packet,*,collector=None):
                 from campus_report import render_region_day
                 artifact=render_region_day(data,private,selected)
         except Exception:return {'kind':'campus','data':data,'artifact_id':None,'render_error':True}
-    return {'kind':'campus','data':data,'artifact_id':artifact}
+    return {'kind':'campus','data':data,'artifact_id':artifact,**({'session_state':session['state']} if 'state' in session else {})}
 
 def main():
     logging.disable(logging.CRITICAL)

@@ -4,6 +4,7 @@ import json
 import re
 import time
 import hashlib
+import sys
 from datetime import date as Date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -88,7 +89,7 @@ def login_failure(frame):
         return None
     return None
 
-def browser_collect(credentials,private_root,day,*,interactive=False):
+def browser_collect(credentials,private_root,day,*,interactive=False,session_state=None,on_session=None):
     from playwright.sync_api import sync_playwright
     initial={}
     def capture(response):
@@ -103,14 +104,18 @@ def browser_collect(credentials,private_root,day,*,interactive=False):
         u=urlsplit(route.request.url)
         if u.scheme=='https' and (u.hostname=='buaa.edu.cn' or (u.hostname or '').endswith('.buaa.edu.cn')):route.continue_()
         else:route.abort()
-    context=None;phase='browser_start'
+    context=None;browser=None;phase='browser_start'
     try:
         with sync_playwright() as p:
             try:
                 identity=hashlib.sha256((credentials['username']+'\0'+credentials['password']).encode()).hexdigest()[:24]
-                context=p.chromium.launch_persistent_context(str(Path(private_root)/'campus-browser'/identity),
-                    headless=not interactive,channel='msedge',accept_downloads=False,
-                    args=['--disable-save-password-bubble'])
+                if sys.platform=='win32':
+                    context=p.chromium.launch_persistent_context(str(Path(private_root)/'campus-browser'/identity),
+                        headless=not interactive,channel='msedge',accept_downloads=False,
+                        args=['--disable-save-password-bubble'])
+                else:
+                    browser=p.chromium.launch(headless=not interactive,args=['--disable-save-password-bubble'])
+                    context=browser.new_context(accept_downloads=False,storage_state=session_state)
             except Exception:raise CampusError('CAMPUS_BROWSER_UNAVAILABLE') from None
             try:
                 context.route('**/*',allow_school)
@@ -149,9 +154,14 @@ def browser_collect(credentials,private_root,day,*,interactive=False):
                 phase='classroom_search'
                 response=context.request.get(url,params={'xqid':campuses[0]['xqid'],'floorid':'','date':day},
                     headers={'Referer':PAGE,'X-Requested-With':'XMLHttpRequest'},timeout=20000,max_redirects=0)
-                try:return _safe_response(response)
+                try:
+                    result=_safe_response(response)
+                    if on_session and result.get('e')==0:on_session(context.storage_state())
+                    return result
                 finally:response.dispose()
-            finally:context.close()
+            finally:
+                context.close()
+                if browser:browser.close()
     except CampusError:raise
     except Exception as error:
         # Sanitized local diagnostics only; never serialize SDK error text,

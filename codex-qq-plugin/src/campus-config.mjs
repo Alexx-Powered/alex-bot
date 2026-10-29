@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {atomicJson,protectCredential,unprotectCredential} from './storage.mjs';
+import {atomicJson,protectCredential,unprotectCredential,credentialFormat,supportedCredentialFormat} from './storage.mjs';
 
 const fail=code=>Object.assign(new Error(code),{code});
 const object=v=>v&&typeof v==='object'&&!Array.isArray(v);
@@ -22,7 +22,7 @@ export class CampusConfigStore{
     let raw;try{raw=await fs.readFile(this.#file,'utf8');}catch(e){if(e.code==='ENOENT')return {enabled:false,username:'',password:''};throw fail('CAMPUS_CONFIG_UNAVAILABLE');}
     try{
       const e=JSON.parse(raw);
-      if(!object(e)||Object.keys(e).sort().join(',')!=='cipher,format,version'||e.version!==1||e.format!=='windows-dpapi-v1'||typeof e.cipher!=='string'||!e.cipher||e.cipher.length>65536)throw Error();
+      if(!object(e)||Object.keys(e).sort().join(',')!=='cipher,format,version'||e.version!==1||!supportedCredentialFormat(e.format)||typeof e.cipher!=='string'||!e.cipher||e.cipher.length>65536)throw Error();
       const v=await this.#unprotect(e.cipher);if(!valid(v))throw Error();return v;
     }catch{throw fail('CAMPUS_CONFIG_UNAVAILABLE');}
   }
@@ -34,7 +34,7 @@ export class CampusConfigStore{
     if(hasUser!==hasPassword||(hasUser&&(!username(input.username)||!password(input.password))))throw fail('CAMPUS_CONFIG_INVALID');
     const v={...await this.#load(),enabled:input.enabled,...(hasUser?{username:input.username,password:input.password}:{})};
     if(!valid(v))throw fail('CAMPUS_CONFIG_INVALID');
-    try{const cipher=await this.#protect(v);if(typeof cipher!=='string'||!cipher||cipher.length>65536)throw Error();await atomicJson(this.#file,{version:1,format:'windows-dpapi-v1',cipher});}
+    try{const cipher=await this.#protect(v);if(typeof cipher!=='string'||!cipher||cipher.length>65536)throw Error();await atomicJson(this.#file,{version:1,format:credentialFormat(),cipher});}
     catch{throw fail('CAMPUS_CONFIG_UNAVAILABLE');}
     return publicStatus(v);
   });}

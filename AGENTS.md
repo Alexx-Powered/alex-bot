@@ -1,6 +1,7 @@
 # 亚历克斯 QQ Bot 开发约定
 
 - GitHub 仅在用户明确要求更新时推送或修改；日常开发优先完成本地修改、测试和部署，可使用本地 Git 记录，不自动同步远端。
+- 2026-10-29起生产服务在阿里云ECS：`/opt/alex-bot/current`，状态`/var/lib/alexbot`，systemd `alexbot`与`alexbot-morning`。本机19327是SSH转发，不能以本机Node启动代替上线或同时连接两套Bot。开发前读`codex-qq-plugin/ops/README.md`；部署核对远端实际监听PID、源码版本和启动时刻，以及本机隧道PID。不要输出Workbench凭据helper的stdout。
 - 修改Node/Python工具协议时保留新增可选参数的默认兼容，并测试真实LangChain调用跨语言边界。部署后必须核对19327实际监听PID、工作区源码路径及启动时点，不能仅凭health在线或旧PID文件认定重启成功。
 
 - 除非用户针对某项功能另作说明，今后新增业务功能统一使用 Python LangChain 实现。固定规则、计算和查询封装为参数受限的 LangChain Tool；自然语言通过现有 agent 选择工具。确定性调用可以直接 invoke 工具，不要求调用大模型或配置模型 Key。

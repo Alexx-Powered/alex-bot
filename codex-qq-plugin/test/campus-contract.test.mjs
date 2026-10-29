@@ -1,3 +1,4 @@
+import {pythonExecutable} from '../src/runtime-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
@@ -18,7 +19,7 @@ for text,args in [('我现在去哪个教室自习？',{}),('现在有什么空�
  runner=agent_worker.build_runner(model_factory=lambda _:model,rpc_callback=lambda _id,_call,_name,values:results.append({'text':text,'args':values}) or 'ok')
  runner.run(packet(text=text,context={'scope':'c2c'}))
 print(json.dumps(results,ensure_ascii=False))`;
-  const rows=JSON.parse(execFileSync(path.join(home,'.venv','Scripts','python.exe'),['-B','-X','utf8','-c',program],{cwd:home,windowsHide:true,encoding:'utf8'}));
+  const rows=JSON.parse(execFileSync(pythonExecutable(),['-B','-X','utf8','-c',program],{cwd:home,windowsHide:true,encoding:'utf8'}));
   assert.equal(rows.length,4);
   for(const row of rows)assert.equal(recommendationArgs.safeParse(row.args).success,true);
   for(const row of rows.slice(0,3)){

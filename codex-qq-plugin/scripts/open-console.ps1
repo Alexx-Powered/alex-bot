@@ -8,7 +8,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '本地服务未能启动。请检查 .private/service.stderr.log。' }
     $qqPhase = 'scheduler'
     $qqTask = Get-ScheduledTask -TaskName 'AlexQQ-Morning-Service' -ErrorAction SilentlyContinue
-    if ($qqTask -and $qqTask.State -eq 'Ready') { Start-ScheduledTask -TaskName 'AlexQQ-Morning-Service' }
+    if (-not (Test-Path -LiteralPath (Join-Path $qqRoot '.private\cloud-mode.json')) -and $qqTask -and $qqTask.State -eq 'Ready') { Start-ScheduledTask -TaskName 'AlexQQ-Morning-Service' }
     $qqPhase = 'browser'
     & (Join-Path $PSScriptRoot 'open-setup.ps1')
 } catch {

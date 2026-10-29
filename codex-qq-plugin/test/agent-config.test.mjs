@@ -1,3 +1,4 @@
+import {credentialFormat} from '../src/storage.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -45,7 +46,7 @@ test('encrypted persistence, status and save results never expose the key or cip
   const status = await f.store.save({ enabled: true, model: 'deepseek-flash', apiKey: KEY });
   assert.deepEqual(status, { enabled: true, configured: true, model: 'deepseek-flash', baseURL: 'https://api.deepseek.com', provider: 'deepseek' });
   const raw = await fs.readFile(f.file, 'utf8'), envelope = JSON.parse(raw);
-  assert.equal(raw.includes(KEY), false); assert.equal(envelope.format, 'windows-dpapi-v1');
+  assert.equal(raw.includes(KEY), false); assert.equal(envelope.format, credentialFormat());
   assert.deepEqual(Object.keys(envelope).sort(), ['cipher', 'format', 'version']);
   assert.ok(!JSON.stringify(status).includes(envelope.cipher)); assert.equal(Object.hasOwn(status, 'apiKey'), false);
   assert.deepEqual(await f.store.status(), status);

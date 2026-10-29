@@ -1,3 +1,4 @@
+import {pythonExecutable} from '../src/runtime-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -40,7 +41,7 @@ test('fresh multi-region query preserves the region array through cache and reco
 
 test('real private Python renderer creates a validated image; gray cannot render',async t=>{
   const folder=await mkdtemp(path.join(tmpdir(),'qq-card-'));
-  const worker=new PythonAgentWorker({home:folder,pythonPath:path.join(home,'.venv','Scripts','python.exe'),workerPath:path.join(home,'python','campus_worker.py'),maxLineBytes:262144});
+  const worker=new PythonAgentWorker({home:folder,pythonPath:pythonExecutable(),workerPath:path.join(home,'python','campus_worker.py'),maxLineBytes:262144});
   t.after(()=>{worker.close();return rm(folder,{recursive:true,force:true,maxRetries:10,retryDelay:100});});const service=new CampusService({home:folder,worker,configStore:{}});
   assert.equal(await service.renderRecommendation(report(),'去A101。',{scope:'group',access:'gray'}),null);
   const result=await service.renderRecommendation(report(),'去A101。',{scope:'c2c'});

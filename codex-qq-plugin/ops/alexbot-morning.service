@@ -1,0 +1,25 @@
+[Unit]
+Description=Alex QQ morning scheduler
+After=alexbot.service
+Wants=alexbot.service
+
+[Service]
+Type=simple
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=QQ_BRIDGE_HOME=/var/lib/alexbot
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/scripts/morning-scheduler.mjs
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/alexbot
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

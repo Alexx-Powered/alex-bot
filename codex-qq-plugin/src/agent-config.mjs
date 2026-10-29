@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomicJson, protectCredential, unprotectCredential } from './storage.mjs';
+import { atomicJson, protectCredential, unprotectCredential, credentialFormat, supportedCredentialFormat } from './storage.mjs';
 
 const DEFAULTS = Object.freeze({ enabled: false, provider: 'deepseek', model: 'deepseek-flash', baseURL: 'https://api.deepseek.com', apiKey: '' });
 const BASE_URLS = new Set(['https://api.deepseek.com', 'https://api.deepseek.com/v1']);
@@ -52,7 +52,7 @@ export class AgentConfigStore {
     try {
       const envelope = JSON.parse(raw);
       if (!object(envelope) || Object.keys(envelope).length !== 3 || envelope.version !== 1 ||
-          envelope.format !== 'windows-dpapi-v1' || typeof envelope.cipher !== 'string' ||
+          !supportedCredentialFormat(envelope.format) || typeof envelope.cipher !== 'string' ||
           envelope.cipher.length < 1 || envelope.cipher.length > 65536) throw new Error();
       const config = await this.#unprotect(envelope.cipher);
       if (!validConfig(config)) throw new Error();
@@ -85,7 +85,7 @@ export class AgentConfigStore {
       try {
         const cipher = await this.#protect(config);
         if (typeof cipher !== 'string' || cipher.length < 1 || cipher.length > 65536) throw new Error();
-        await atomicJson(this.#file, { version: 1, format: 'windows-dpapi-v1', cipher });
+        await atomicJson(this.#file, { version: 1, format: credentialFormat(), cipher });
       } catch { throw failure('AGENT_CONFIG_UNAVAILABLE'); }
       return publicStatus(config);
     });

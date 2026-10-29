@@ -2,9 +2,9 @@ import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import { Chart, registerables } from 'chart.js';
 import { validatePlace } from './locations.mjs';
 import { HOUR_MS, localTime } from './weather.mjs';
+import {CHINESE_FONT} from './render-fonts.mjs';
 Chart.register(...registerables);
-try { GlobalFonts.registerFromPath('C:/Windows/Fonts/msyh.ttc', 'Microsoft YaHei'); } catch {}
-const font = 'Microsoft YaHei, sans-serif';
+const font = CHINESE_FONT;
 
 export function prepareAirChart(data) {
   let city;

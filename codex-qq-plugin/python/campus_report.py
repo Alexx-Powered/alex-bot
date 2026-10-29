@@ -5,6 +5,7 @@ import sys
 import uuid
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
+from render_fonts import font_path
 from campus_classrooms import CampusError,SCHEMA
 
 SCRIPTS=Path(__file__).resolve().parents[2]/'workbuddy-study-qq/skills/building3-study-planner-v2-1/scripts'
@@ -28,7 +29,7 @@ def render_report(data,private_root,*,demo=False):
     board=layout.render_board(result,reviewed=True,demo=demo)
     # Preserve the optimized board and add a source strip; no OCR/skill execution.
     strip=Image.new('RGB',(1800,110),'#f6f3ed');draw=ImageDraw.Draw(strip)
-    font=ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',23)
+    font=ImageFont.truetype(font_path(),23)
     draw.text((60,12),'数据：北航学院路空教室接口  /  获取时间：'+data['fetched_at'][:19].replace('T',' '),font=font,fill='#71685e')
     draw.text((60,56),'接口标空闲则为空闲，其余课节为有课；图片仅展示三号楼，JSON包含学院路全部教学楼。',font=font,fill='#71685e')
     if board.height+strip.height>16000:raise CampusError('CAMPUS_RENDER_FAILED')
@@ -62,7 +63,7 @@ def render_region_day(data,private_root,regions,*,demo=False):
     count=ceil(len(rows)/2);height=650+count*50
     if height>16000:raise CampusError('CAMPUS_RENDER_FAILED')
     image=Image.new('RGB',(1800,height),'#f6f3ed');draw=ImageDraw.Draw(image)
-    fonts={size:ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',size) for size in (20,23,26,32,48)}
+    fonts={size:ImageFont.truetype(font_path(),size) for size in (20,23,26,32,48)}
     draw.rectangle((0,0,1800,145),fill='#bd704c')
     draw.text((50,24),'教室空闲情况 · 全天报告',font=fonts[48],fill='white')
     draw.text((50,93),data['date']+' / '+str(len(rows))+'间教室'+(' / 示例数据' if demo else ''),font=fonts[26],fill='white')

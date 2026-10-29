@@ -2,14 +2,16 @@
 from datetime import date
 from pathlib import Path
 import re
+import os
 from PIL import Image, ImageDraw, ImageFont
 import plan
 
 def render_board(result, reviewed, demo):
-    font=Path('C:/Windows/Fonts/msyh.ttc')
+    font=Path(os.environ.get('QQ_FONT_REGULAR') or ('C:/Windows/Fonts/msyh.ttc' if os.name=='nt' else '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'))
     if not font.exists():raise ValueError('CHINESE_FONT_MISSING')
     fonts={n:ImageFont.truetype(str(font),n) for n in (21,23,25,27,30,34,42,62,150)}
-    bold={n:ImageFont.truetype('C:/Windows/Fonts/msyhbd.ttc',n) for n in fonts}
+    bold_path=os.environ.get('QQ_FONT_BOLD') or ('C:/Windows/Fonts/msyhbd.ttc' if os.name=='nt' else '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc')
+    bold={n:ImageFont.truetype(bold_path,n) for n in fonts}
     bg='#f6f3ed';ink='#302d29';muted='#71685e'
     im=Image.new('RGB',(1800,16000),bg);d=ImageDraw.Draw(im)
     def text(s,x,y,width=900,size=25,color=ink,strong=False):

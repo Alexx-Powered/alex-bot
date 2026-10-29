@@ -13,4 +13,4 @@ description: 查询亚历克斯 QQ 机器人状态、发送已授权的本人通
 
 用户另已明确授权每天北京时间08:00向本人QQ发送北京天气合成图。定时任务调用 `qq_weather_briefing`，cities=["beijing"]、mode="daily"；只发送程序生成的一张三联图，不再追加文字。图中包含温度、CAMS PM2.5和逐小时降水概率，来源与标注在图内。该模式按北京时间日期去重，同一天重复调用不再次发送，不换键或改成 test 绕过去重。用户要求即时测试时才用 mode="test"。`qq_weather_preview` 只返回简要预览状态，不发送消息或返回像素。预报查询和绘图均为固定程序，不需要AI生成；模型不是实测，缺数不能当0。QQ雷达和CAMS查询也只发图片，错误时才提供简短提示。
 
-每日推送需要本机Codex和QQ桥接服务可运行。仅服务未运行时，可运行 `D:/Projects/Alex Bot/codex-qq-plugin/scripts/start-service.ps1 -AutoConnect` 启动并重连已配置机器人；不擅自恢复用户或平台错误导致的暂停。工具尚未加载时，定时任务可按已授权的提示运行 `node D:/Projects/Alex Bot/codex-qq-plugin/scripts/send-weather-briefing.mjs`，它调用相同的本机接口并使用相同每日去重键。
+当前生产已迁移到ECS：QQ业务和每天08:00早安由云端systemd独立运行，不依赖本机Codex。Codex插件仍通过本机19327的SSH隧道访问同一Bot；隧道离线不等于云端Bot离线。仅本机入口不可用时，可运行 `D:/Projects/Alex Bot/codex-qq-plugin/scripts/start-service.ps1 -AutoConnect`，cloud-mode标记会使它只恢复隧道；不要另启本机Node Bot或旧早安调度。不擅自恢复用户或平台错误导致的暂停。工具尚未加载时，已授权调用可用 `node D:/Projects/Alex Bot/codex-qq-plugin/scripts/send-weather-briefing.mjs`，仍走同一接口和每日去重键，不重复创建早安计划。迁移与回退细节见工作区 `codex-qq-plugin/ops/README.md`。

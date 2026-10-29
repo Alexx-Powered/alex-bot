@@ -2,6 +2,7 @@
 import uuid
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
+from render_fonts import font_path
 from campus_recommendations import timestamp, verified_explanation
 
 
@@ -9,8 +10,8 @@ def render_compact(report, private_root, explanation='', *,demo=False):
     if not report.get('ok') or not 1<=len(report.get('candidates',[]))<=12:
         raise ValueError('CAMPUS_RENDER_FAILED')
     image=Image.new('RGB',(1080,8000),'#f6f3ed');draw=ImageDraw.Draw(image)
-    fonts={s:ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',s) for s in (22,26,30,36,44)}
-    bold=ImageFont.truetype('C:/Windows/Fonts/msyhbd.ttc',36)
+    fonts={s:ImageFont.truetype(font_path(),s) for s in (22,26,30,36,44)}
+    bold=ImageFont.truetype(font_path(True),36)
     def text(value,x,y,width=960,size=26,fill='#40352b'):
         for paragraph in str(value).split('\n'):
             line=''

@@ -1,0 +1,35 @@
+[Unit]
+Description=Alex QQ Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=QQ_BRIDGE_HOME=/var/lib/alexbot
+Environment=QQ_PYTHON=/opt/alex-bot-runtime/python/app-venv/bin/python
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/alex-bot-runtime/browsers
+Environment=TMPDIR=/run/alexbot
+Environment=TZ=Asia/Shanghai
+Environment=NODE_OPTIONS=--network-family-autoselection-attempt-timeout=1500
+LoadCredential=master.key:/etc/alexbot/master.key
+ExecStart=/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs --connect
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+RuntimeDirectory=alexbot
+RuntimeDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/alexbot /run/alexbot
+LimitCORE=0
+MemoryHigh=1200M
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target
