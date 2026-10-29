@@ -72,7 +72,7 @@ test('group pairing requires ready, paired owner and enabled sending', async () 
 test('unknown groups neither query nor reply, including owner sender and private pairing commands', async () => {
   const f = fixture(); await pairOwner(f);
   const before = f.state();
-  for (const text of ['天气 北京', '梁祖 发 天气 北京', '小难梁 帮助', '梁圣 /ping', '/ping', '/status', '/pause', '/pair ' + 'a'.repeat(32), '/group-bind ' + 'b'.repeat(32)]) {
+  for (const text of ['天气 北京', '梁祖 发 天气 北京', '小难梁 帮助', '大肥鱼 你好', '梁圣 /ping', '/ping', '/status', '/pause', '/pair ' + 'a'.repeat(32), '/group-bind ' + 'b'.repeat(32)]) {
     assert.equal((await f.core.handleMessage(group(text, text, GROUP, OWNER))).code, 'GROUP_DENIED');
   }
   assert.deepEqual(f.state(), before);
@@ -160,19 +160,21 @@ test('group admin commands do nothing and fixed help exposes no private settings
   assert.equal(f.queries.length, 0);
   for (const sent of f.sent) {
     assert.match(sent.text, /发 天气 城市或区县/); assert.match(sent.text, /发 雷达/); assert.match(sent.text, /雷达目录/); assert.match(sent.text, /发 雾霾 城市或区县/);
-    for (const alias of ['梁圣', '梁祖', '梁嗨', '小难梁']) assert.ok(sent.text.includes(alias));
+    for (const alias of ['梁圣', '梁祖', '梁嗨', '小难梁', '大肥鱼']) assert.ok(sent.text.includes(alias));
     assert.ok(!/@|pause|status|08|每日|已配对|本人/.test(sent.text));
     assert.equal(sent.groupId, GROUP);
   }
 });
 
-test('all four leading aliases accept whitespace separators and strip exactly one prefix', async () => {
+test('all five leading aliases accept whitespace separators and strip exactly one prefix', async () => {
   const f = fixture({ handler: async () => null }); await pairOwner(f); await allowGroup(f);
   const inputs = [
     ['梁圣 发 天气 北京', '发 天气 北京'],
     ['  梁祖  发 雷达 华北  ', '发 雷达 华北'],
     ['梁嗨\t雷达目录 河北', '雷达目录 河北'],
     ['小难梁\u3000\n发 雾霾 北京', '发 雾霾 北京'],
+    ['大肥鱼 你好呀~', '你好呀~'],
+    ['大肥鱼\u3000帮我换算1马里', '帮我换算1马里'],
     ['梁祖 梁嗨 发 天气 北京', '梁嗨 发 天气 北京'],
   ];
   for (let i = 0; i < inputs.length; i++) await f.core.handleMessage(group(inputs[i][0], `alias-${i}`));
@@ -188,7 +190,8 @@ test('unaddressed conversation, malformed aliases, bare mentions and empty comma
     '发 天气 北京', '帮助', '菜单', '/help', '/ping',
     '梁圣发 天气 北京', '梁祖发 雷达 华北', '梁海 发 天气 北京', '小难梁呀 发 天气 北京',
     '请 梁祖 发 天气 北京', '天气 北京 梁圣',
-    '梁圣', '梁祖 ', '梁嗨\t\n ', ' 小难梁\u3000 ', '', ' \n ',
+    '大肥鱼你好', '请 大肥鱼 发 天气 北京', '我喜欢大肥鱼', '大肥鱼儿 你好',
+    '梁圣', '梁祖 ', '梁嗨\t\n ', ' 小难梁\u3000 ', '大肥鱼', '大肥鱼 ', '', ' \n ',
     '@亚历克斯 发 雷达 华北', '@亚历克斯 梁祖 发 雷达 华北', '<@!bot> 发 天气 北京',
   ];
   for (const text of ignored) assert.equal((await f.core.handleMessage(group(text, 'reusable-id'))).code, 'IGNORED');

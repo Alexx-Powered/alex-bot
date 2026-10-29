@@ -17,7 +17,7 @@ const GROUP_CONTEXT_TTL_MS = 30 * 60_000;
 const GROUP_CONTEXT_SIZE = 10;
 const GROUP_CONTEXT_SEEN_LIMIT = 512;
 const MAX_PENDING_INCOMING = 4;
-const GROUP_PREFIX = /^(?:梁圣|梁祖|梁嗨|小难梁)\s+(\S[\s\S]*)$/u;
+const GROUP_PREFIX = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+(\S[\s\S]*)$/u;
 const ownerControlCommands = new Set(['/pause', '/status']);
 const contextControl = text => text.startsWith('/') || /\/(?:pair|group-bind|pause|resume|status|notify|help|ping)\b/i.test(text) || ['帮助','菜单'].includes(text);
 function sendingLimits(overrides) {
@@ -647,7 +647,7 @@ export class BridgeCore {
     const target = { scope: 'group', targetId: groupId, msgId: id };
     if (command === '/ping') return this.#notify({ text: '连接正常（固定测试回复）', idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     if (['帮助', '菜单', '/help'].includes(command)) return this.#notify({
-      text: this.groupAccess(groupId)==='gray'?'灰名单群：仅开放基础聊天与换算。\n前缀：梁圣、梁祖、梁嗨、小难梁，后加空格。\n例如：梁祖 你好\n梁祖 1马里换公里\n余额、三号楼及其他查询未开放。\n帮助\n/ping':'白名单群：主动询问可使用全部业务功能。\n前缀：梁圣、梁祖、梁嗨、小难梁，后加空格。\n天气、雷达、空气、换算、生活费、官方状态、DeepSeek余额、三号楼简报均可自然询问。\n例如：梁祖 今天学院路有哪些空教室\n固定命令：发 天气 城市或区县、发 雷达 地点、雷达目录、发 雾霾 城市或区县、查DeepSeek余额、查空教室、换算 0.6 HU$ 人民币。\n帮助\n/ping',
+      text: this.groupAccess(groupId)==='gray'?'灰名单群：仅开放基础聊天与换算。\n前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n例如：梁祖 你好\n梁祖 1马里换公里\n余额、三号楼及其他查询未开放。\n帮助\n/ping':'白名单群：主动询问可使用全部业务功能。\n前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n天气、雷达、空气、换算、生活费、官方状态、DeepSeek余额、三号楼简报均可自然询问。\n例如：梁祖 今天学院路有哪些空教室\n固定命令：发 天气 城市或区县、发 雷达 地点、雷达目录、发 雾霾 城市或区县、查DeepSeek余额、查空教室、换算 0.6 HU$ 人民币。\n帮助\n/ping',
       idempotencyKey: `reply:${incomingKey}`,
     }, target, groupId);
     if (this.#commandHandler) {
