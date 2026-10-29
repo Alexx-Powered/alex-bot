@@ -17,6 +17,6 @@
 & "$env:USERPROFILE\.workbuddy\binaries\python\envs\default\Scripts\python.exe" -B -X utf8 -m unittest test_briefing.BriefingTests
 ```
 
-2026-10-29发送测试4项与绘图测试1项通过。Bot环境不额外安装Pillow；WorkBuddy环境不额外安装LangChain。
+2026-10-29发送测试4项与绘图测试1项通过。随后校园功能接入时Bot环境已加入Pillow/Playwright，可在Bot环境一次执行完整`python -m unittest test_briefing.py`。WorkBuddy原有运行脚本与环境选择不变。
 
 此安装包不含 QQ 凭据、访问口令、截图、用户标识、测试数据或运行回执。迁移到其他电脑时须先安装并配对对应的 QQ Bot 桥接服务，不能只复制密钥文件。

@@ -10,7 +10,7 @@ GitHub：[Alexx-Powered/alex-bot](https://github.com/Alexx-Powered/alex-bot)，2
 |---|---|
 | [codex-qq-plugin](codex-qq-plugin/README.md) | QQ主服务、Python工具、Codex MCP、本机控制页与测试 |
 | [workbuddy-study-qq](workbuddy-study-qq/README.md) | WorkBuddy截图分析、三号楼自习规划、绘图及本人发送工具 |
-| [buaa-classrooms](buaa-classrooms/README.md) | 学院路空教室采集原型，尚未接入QQ或LangChain |
+| [buaa-classrooms](buaa-classrooms/README.md) | 最初的独立采集原型；当前Bot集成实现在主服务的Python校园模块 |
 
 ## 本地开发
 
@@ -31,7 +31,9 @@ npm test
 .\.venv\Scripts\python.exe -B -X utf8 -m unittest discover -s python -p 'test_*.py'
 ```
 
-WorkBuddy发送和绘图测试使用不同Python环境，命令见其README。在线数据、模型与真实QQ验收需要按当次授权单独执行。
+WorkBuddy原脚本保留不同Python环境入口；Bot环境现已加入Pillow，也可一次运行完整5项测试，命令见其README。在线数据、模型与真实QQ验收需要按当次授权单独执行。
+
+学院路功能在本机控制页第06节配置。本人私聊“查空教室”或“三号楼简报”会查询学院路全部教室JSON，并直接生成三号楼图片发本人；JSON可在控制页查询/下载。校园账号密码单独用Windows DPAPI加密，不进入模型、仓库或群聊。校园接口标空闲的课节为空闲，其余课节按用户指定记为有课。
 
 ## 仓库边界
 

@@ -8,7 +8,7 @@ export function pythonEnvironment(source=process.env){
 const failure=()=>Object.assign(new Error('PYTHON_AGENT_UNAVAILABLE'),{code:'PYTHON_AGENT_UNAVAILABLE'});
 export class PythonAgentWorker{
   #child;#current;#tail=Promise.resolve();#buffer='';#closed=false;
-  constructor({home,pythonPath=resolve(home,'.venv','Scripts','python.exe'),workerPath=resolve(home,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs});}
+  constructor({home,pythonPath=resolve(home,'.venv','Scripts','python.exe'),workerPath=resolve(home,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000,maxLineBytes=65536,toolTimeouts={}}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs,maxLineBytes,toolTimeouts});}
   #stop(){const child=this.#child;this.#child=null;this.#buffer='';if(child)child.kill();if(this.#current){const task=this.#current;this.#current=null;clearTimeout(task.timer);task.reject(Object.assign(failure(),{toolExecuted:task.called}));}}
   close(){this.#closed=true;this.#stop();}
   #write(value){if(!this.#child?.stdin.writable)throw failure();this.#child.stdin.write(JSON.stringify(value)+'\n');}
@@ -18,7 +18,7 @@ export class PythonAgentWorker{
     this.#child=child;child.stdout.setEncoding('utf8');
     child.stdout.on('data',chunk=>{
       if(this.#child!==child)return;this.#buffer+=chunk;
-      if(Buffer.byteLength(this.#buffer)>65536){this.#stop();return;}
+      if(Buffer.byteLength(this.#buffer)>this.maxLineBytes){this.#stop();return;}
       let index;while((index=this.#buffer.indexOf('\n'))>=0){const line=this.#buffer.slice(0,index);this.#buffer=this.#buffer.slice(index+1);this.#line(line).catch(()=>this.#stop());}
     });
     // Never forward raw provider stderr, which might contain credentials.
@@ -33,6 +33,9 @@ export class PythonAgentWorker{
     if(value.type==='tool'){
       if(task.called||typeof value.callId!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(value.callId))throw failure();
       task.called=true;
+      if(Object.hasOwn(this.toolTimeouts,value.name)){
+        clearTimeout(task.timer);task.timer=setTimeout(()=>this.#stop(),this.toolTimeouts[value.name]);
+      }
       try{
         const artifact=await task.execute(value.name,value.args);
         if(this.#current!==task)return;
@@ -41,7 +44,8 @@ export class PythonAgentWorker{
       }catch(error){if(this.#current===task){task.toolError=error instanceof Error?error:new Error('WEATHER_TOOL_ERROR');this.#write({type:'tool_result',id:task.id,callId:value.callId,content:'工具暂不可用。'});}}
       return;
     }
-    if(value.type!=='result'||!['tool','conversion','reasoned','balance','chat','clarify','ignore','error','analysis'].includes(value.kind))throw failure();
+    if(value.type!=='result'||!['tool','conversion','reasoned','balance','chat','clarify','ignore','error','analysis','campus'].includes(value.kind))throw failure();
+    if(value.kind==='campus'&&task.requestType!=='campus')throw failure();
     if(value.kind==='balance'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='deepseek_account_balance'))throw failure();
     if(value.kind==='reasoned'&&task.requestType!=='request')throw failure();
     if(value.kind==='analysis'&&task.requestType!=='morning')throw failure();

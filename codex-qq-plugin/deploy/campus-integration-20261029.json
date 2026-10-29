@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-29",
+  "scope": "Integrate BUAA Xueyuanlu classroom JSON and direct Building 3 briefing generation into the QQ bot; user enters campus credentials locally",
+  "credentials": {
+    "user_entered_in_local_console": true,
+    "student_id_or_password_exposed_to_chat": false,
+    "storage": ".private/campus-config.json",
+    "encryption": "Windows DPAPI CurrentUser; private directory ACL",
+    "model_receives_campus_credentials": false,
+    "credentials_or_browser_profile_tracked_in_git": false
+  },
+  "behavior": {
+    "json_schema": "buaa-classrooms.v1",
+    "campus": "学院路校区",
+    "query_scope": "all classroom buildings from the selected campus",
+    "period_mapping": "Per explicit user instruction: source kxsds periods are free; every other period 1-14 is busy. No extra time filtering.",
+    "query_dates": "today through 7 days ahead, Asia/Hong_Kong UTC+8",
+    "qq_commands": ["查空教室 [YYYY-MM-DD]", "三号楼简报 [YYYY-MM-DD]"],
+    "natural_language_routing": "bounded LangChain owner-only tool; offline scripted model test",
+    "image_generation": "direct imports of existing plan.py and briefing_layout.py, with source/time strip",
+    "skill_or_ocr_executed": false,
+    "qq_destination": "paired C2C owner only; not available to groups"
+  },
+  "tests": {
+    "node_full": {"passed": 363, "failed": 0, "skipped": 0, "local_log": "../test-output/campus-node-full.txt"},
+    "python_full": {"passed": 94, "failed": 0, "skipped": 0},
+    "workbuddy_existing_suite": {"passed": 5, "failed": 0, "skipped": 0},
+    "python_dependencies": "pip check: no broken requirements",
+    "offline_preview": "1800px Building 3 board visually inspected, with explicit demo marking",
+    "covered_cases": ["DPAPI envelope/projection boundary", "campus credentials never enter model packets", "owner/group isolation", "paused send refusal", "fixed JSON failures", "date/schema/period validation", "internal artifact ID validation", "busy process isolation", "existing six-tier preferences and excluded rooms", "zero-free-room behavior", "login iframe navigation race", "captcha/auth classification"]
+  },
+  "live_verification": {
+    "earlier_failures": "Two query attempts failed before QQ sending because login-result inspection raced iframe navigation. Only sanitized phase/type diagnostics were used; no auto-loop of send attempts.",
+    "fix": "Transient Playwright document errors during login-result observation now wait for the actual classroom response instead of being classified as a network failure.",
+    "fetched_at": "2026-10-29T15:24:55.056671+08:00",
+    "query_date": "2026-10-29",
+    "room_count": 158,
+    "building3_room_count_before_exclusions": 45,
+    "building3_room_count_after_exclusions": 37,
+    "buildings": ["三号楼", "主楼", "新主楼"],
+    "query_code": "OK",
+    "qq_result": "SENT",
+    "successful_test_messages": 1,
+    "group_test_messages": 0,
+    "user_receipt_confirmation": "已收到，显示正常",
+    "daily_attempts_before": 39,
+    "daily_attempts_after": 40,
+    "transport_after": "connected",
+    "paused_after": false,
+    "uncertain_deliveries_after": 0
+  },
+  "not_live_tested": ["CAPTCHA or secondary-verification handoff", "online natural-language model selection", "long-running operation or sleep/resume"],
+  "runtime_only_artifacts": [".private/campus-browser/", ".private/campus-output/", "test-output/campus-live-result*.json", "test-output/campus-live-confirmed.png"]
+}

@@ -2,3 +2,4 @@
 input[type="checkbox"]{display:inline-block;width:auto;margin:0 8px 0 0;vertical-align:middle}
 
 .console-brand{display:flex;align-items:center;gap:16px}.console-brand img{flex-shrink:0}.guide-entry{display:block;padding:18px 20px;background:#123e47;color:#fff;border-radius:12px;text-decoration:none;font-weight:600}.guide-entry small{margin:5px 0 0;color:#bcd8d2;font-weight:400}@media(max-width:600px){.console-brand h1{font-size:23px}.console-brand img{width:50px;height:50px}}
+.campus-json{max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px} details{margin-top:16px} #campusDownload{display:inline-block;margin-top:12px} #campusDownload.hidden{display:none}

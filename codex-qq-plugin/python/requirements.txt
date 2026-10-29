@@ -1,3 +1,5 @@
 # Python >= 3.10. Official PyPI versions verified 2026-10-28.
 langchain==1.4.7
 langchain-deepseek==1.1.1
+playwright==1.64.1
+Pillow==13.0.0

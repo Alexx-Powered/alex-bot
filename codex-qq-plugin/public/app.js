@@ -6,6 +6,12 @@ if (location.hash) history.replaceState(null, '', '/');
 const token = sessionStorage.getItem('qq-local-token');
 let pendingGroupKey = null;
 const descriptions = {
+  OK:'查询完成，JSON已更新。',CAMPUS_CONFIG_SAVED:'校园设置已加密保存。',CAMPUS_CONFIG_INVALID:'请检查学号和密码；首次启用或修改账号时需要同时填写两项。',
+  CAMPUS_CONFIG_UNAVAILABLE:'校园加密配置暂不可用，请检查本机存储。',CAMPUS_NOT_CONFIGURED:'请先在本页填写并保存校园学号密码。',CAMPUS_DISABLED:'校园查询未启用。',
+  CAMPUS_BUSY:'已有校园查询或浏览器验证正在进行，请稍后再试。',CAMPUS_INVALID_DATE:'请选择今天至未来7天内的日期。',CAMPUS_AUTH_FAILED:'校园认证未成功，请检查凭据或打开浏览器完成验证。',
+  CAMPUS_INTERACTION_REQUIRED:'需要你在专用浏览器完成验证码或二次验证，请点击“打开浏览器完成验证”。',CAMPUS_NETWORK_ERROR:'校园网络请求失败，本次没有返回旧数据。',
+  CAMPUS_SCHEMA_CHANGED:'校园接口数据格式发生变化，已停止生成。',CAMPUS_BROWSER_UNAVAILABLE:'校园查询浏览器未能启动，请检查Edge和本机Python依赖。',
+  CAMPUS_QUERY_FAILED:'校园查询未能完成，请检查网络或重新进行浏览器验证。',CAMPUS_RENDER_FAILED:'查询或三号楼简报绘制未完成，未发送图片。',CAMPUS_OWNER_ONLY:'校园查询仅支持本人私聊。',
   AGENT_CONFIG_SAVED:'模型设置已保存，下次请求生效。', AGENT_CONFIG_INVALID:'请检查模型名、Key 格式；首次启用需要填写 Key。', AGENT_CONFIG_UNAVAILABLE:'模型配置暂不可用，请检查本机加密存储。',
   CONFIG_SAVED:'凭据已加密保存。现在可以连接 QQ。', CONNECTING:'正在连接 QQ，请稍候。',
   CONNECT_CANCELLED:'连接请求已被断开操作取消。',
@@ -47,6 +53,9 @@ async function refresh() {
     const limits=core.limits;
     $('sendLimits').textContent=limits?`本地今日 ${core.dailyAttempts}/${limits.dailyAttempts} 次、最近一分钟 ${core.minuteAttempts}/${limits.minuteAttempts} 次发送尝试；总计达到 ${limits.replyDailyAttempts} 次后，最后 ${limits.reservedNotifications} 次只供主动通知。`:'本地限额暂不可用。';
     const agent=state.agent||{};
+    const campus=state.campus||{};
+    $('campusState').textContent=(campus.configured?'校园凭据已加密保存':'尚未保存校园凭据')+' · '+(campus.enabled?'查询已启用':'查询未启用')+(campus.busy?' · 正在查询/验证':'')+(campus.lastCode?' · '+(descriptions[campus.lastCode]||campus.lastCode):'');
+    if(!document.querySelector('#campusConfig:focus-within'))$('campusEnabled').checked=campus.enabled===true;
     $('agentState').textContent=(agent.configured?'模型 Key 已保存':'尚未配置模型 Key')+' · '+(agent.enabled?'自然语言已启用':'自然语言未启用')+' · '+(agent.model||'deepseek-flash');
     if(!document.querySelector('#agentConfig:focus-within')){$('agentEnabled').checked=agent.enabled===true;$('agentModel').value=agent.model||'deepseek-flash';}
     $('connection').textContent=states[transport.state] || '状态未知';
@@ -78,6 +87,36 @@ async function refresh() {
 async function action(route,data={}) { try { const result=await api(route,data); feedback(result); await refresh(); return result; } catch { feedback({ok:false,code:'OPERATION_FAILED'}); } }
 if (!token) { $('locked').classList.remove('hidden'); $('workspace').classList.add('hidden'); }
 else {
+  let jsonObjectUrl;
+  const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
+  $('campusDate').value=today;$('campusDate').min=today;$('campusDate').max=new Date(Date.now()+8*3600000+7*86400000).toISOString().slice(0,10);
+  $('campusConfig').addEventListener('submit',async event=>{
+    event.preventDefault();
+    const value={enabled:$('campusEnabled').checked};
+    const username=$('campusUsername').value.trim(),password=$('campusPassword').value;
+    if(username||password){value.username=username;value.password=password;}
+    $('campusUsername').value='';$('campusPassword').value='';
+    await action('campus/config',value);
+  });
+  async function campusAction(mode){
+    const buttons=['campusQuery','campusBriefing','campusLogin'];buttons.forEach(id=>$(id).disabled=true);
+    if(jsonObjectUrl){URL.revokeObjectURL(jsonObjectUrl);jsonObjectUrl=null;}
+    $('campusDownload').classList.add('hidden');$('campusDownload').removeAttribute('href');
+    try{
+      $('campusOutput').textContent='正在查询，结果将在完成后显示。';
+      const result=await api('campus/'+mode,{date:$('campusDate').value,...(mode==='briefing'?{requestId:crypto.randomUUID().replaceAll('-','')}:{})});
+      const data=result.data||result;
+      if(data.schema_version==='buaa-classrooms.v1'){
+        const json=JSON.stringify(data,null,2);$('campusOutput').textContent=json;
+        if(jsonObjectUrl)URL.revokeObjectURL(jsonObjectUrl);
+        jsonObjectUrl=URL.createObjectURL(new Blob([json],{type:'application/json;charset=utf-8'}));
+        $('campusDownload').href=jsonObjectUrl;$('campusDownload').download='xueyuanlu-'+(data.date||today)+'.json';$('campusDownload').classList.remove('hidden');
+      }else{$('campusOutput').textContent=JSON.stringify(result,null,2);}
+      feedback(result);await refresh();
+    }catch{feedback({ok:false,code:'CAMPUS_QUERY_FAILED'});$('campusOutput').textContent='本次查询未完成。';}
+    finally{buttons.forEach(id=>$(id).disabled=false);}
+  }
+  $('campusQuery').onclick=()=>campusAction('query');$('campusBriefing').onclick=()=>campusAction('briefing');$('campusLogin').onclick=()=>campusAction('login');
   $('agentConfig').addEventListener('submit',async event=>{
     event.preventDefault();
     const value={enabled:$('agentEnabled').checked,model:$('agentModel').value.trim()};

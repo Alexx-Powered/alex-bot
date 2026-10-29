@@ -28,10 +28,11 @@
 | 增强早安 | `config/morning-report.json` enabled=true |
 | Windows 任务 | `AlexQQ-Morning-Service`，本次查询为 Running |
 | 聊天 | `chat-policy.md` 启用，安全输出上限600字符 |
-| WorkBuddy skill | 2.3.1；标识仍为 `building3-study-planner-v2-1` |
+| WorkBuddy skill | 2.3.1；标识仍为 `building3-study-planner-v2-1`；校园链路直接复用Python规划/绘图，不执行skill |
+| 学院路空教室 | 已接入：单独加密校园配置、固定JSON查询、三号楼本人简报；真实验收结果见校园维护记录 |
 | 云端 | 未部署；电脑关机、休眠或断网不保证服务与投递 |
 
-本轮维护运行了完整离线测试，并重启本地桥接服务加载修复；没有发送真实QQ测试消息或调用在线大模型。重启前后均connected、已配对、未暂停、1个白名单群，当天发送计数均为39、无不确定投递；没有重置计数、配对或幂等记录。原早安计划任务核对为Running。上述状态是时点快照，API返回`SENT`仅表示接口接受，不等于用户已阅读。
+前次并发控制维护运行了完整离线测试并重启服务，当时未发送QQ测试消息，重启前后计数39。本轮校园接入已另外完成一次真实本人图片测试：接口SENT，用户确认“已收到，显示正常”；计数由39增至40。服务connected、已配对、未暂停、1个白名单群、无不确定投递，没有重置计数/配对/幂等记录。原早安计划任务此前核对为Running。状态均为时点快照，接口接受与用户实际收件分开记录。
 
 ## 2. 总体架构与流程
 
@@ -91,6 +92,7 @@ LangChain 的优势是统一工具描述、参数校验、上下文与语义路�
 | 早安报告 | 每天08:00天气三联图与运动建议，固定脚本，无需模型推理 | `morning-*.mjs`、`python/morning_report.py` |
 | Codex 通知 | 执行任务的授权通知、阻塞求助；不是 QQ 任意遥控 Codex | `src/mcp.mjs`、`codex-package/` |
 | WorkBuddy 自习图 | 分析截图，双栏长图发本人 | `workbuddy-study-qq/`、`src/study-briefing.mjs` |
+| 学院路空教室 | 本人私聊“查空教室”“三号楼简报”或自然语言；本机JSON与三号楼图片 | `python/campus_classrooms.py`、`campus_report.py`、`campus_worker.py`、`src/campus-*.mjs` |
 
 固定比例不得被提示词改变：0.6 HU$=70人民币；1马里=3.08km；1马时=1.5小时；全马42.195km，半马21.0975km。古月币没有钱包、交易或实时外汇服务。
 
@@ -181,7 +183,7 @@ flowchart LR
 
 图片发送只读本机访问口令用于固定回环接口，不把口令写入输出。manifest必须已核对、日期合法、生成不超过2小时、SHA256与PNG匹配、PNG不超过1.5MB。服务额外限制请求大小、PNG签名及真实解码、1080/1800宽、200–16000高；接口不接受文件路径、远程URL或收件人。
 
-两个Python环境不同：WorkBuddy自带Python有Pillow/NumPy负责OCR与绘图；QQ项目 `.venv` 有LangChain负责发送。不能假设任意 `python` 同时具备依赖。
+WorkBuddy原脚本仍由其自带Python执行OCR与绘图，Bot `.venv` 执行LangChain发送。本轮校园接入另外把Pillow与Playwright加入Bot专用环境，使Bot能直接调用三号楼规划/绘图函数；没有调用skill、OCR或WorkBuddy应用。依赖已写入Python入口和锁文件。
 
 本轮只更新源目录陈旧测试与README，发送器行为仍为2.3.1，没有重发安装包或修改已安装skill。源目录与已安装`send_qq.py`的SHA256核对一致。发送测试覆盖同manifest两次独立POST、超时单次POST及回执、暂停/离线/额度拒绝、未核对与图片篡改；分别在Bot与WorkBuddy的现有环境运行，避免因缺少另一环境依赖而跳过验证。
 
@@ -200,6 +202,9 @@ flowchart LR
 | `/api/weather/preview`、`/api/weather/briefing` | 天气预览、daily或test发送 |
 | `/api/morning/preview`、`/api/morning/test-all-allowed` | 增强报告预览或显式广播测试 |
 | `/api/study-briefing` | WorkBuddy本人PNG发送 |
+| `/api/campus/config`、GET `/api/campus/status` | 单独的校园加密设置及不含账号密码的状态 |
+| `/api/campus/query`、`/api/campus/login` | 固定JSON查询；可见专用浏览器供本人完成验证码/二次验证 |
+| `/api/campus/briefing` | 查询、生成三号楼图片、向本人发送一次；调用方提供本次requestId去重 |
 
 MCP源码注册 `qq_status`、`qq_notify`、`qq_weather_preview`、`qq_weather_briefing`、`qq_broadcast`、`qq_morning_test`。安装缓存是否已加载以当前工具列表为准；只修改源码不会保证旧聊天立即刷新MCP。
 
@@ -273,7 +278,7 @@ WorkBuddy测试在`workbuddy-study-qq`目录运行：Bot环境执行`-m unittest
 | 版本控制 | 已建立工作区根Git仓库；源码与非密钥配置纳入管理 | `.private`、浏览器profile、备份、回执、ZIP与隐私样本保留本地 |
 | 持续运行验收 | 历史人工测试不等于跨夜、休眠恢复或长期无互动投递成功 | 用真实调度记录与本人收件反馈验收，不循环补发 |
 
-本轮实际回归：Node353项全部通过（含恢复运行的MCP子测试），Bot Python82项全部通过；WorkBuddy发送4项、渲染1项分别在正确环境全部通过，无跳过。定向Node回归55项通过。未重新调用在线模型、天气源或QQ发送作业务验收；长时间运行/休眠恢复与校园浏览器采集仍属待验，不能用离线测试替代。
+并发控制维护的回归为Node353、Bot Python82、WorkBuddy发送4与渲染1项通过。本轮校园接入后的最新回归为Node363、Bot Python94、WorkBuddy完整5项通过，无跳过；校园JSON和本人图片另经真实链路验收，见第10节。没有为此调用在线聊天模型或天气源。长时间运行与休眠恢复仍待独立验收，不能用离线测试替代。
 
 ### 常见排障顺序
 
@@ -288,11 +293,23 @@ WorkBuddy测试在`workbuddy-study-qq`目录运行：Bot环境执行`-m unittest
 | 测试EADDRINUSE | MCP已用独立临时端口；检查其他测试或旧代码副本，不停止不相关进程 |
 | SENT却未看到 | 区分接口接受与QQ客户端实际收件，不换标识循环重发 |
 
-## 10. 尚未接入的教室采集与迁移边界
+## 10. 学院路查询、校园凭据与迁移边界
 
-`buaa-classrooms/` 是独立采集项目，目前**没有接入QQ或LangChain**。公开页面与协议分析、手动登录页面提取已有记录；独立Python浏览器认证全流程仍待实测，不能把静态样本当自动采集成功。
+`buaa-classrooms/` 保留最初独立采集原型。当前Bot生产链路位于`codex-qq-plugin/python/campus_classrooms.py`：真实LangChain Tool固定查询学院路全部教学楼，参数仅date（今天至未来7天），成功和失败都返回`buaa-classrooms.v1` JSON。自然语言agent仅本人私聊公开入口；固定命令“查空教室 [YYYY-MM-DD]”“三号楼简报 [YYYY-MM-DD]”无需模型Key。群聊不开放校园工具，Node也再次校验scope。
 
-采集页面提示历史时段可能不显示，“无标记”不一定等于有课。不要直接把新采集数据映射成现有截图skill的白色=B语义；接入前定义时间、空闲/占用/未知与数据新鲜度契约。建议采集端维护本地JSON、受限Tool只读校验后的快照，不让模型持有校园登录材料。
+**按2026-10-29用户明确指定的口径**：接口`kxsds`列出的节次为空闲，其余1–14节为有课；不额外按当前时刻删改接口空闲标记。JSON的`free_periods`与`busy_periods`完整划分14节，绘图F/B使用同一数据。此约定取代前次交接建议的未知格映射，不更改WorkBuddy截图输入本身的F/B/?规则。
+
+校园学号和密码由用户自行在控制页第06节输入。`CampusConfigStore`将两者连同enabled用Windows DPAPI CurrentUser整体加密，保存在`.private/campus-config.json`；状态和配置响应只返回configured/enabled，不回显账号或密码。两项留空保留旧值，修改任一项须提供完整新账号密码。校园凭据只经本机stdin管道交给独立校园worker，绝不放进自然语言worker、模型提示词、命令行参数或Git。
+
+校园worker使用本机Edge专用profile，位于受保护的`.private/campus-browser/`；认证会话与学号密码都不上传。只允许HTTPS北航域名资源，且只在`sso.buaa.edu.cn`已核对的登录输入框使用保存的凭据，每次查询最多自动提交一次。遇验证码/二次验证返回`CAMPUS_INTERACTION_REQUIRED`，由用户在配置页打开可见浏览器自行完成，不自动识别或绕过。不同凭据使用不同profile，避免换账号后沿用旧会话。
+
+JSON保留学院路全部楼宇/教室；图片只筛选三号楼，直接导入既有`plan.py`及`briefing_layout.py`，保留六级排序、排除名单、推荐理由和双栏版式，增加来源及获取时间。没有执行SKILL.md、OCR、WorkBuddy进程或旧发送器。最新JSON保存在`.private/campus-output/latest.json`，图片为同目录内部随机ID的PNG；这些课堂数据文件受目录权限保护、不进入Git。固定JSON可在本机控制页查看和下载，QQ成功回复仅发本人一张图片。
+
+校园浏览器查询在独立worker执行；公共模型worker默认60秒，仅已识别的校园RPC延长到120秒；可见浏览器验证单独最多约3分钟。相同专用profile不并发查询，失败不以旧JSON冒充当前数据。图片发送继续经BridgeCore校验配对、暂停、限额及单次请求标识，不向群发。
+
+真实验收：用户在第06节自行填写并加密保存凭据后，首次查询遇到登录iframe跳转竞态，返回固定错误JSON，未发送图片。通过只含阶段/错误类型的诊断定位并修复；回归补测正常跳转、认证失败和验证码分支。修复后2026-10-29 15:24:55（北京时间）真实查询成功：学院路158间教室，其中三号楼45间，另外为主楼与新主楼；JSON为`buaa-classrooms.v1`，图片按规则排除8间后纳入37间。本人图片仅发送一次，接口SENT，用户在本聊天确认“已收到，显示正常”。不据此声称验证码/二次验证已实际触发验收或QQ自然语言已做真实在线模型测试；这些分支仅离线模拟覆盖。
+
+本轮凭据由用户自行输入，开发过程未读取输入框、未输出真实学号密码。临时诊断只保存固定阶段与异常类型，绝不保存异常全文或登录请求。完整真实教室JSON、图片、请求回执和诊断仅保留本机`.private`/`test-output`，仓库只有脱敏验收摘要。
 
 尚无云端部署。迁移需重新确认QQ权限、定时任务、网络与认证存储；Windows DPAPI材料不能直接当跨机器可用密钥。迁移时调整绝对路径及统一的 `QQ_BRIDGE_HOME`，先验证单实例，避免本地与云端同时连接和重复调度。
 
@@ -303,6 +320,7 @@ Codex阻塞求助遵守最新AGENTS：至少三次有效诊断、已问具体问
 - 当前业务源码与配置：`codex-qq-plugin/src/`、`python/`、`config/`。
 - 最近审查：`codex-qq-plugin/deploy/codex-review-20261029.json`。
 - 本轮修复及离线/重启验收：`codex-qq-plugin/deploy/maintenance-20261029.json`。
+- 校园接入、真实采集/本人收图及新增回归：`codex-qq-plugin/deploy/campus-integration-20261029.json`。
 - 真实验收历史：`deploy/langchain-live-verification.json`、`enhanced-morning-live-test.json` 等；结论限于各次记录。
 - WorkBuddy实际规则：已安装及源目录的 `SKILL.md`、`references/qq-briefing.md`、`scripts/send_qq.py`。
 - 备份：项目根 `backups/`。含运行文件与用户内容的备份不得默认公开。

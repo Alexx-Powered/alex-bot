@@ -16,6 +16,8 @@ import {MorningReportService} from './morning-report.mjs';
 import {loadSendLimits} from './send-limits.mjs';
 import {ModelRequestBudget} from './chat-safety.mjs';
 import {ConversionToolbox} from './conversion-tools.mjs';
+import {CampusConfigStore} from './campus-config.mjs';
+import {CampusService} from './campus-service.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const maxBody = 16384;
@@ -40,14 +42,15 @@ async function body(req, limit = maxBody) {
 }
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 
-export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands(), agentConfigStore = new AgentConfigStore(home), conversationAgent, morningReport, sendLimits, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
+export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands(), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
   const limits=sendLimits??await loadSendLimits(home);
   await store.init();
   let configured = Boolean(await store.readCredentials());
-  const worker = new PythonAgentWorker({home});
+  const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000}});
+  const campus = campusService || new CampusService({home,configStore:campusConfigStore});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,worker});
-  const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home)});
+  const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home)});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core;
   const adapter = adapterFactory({
@@ -89,7 +92,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     if (!validToken(req.headers.authorization, store.token)) return json(res, 401, { ok: false, code: 'UNAUTHORIZED' });
     let mutationHeld = false;
     try {
-      if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus() });
+      if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status() });
+      if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req, pathname === '/api/study-briefing' ? 2100000 : maxBody);
       // Safety controls must reach the core even while a slow preview, send or
@@ -109,6 +113,29 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       configBusy = true; mutationHeld = true;
       let result;
       switch (pathname) {
+        case '/api/campus/config': {
+          try{const status=await campusConfigStore.save(data);result={ok:true,code:'CAMPUS_CONFIG_SAVED',campus:status};}
+          catch(error){result={ok:false,code:error.code==='CAMPUS_CONFIG_INVALID'?'CAMPUS_CONFIG_INVALID':'CAMPUS_CONFIG_UNAVAILABLE'};}
+          break;
+        }
+        case '/api/campus/query':
+        case '/api/campus/login': {
+          const queried=await campus.run(data,pathname.endsWith('/login')?'login':'query');
+          result=queried.data;break;
+        }
+        case '/api/campus/briefing': {
+          if(Object.keys(data).some(k=>!['date','requestId'].includes(k))||typeof data.requestId!=='string'||!/^[a-f0-9]{32}$/.test(data.requestId))throw new Error('INVALID_INPUT');
+          const status=core.status();
+          if(!status.paired){result={ok:false,code:'NOT_PAIRED'};break;}
+          if(status.paused){result={ok:false,code:'PAUSED'};break;}
+          if(adapter.status().state!=='connected'){result={ok:false,code:'NOT_CONNECTED'};break;}
+          if(status.minuteAttempts>=status.limits.minuteAttempts){result={ok:false,code:'RATE_LIMIT_MINUTE'};break;}
+          if(!status.remainingDailyAttempts){result={ok:false,code:'RATE_LIMIT_DAY'};break;}
+          const report=await campus.run({date:data.date||''},'report');
+          if(!report.data.ok){result={ok:false,code:report.data.code,data:report.data};break;}
+          const delivery=await core.notifyImage({image:report.image,idempotencyKey:'campus:'+data.requestId});
+          result={ok:delivery.ok,code:delivery.code,data:report.data,delivery};break;
+        }
         case '/api/study-briefing': {
           if(adapter.status().state!=='connected'){result={ok:false,code:'NOT_CONNECTED'};break;}
           const image=await studyImage(data);
@@ -253,6 +280,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     },
     async close() {
       worker.close();
+      campus.close();
       await adapter.disconnect();
       server.closeIdleConnections();
       if (server.listening) await new Promise(resolve => server.close(resolve));

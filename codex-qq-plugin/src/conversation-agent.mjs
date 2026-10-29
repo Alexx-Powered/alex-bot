@@ -6,12 +6,13 @@ import {conversionReply} from './conversion-tools.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
-  constructor({toolbox,conversionTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget}){
+  constructor({toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget}){
     if(!modelBudget||typeof modelBudget.acquire!=='function')throw new TypeError('MODEL_BUDGET_REQUIRED');
-    Object.assign(this,{toolbox,conversionTools,worker,configStore,policyFile,policyLoader,modelBudget});
+    Object.assign(this,{toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader,modelBudget});
   }
   async handle(text,context={}){
     const sessionKey=context.sessionKey||'private';
+    const campus=await this.campusTools?.handle(text,context);if(campus)return campus;
     if(isBalanceQuery(text)){
       if(context.scope!=='c2c')return {text:'账户余额仅支持本人私聊查询。'};
       let config;try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机检查。'};}
@@ -53,6 +54,10 @@ export class ConversationAgent{
     try{
       return await this.worker.run({type:'request',text:requestText,sessionKey,context:packetContext,config,policy,now:new Date().toISOString()},async(name,args)=>{
         if(name==='local_weather_briefing')throw new Error('TOOL_DENIED');
+        if(name==='buaa_classroom_query'){
+          if(!this.campusTools||context.scope!=='c2c')throw new Error('TOOL_DENIED');
+          return this.campusTools.execute(args,context);
+        }
         return this.toolbox.execute(name,args);
       },result=>{
         if(result.kind==='balance')return context.scope==='c2c'?balanceReply(result):null;

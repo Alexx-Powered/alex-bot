@@ -7,13 +7,13 @@ import {WeatherToolbox} from '../src/weather-tools.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 import {parseChatPolicy} from '../src/chat-policy.mjs';
 
-function fakeWorker(respond){
+function fakeWorker(respond,overrides={}){
   let child,options;const lines=[];
   const spawnImpl=(exe,args,opts)=>{
     options=opts;child=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>child.emit('exit');
     child.stdin.on('data',chunk=>{const value=JSON.parse(String(chunk));lines.push(value);queueMicrotask(()=>respond(value,v=>child.stdout.write(typeof v==='string'?v:JSON.stringify(v)+'\n')));});return child;
   };
-  const worker=new PythonAgentWorker({home:process.cwd(),spawnImpl,timeoutMs:40});
+  const worker=new PythonAgentWorker({home:process.cwd(),spawnImpl,timeoutMs:40,...overrides});
   return {worker,lines,get options(){return options;}};
 }
 test('Python RPC keeps image in Node, serializes concurrent requests, strips inherited secrets',async()=>{
@@ -51,6 +51,16 @@ test('worker propagates only allowlisted model failure reasons without provider 
     try{await assert.rejects(f.worker.run({type:'request'},async()=>null),e=>e.reason===expected&&!e.message.includes('SECRET'));}
     finally{f.worker.close();}
   }
+});
+
+test('only trusted campus RPC gets its bounded longer deadline and campus results cannot impersonate model replies',async()=>{
+  const f=fakeWorker((v,out)=>v.type==='request'?out({type:'tool',id:v.id,callId:'campus',name:'buaa_classroom_query',args:{date:''}}):out({type:'result',id:v.id,kind:'tool'}),{timeoutMs:25,toolTimeouts:{buaa_classroom_query:500}});
+  try{
+    const result=await f.worker.run({type:'request'},async()=>{await new Promise(r=>setTimeout(r,60));return {text:'',image:{buffer:Buffer.alloc(16)}};});
+    assert.ok(result.image);
+  }finally{f.worker.close();}
+  const bad=fakeWorker((v,out)=>out({type:'result',id:v.id,kind:'campus',data:{}}));
+  try{await assert.rejects(bad.worker.run({type:'request'},async()=>null));}finally{bad.worker.close();}
 });
 test('exact weather and morning briefing fall back if Python missing, never require key',async()=>{
   const queries=[];const toolbox=new WeatherToolbox({handle:async text=>{queries.push(text);return {text:'',image:{buffer:Buffer.alloc(10)}};},briefing:async args=>({ok:true,cities:args.cities})},{run:async()=>{throw Error();}});
