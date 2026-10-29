@@ -109,16 +109,20 @@ export class CampusService{
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     if(context?.progress&&await context.progress('campus-fetch')!==true)return {cancelled:true};
     if(!fullAccess(context))return {cancelled:true};
-    const {building,regions,...queryArgs}=args||{};
+    const {building,regions,view,...queryArgs}=args||{};
     const scoped=regions?.length||(building&&building!=='三号楼');
-    const result=await this.run(queryArgs,scoped?'query':'report',{requestText});
+    const compact=scoped||(typeof requestText==='string'&&requestText.length>0&&view!=='full');
+    const result=await this.run(queryArgs,compact?'query':'report',{requestText});
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
-    if(scoped&&result.data.ok)return this.recommend({date:result.data.date,...(building?{building}:{}),...(regions?{regions}:{})},context,requestText);
+    if(compact&&result.data.ok)return this.recommend({date:result.data.date,...(building?{building}:{}),...(regions?{regions}:{})},context,requestText);
     return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify(result.data),requiredAccess:'white'};
   }
   async recommend(args,context,requestText){
     if(!fullAccess(context))return {text:'当前会话未开放教室推荐。',requiredAccess:'chat'};
-    let parsed;try{parsed=recommendationArgs.parse(args);}catch{return {text:'请指定今天或之后的日期，以及上午、下午、晚上或现在。',requiredAccess:'white'};}
+    let parsed;try{parsed=recommendationArgs.parse(args);}catch(error){
+      console.warn('[campus-recommend] INVALID_ARGUMENTS '+JSON.stringify((error.issues||[]).map(issue=>({field:issue.path.filter(part=>['date','session','limit','exclude_room','building','regions'].includes(part)),code:issue.code}))));
+      return {text:'教室推荐参数暂时解析失败，请稍后重试。本次没有返回教室结果。',requiredAccess:'white'};
+    }
     const status=await this.configStore.status();
     if(!status.configured||!status.enabled)return {text:'校园查询未启用，请先在本机设置页启用。',requiredAccess:'white'};
     if(this.#busy)return {text:'正在抓取教室数据，请等本次查询完成后再问推荐。',requiredAccess:'white'};
