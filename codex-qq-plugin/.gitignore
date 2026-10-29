@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+.private/
+*.log
+test-output/
+.venv/
+.pip-cache/
+__pycache__/
+*.pyc

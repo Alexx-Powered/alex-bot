@@ -1,0 +1,22 @@
+{
+  "name": "alex-codex-qq",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "description": "Local Codex plugin using Tencent official QQ Bot API, single-owner test mode",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test",
+    "mcp": "node src/mcp.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@napi-rs/canvas": "1.0.13",
+    "@tencent-connect/qqbot-nodejs": "1.0.5",
+    "chart.js": "4.6.1",
+    "zod": "4.6.7"
+  }
+}

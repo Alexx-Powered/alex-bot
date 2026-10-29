@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "alex_qq": {
+      "type": "stdio",
+      "command": "D:/Program Files/nodejs/node.exe",
+      "args": ["D:/Projects/Alex Bot/codex-qq-plugin/src/mcp.mjs"],
+      "env": { "QQ_BRIDGE_HOME": "D:/Projects/Alex Bot/codex-qq-plugin" }
+    }
+  }
+}

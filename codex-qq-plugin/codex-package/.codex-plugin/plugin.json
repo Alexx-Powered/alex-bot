@@ -1,0 +1,17 @@
+{
+  "name": "alex-codex-qq",
+  "version": "0.2.1",
+  "description": "通过腾讯官方 QQ Bot API，向本人私聊提供官方雷达图、CAMS曲线、北京天气简报及已授权通知。",
+  "author": { "name": "Alex local workspace" },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "亚历克斯 QQ 天气与通知",
+    "shortDescription": "官方雷达、CAMS曲线和北京天气简报",
+    "longDescription": "面向已配对本人的本地 QQ 助手，提供中央气象台雷达图、CAMS PM2.5 预报曲线、北京每日天气简报及已授权的 Codex 求助通知。使用腾讯官方机器人接口。",
+    "developerName": "Alex local workspace",
+    "category": "Productivity",
+    "capabilities": ["查看本机 QQ 桥接状态", "向已配对本人发送通知", "查询官方雷达图和 CAMS 预报", "发送北京天气简报"]
+  }
+}

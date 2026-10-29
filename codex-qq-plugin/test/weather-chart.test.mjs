@@ -1,0 +1,169 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { loadImage } from '@napi-rs/canvas';
+import { prepareWeatherChart, renderWeatherChart } from '../src/weather-chart.mjs';
+
+const NOW = Date.parse('2026-10-28T10:00:00Z');
+const HOUR = 3_600_000;
+const SHANGHAI = { id: 'geonames-1796236', name: '上海', latitude: 31.2304, longitude: 121.4737 };
+const SHENZHEN = { id: 'geonames-1795565', name: '深圳', latitude: 22.5431, longitude: 114.0579 };
+const CHAOYANG = { id: 'geonames-2038154', name: '辽宁省朝阳市', latitude: 41.5739, longitude: 120.4506 };
+const LONG_PLACE = { id: 'geonames-1529565', name: '新疆维吾尔自治区伊犁哈萨克自治州察布查尔锡伯自治县', latitude: 43.8381, longitude: 81.1497 };
+function forecast(city = 'beijing') {
+  return { city: { id: city }, date: '2026-10-28', timezone: 'Asia/Shanghai', fetchedAt: new Date(NOW).toISOString(),
+    hourly: Array.from({ length: 24 }, (_, i) => ({ time: `2026-10-28T${String(i).padStart(2, '0')}:00:00+08:00`,
+      temperatureC: 10 + Math.sin(i / 4) * 5, humidityPct: 60, precipitationMm: i === 12 ? 2 : 0, precipitationProbabilityPct: i >= 10 && i <= 14 ? 65 : 0 })) };
+}
+function airForecast(city = 'beijing') {
+  const base = { beijing: 45, tianjin: 30, guangzhou: 16 }[city] ?? 20;
+  return { city: { id: city }, timezone: 'Asia/Shanghai', fetchedAt: new Date(NOW).toISOString(),
+    hourly: Array.from({ length: 48 }, (_, i) => ({ time: new Date(NOW + i * HOUR).toISOString(), pm25: base + i })) };
+}
+
+test('two-city normalization preserves hourly weather, daily boundaries and separate Beijing air', () => {
+  const beijing = forecast(), tianjin = forecast('tianjin');
+  tianjin.hourly.forEach(point => { point.temperatureC += 3; });
+  const result = prepareWeatherChart({ date: '2026-10-28', cities: ['beijing', 'tianjin'], weather: [beijing, tianjin], air: airForecast(), now: NOW });
+  assert.equal(result.weatherSeries.length, 2);
+  assert.equal(result.weatherSeries[0].temperatureC[0], 10);
+  assert.equal(result.weatherSeries[1].temperatureC[0], 13);
+  assert.deepEqual(result.hours, Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')));
+  assert.equal(result.airSeries.values.length, 48);
+  assert.equal(result.airSeries.start, NOW);
+  assert.equal(result.airSeries.values[47], 92);
+  assert.equal(result.airSeries.id, 'beijing');
+  assert.equal(result.airSeries.name, '北京');
+});
+
+test('missing, invalid and absent hours remain null while genuine zero probability is retained', () => {
+  const weather = forecast();
+  weather.hourly[0].precipitationProbabilityPct = 0;
+  weather.hourly[1].precipitationProbabilityPct = null;
+  weather.hourly[2].precipitationProbabilityPct = -1;
+  weather.hourly[3].precipitationProbabilityPct = '0';
+  weather.hourly.splice(4, 1);
+  const air = airForecast(); air.hourly[3].pm25 = null; air.hourly[4].pm25 = -1;
+  const result = prepareWeatherChart({ date: '2026-10-28', weather: [weather], air, now: NOW });
+  assert.deepEqual(result.weatherSeries[0].precipitationProbabilityPct.slice(0, 5), [0, null, null, null, null]);
+  assert.equal(result.weatherSeries[0].temperatureC[4], null);
+  assert.equal(result.airSeries.values[3], null);
+  assert.equal(result.airSeries.values[4], null);
+});
+
+test('Tianjin and Guangzhou use their own CAMS forecast and reject substituted city data', () => {
+  for (const [city, name, firstPm25] of [['tianjin', '天津', 30], ['guangzhou', '广州', 16]]) {
+    const input = { date: '2026-10-28', cities: [city], weather: [forecast(city)], air: airForecast(city), now: NOW };
+    const result = prepareWeatherChart(input);
+    assert.equal(result.weatherSeries[0].id, city);
+    assert.equal(result.weatherSeries[0].name, name);
+    assert.equal(result.airSeries.enabled, true);
+    assert.equal(result.airSeries.id, city); assert.equal(result.airSeries.name, name);
+    assert.equal(result.airSeries.values[0], firstPm25);
+    assert.equal(result.airSeries.values[47], firstPm25 + 47);
+    for (const otherCity of ['beijing', 'tianjin', 'guangzhou'].filter(id => id !== city)) {
+      assert.throws(() => prepareWeatherChart({ ...input, air: airForecast(otherCity) }), /WEATHER_CHART_AIR_CITY_MISMATCH/);
+      assert.throws(() => prepareWeatherChart({ ...input, weather: [forecast(otherCity)] }), /WEATHER_CHART_CITY_MISMATCH/);
+    }
+  }
+});
+
+test('dual-city air selection prefers Beijing, otherwise the first city; temperature line styles stay distinct', () => {
+  for (const cities of [['beijing', 'guangzhou'], ['guangzhou', 'beijing'], ['tianjin', 'guangzhou'], ['guangzhou', 'tianjin']]) {
+    const airCity = cities.includes('beijing') ? 'beijing' : cities[0];
+    const otherCity = cities.find(city => city !== airCity);
+    const input = { date: '2026-10-28', cities, weather: cities.map(city => forecast(city)), now: NOW };
+    const model = prepareWeatherChart({ ...input, air: airForecast(airCity) });
+    assert.equal(model.airSeries.id, airCity);
+    assert.deepEqual(model.weatherSeries.map(series => series.id), cities);
+    assert.deepEqual(model.weatherSeries[0].lineDash, []);
+    assert.ok(model.weatherSeries[1].lineDash.length > 0);
+    assert.notEqual(model.weatherSeries[0].color, model.weatherSeries[1].color);
+    assert.throws(() => prepareWeatherChart({ ...input, air: airForecast(otherCity) }), /WEATHER_CHART_AIR_CITY_MISMATCH/);
+  }
+});
+
+test('explicit places support dynamic locations and supply the authoritative names and ordered styles', () => {
+  for (const places of [[SHANGHAI], [SHENZHEN], [CHAOYANG], [SHANGHAI, SHENZHEN]]) {
+    const cities = places.map(place => place.id), weather = cities.map(city => forecast(city));
+    weather[0].city.name = 'Untrusted forecast display name';
+    const result = prepareWeatherChart({ date: '2026-10-28', cities, places, weather, air: airForecast(cities[0]), now: NOW });
+    assert.deepEqual(result.weatherSeries.map(series => series.name), places.map(place => place.name));
+    assert.equal(result.airSeries.id, places[0].id); assert.equal(result.airSeries.name, places[0].name);
+    assert.equal(result.airSeries.values[0], 20);
+    assert.equal(result.weatherSeries[0].color, '#2563eb'); assert.deepEqual(result.weatherSeries[0].lineDash, []);
+    if (places.length === 2) {
+      assert.notEqual(result.weatherSeries[1].color, result.weatherSeries[0].color);
+      assert.ok(result.weatherSeries[1].lineDash.length > 0);
+    }
+  }
+});
+
+test('dynamic places reject mismatched order, invalid coordinates, wrong weather and wrong air cities', () => {
+  const input = { date: '2026-10-28', cities: [SHANGHAI.id], places: [SHANGHAI], weather: [forecast(SHANGHAI.id)], air: airForecast(SHANGHAI.id), now: NOW };
+  assert.throws(() => prepareWeatherChart({ ...input, places: [SHENZHEN] }), /WEATHER_CHART_CITY_MISMATCH/);
+  assert.throws(() => prepareWeatherChart({ ...input, places: [{ ...SHANGHAI, latitude: 200 }] }), /WEATHER_CHART_CITY_INVALID/);
+  assert.throws(() => prepareWeatherChart({ ...input, places: [] }), /WEATHER_CHART_CITY_INVALID/);
+  assert.throws(() => prepareWeatherChart({ ...input, places: undefined }), /WEATHER_CHART_CITY_INVALID/);
+  assert.throws(() => prepareWeatherChart({ ...input, weather: [forecast(CHAOYANG.id)] }), /WEATHER_CHART_CITY_MISMATCH/);
+  assert.throws(() => prepareWeatherChart({ ...input, air: airForecast(SHENZHEN.id) }), /WEATHER_CHART_AIR_CITY_MISMATCH/);
+  const missing = prepareWeatherChart({ ...input, weather: [null], air: null });
+  assert.equal(missing.weatherSeries[0].name, '上海'); assert.equal(missing.airSeries.name, '上海');
+  assert.ok(missing.weatherSeries[0].temperatureC.every(value => value === null));
+  assert.ok(missing.airSeries.values.every(value => value === null));
+});
+
+test('date/city mismatches and duplicate hours fail instead of producing misleading charts', () => {
+  assert.throws(() => prepareWeatherChart({ date: '2026-02-31', weather: [forecast()], now: NOW }), /WEATHER_CHART_DATE_INVALID/);
+  assert.throws(() => prepareWeatherChart({ date: '2026-10-28', cities: ['beijing', 'beijing'], weather: [forecast(), forecast()], now: NOW }), /WEATHER_CHART_CITY_INVALID/);
+  const wrongDay = forecast(); wrongDay.date = '2026-10-27';
+  assert.throws(() => prepareWeatherChart({ date: '2026-10-28', weather: [wrongDay], now: NOW }), /WEATHER_CHART_CITY_MISMATCH/);
+  const duplicate = forecast(); duplicate.hourly[2].time = duplicate.hourly[1].time;
+  assert.throws(() => prepareWeatherChart({ date: '2026-10-28', weather: [duplicate], now: NOW }), /WEATHER_CHART_TIME_INVALID/);
+});
+
+test('real renderer produces a bounded 1200x1800 PNG for single and dual-city reports', async () => {
+  for (const cities of [['beijing'], ['tianjin'], ['guangzhou'], ['beijing', 'tianjin'], ['beijing', 'guangzhou'], ['guangzhou', 'tianjin']]) {
+    const airCity = cities.includes('beijing') ? 'beijing' : cities[0];
+    const image = renderWeatherChart({ date: '2026-10-28', cities, weather: cities.map(city => forecast(city)), air: airForecast(airCity), now: NOW });
+    assert.equal(image.mimeType, 'image/png');
+    assert.ok(Buffer.isBuffer(image.buffer));
+    assert.deepEqual([...image.buffer.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+    assert.ok(image.buffer.length < 5 * 1024 * 1024);
+    const decoded = await loadImage(image.buffer);
+    assert.equal(decoded.width, 1200); assert.equal(decoded.height, 1800);
+  }
+});
+
+test('dynamic and long administrative names render bounded single and dual-city PNGs', async () => {
+  for (const places of [[SHANGHAI], [SHENZHEN], [CHAOYANG], [LONG_PLACE], [LONG_PLACE, CHAOYANG]]) {
+    const cities = places.map(place => place.id), weather = cities.map(city => forecast(city));
+    if (places.length === 2) weather[1] = null;
+    const input = { date: '2026-10-28', cities, places, weather, air: places.length === 2 ? null : airForecast(cities[0]), now: NOW };
+    const rendered = renderWeatherChart(input), image = await loadImage(rendered.buffer);
+    assert.equal(rendered.mimeType, 'image/png'); assert.ok(rendered.buffer.length < 5 * 1024 * 1024);
+    assert.equal(image.width, 1200); assert.equal(image.height, 1800);
+  }
+});
+
+test('renderer supports unavailable and partly missing panels without fabricating zeros', async () => {
+  const beijing = forecast(); beijing.hourly[8].temperatureC = null; beijing.hourly[8].precipitationProbabilityPct = null;
+  const input = { date: '2026-10-28', cities: ['beijing', 'tianjin'], weather: [beijing, null], air: null, now: NOW };
+  const model = prepareWeatherChart(input);
+  assert.ok(model.weatherSeries[1].temperatureC.every(value => value === null));
+  assert.ok(model.weatherSeries[1].precipitationProbabilityPct.every(value => value === null));
+  const image = await loadImage(renderWeatherChart(input).buffer);
+  assert.equal(image.height, 1800);
+  const tianjinImage = await loadImage(renderWeatherChart({ date: '2026-10-28', cities: ['tianjin'], weather: [forecast('tianjin')], air: null, now: NOW }).buffer);
+  assert.equal(tianjinImage.width, 1200);
+  const guangzhou = forecast('guangzhou');
+  guangzhou.hourly[0].temperatureC = null; guangzhou.hourly[0].precipitationProbabilityPct = null;
+  guangzhou.hourly[1].temperatureC = 0; guangzhou.hourly[1].precipitationProbabilityPct = 0;
+  const missingAir = prepareWeatherChart({ date: '2026-10-28', cities: ['guangzhou'], weather: [guangzhou], air: null, now: NOW });
+  assert.equal(missingAir.airSeries.id, 'guangzhou'); assert.equal(missingAir.airSeries.name, '广州');
+  assert.ok(missingAir.airSeries.values.every(value => value === null));
+  assert.equal(missingAir.airSeries.fetchedAt, null);
+  assert.deepEqual(missingAir.weatherSeries[0].temperatureC.slice(0, 2), [null, 0]);
+  assert.deepEqual(missingAir.weatherSeries[0].precipitationProbabilityPct.slice(0, 2), [null, 0]);
+  const guangzhouImage = await loadImage(renderWeatherChart({ date: '2026-10-28', cities: ['guangzhou'], weather: [guangzhou], air: null, now: NOW }).buffer);
+  assert.equal(guangzhouImage.width, 1200); assert.equal(guangzhouImage.height, 1800);
+});
