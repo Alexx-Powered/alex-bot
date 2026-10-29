@@ -265,17 +265,17 @@ class WorkerTests(unittest.TestCase):
         self.run_action(sessionKey="group_other")
         self.assertEqual([msg.type for msg in self.model.seen[-1]], ["system", "human"])
 
-    def test_memory_retains_latest_three_complete_turns(self):
-        for index in range(5):
+    def test_memory_retains_latest_eight_complete_turns(self):
+        for index in range(10):
             self.run_action(text=f"第{index}次广州天气")
         history = self.runner.sessions["private_owner"].turns
-        self.assertEqual(len(history), 3)
+        self.assertEqual(len(history), 8)
         self.assertEqual(history[0][0], "第2次广州天气")
-        self.assertEqual(len(self.model.seen[-1]), 8)
+        self.assertEqual(len(self.model.seen[-1]), 18)
 
     def test_memory_ttl_expiry_and_capacity(self):
         self.run_action()
-        self.now += 900
+        self.now += worker.SESSION_TTL
         self.run_action()
         self.assertEqual(len(self.model.seen[-1]), 2)
         for index in range(65):

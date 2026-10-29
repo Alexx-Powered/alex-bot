@@ -78,7 +78,7 @@ export class ConversationAgent{
         }
         const converted=conversionReply(result);if(converted)return decorate(converted,'chat');
         if(result.kind==='chat'&&policy.enabled&&policy.topics.includes(result.topic)){
-          const text=naturalChatReply(result.text,policy.maxChars);return text?decorate({text},'chat'):null;
+          const text=naturalChatReply(result.text,policy.maxChars);return text?decorate({text,...(result.memory_reset===true?{memoryReset:true}:{})},'chat'):null;
         }
         if(result.kind==='ignore'){
           console.warn('[qq-agent] MODEL_IGNORED');

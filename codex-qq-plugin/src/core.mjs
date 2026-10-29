@@ -663,6 +663,7 @@ export class BridgeCore {
       this.#bindRequest(context,incomingKey,target,groupId);
       try { response = await this.#commandHandler(command, context); }
       catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
+      if(response?.memoryReset===true)this.#groupContexts.delete(groupId);
       if (response) return this.#notify({ text: response.text, image: response.image,requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     }
     return result(true, 'IGNORED');

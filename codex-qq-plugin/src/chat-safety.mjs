@@ -11,7 +11,20 @@ const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu;
 const PHONE = /(?<!\d)(?:(?:(?:\+?86|0086)[ -]?)?1[3-9]\d[ -]?\d{4}[ -]?\d{4}|(?:\+?852|\+?853)[ -]?\d{4}[ -]?\d{4}|(?:\+?886[ -]?9\d{2}|09\d{2})[ -]?\d{3}[ -]?\d{3})(?!\d)/gu;
 const NATIVE_MENTION = /<[@#][^>\r\n]*>/gu;
 const INJECTION = /(?:忽略|无视|绕过|覆盖|忘掉|跳过).{0,24}(?:规则|指令|提示|限制)|系统.{0,8}(?:提示词|指令)|(?:显示|输出|泄露|告诉).{0,20}(?:prompt|系统|密钥)|\b(?:developer|jailbreak|DAN)\b|\bignore\b.{0,25}\b(?:instructions?|rules?|prompts?)\b|\bsystem\s+prompt\b|\bdo\s+anything\s+now\b|<\|(?:system|developer|im_start)|\[\s*(?:system|developer)\s*\]|\brole\s*[:=]\s*(?:system|developer)\b/iu;
-const COMPLEX = /(?:详细|逐步|复杂|多步).{0,8}(?:推理|论证|分析)|推理题|数学题|逻辑题|证明|求解|微积分|方程|算法|长篇|长文|论文|(?:写|生成|输出|撰写|制作).{0,20}(?:报告|方案|计划书|作文|文章|程序|代码)|(?:\d{3,}|[一二三四五六七八九十]+[百千])\s*字|\b\d{3,}\s*words?\b|程序|代码|编程|部署|执行命令|\b(?:python|javascript|typescript|powershell|bash|shell|sql|docker|kubernetes|code|program(?:ming)?|script|deploy(?:ment)?|essay|thesis|proof|prove|theorem|calculus)\b|\bstep[- ]by[- ]step\b|\b(?:const|let|var)\s+\w+\s*=|\bfunction\s*\(/iu;
+const COMPLEX = /(?:详细|逐步|复杂|多步).{0,8}(?:推理|论证|分析)|推理题|数学题|逻辑题|证明|求解|微积分|方程|长篇|长文|论文|(?:写|生成|输出|撰写|制作).{0,20}(?:报告|方案|计划书|作文|文章)|(?:\d{3,}|[一二三四五六七八九十]+[百千])\s*字|\b\d{3,}\s*words?\b|\b(?:essay|thesis|proof|prove|theorem|calculus)\b|\bstep[- ]by[- ]step\b|\b(?:const|let|var)\s+\w+\s*=|\bfunction\s*\(/iu;
+// A programming topic is ordinary conversation; an actual request to produce,
+// inspect or execute code still belongs outside this chat surface.
+const TECH_TOPIC = String.raw`(?:程序|代码|脚本|算法|编程|爬虫|正则表达式|命令|网站|服务器|应用|容器|数据库|\b(?:python|javascript|typescript|powershell|bash|shell|sql|docker|kubernetes|code|program|script)\b)`;
+const TECH_ACTION = String.raw`(?:编写|写|生成|输出|实现|重构|调试|修复|优化|解释|分析|审阅|检查|补全|修改|改写|转换|运行|执行|部署|安装)`;
+const EXPLICIT_TECH_REQUEST = new RegExp(String.raw`(?:帮我|替我|为我|给我|请你|能否|能不能|可不可以|教我|你来).{0,16}${TECH_ACTION}.{0,20}${TECH_TOPIC}`, 'iu');
+const IMPERATIVE_TECH_REQUEST = new RegExp(String.raw`(?:^|[，。！？!?；;\n]\s*)(?:请|麻烦(?:你)?|劳驾)?\s*${TECH_ACTION}.{0,20}${TECH_TOPIC}`, 'iu');
+const WORK_OBSERVATION = new RegExp(String.raw`^${TECH_ACTION}.{0,12}${TECH_TOPIC}\s*(?:真的?|真是|实在|总是|老是|一直|又|也|太|好|很|挺|让我|把我|使我|时|的时候|写得|写到|写着|越|都能|都要|就是|令人|让人|失败|报错|出错|卡住)`, 'iu');
+const ENGLISH_TECH_REQUEST = /(?:^|[.!?;\n]\s*)(?:(?:please|can you|could you|would you|will you|help me)\s+)*(?:write|generate|produce|create|implement|refactor|debug|fix|review|explain|execute|run|deploy|install)\b.{0,45}\b(?:code|program|script|algorithm|command|python|javascript|typescript|powershell|bash|shell|sql|docker|kubernetes|website|server|app|application|container|database)\b/iu;
+const EXECUTABLE_COMMAND = /(?:^|[，。！？!?；;\n]\s*)(?:请|帮我|给我|替我)?\s*(?:运行|执行).{0,12}(?:命令|代码|脚本|\b(?:pip|npm|pnpm|git|curl|wget|node|python|bash|sh|pwsh|docker)\b)|\b(?:sudo|pip|npm|pnpm)\s+(?:install|run|exec|remove|uninstall|update)\b/iu;
+function technicalTask(text) {
+  return /(?:帮我|替我|为我|请你|教我).{0,6}(?:编程|开发|写程序)(?:[。！？!?]|$)/u.test(text) || EXPLICIT_TECH_REQUEST.test(text) || ENGLISH_TECH_REQUEST.test(text) ||
+    ((EXECUTABLE_COMMAND.test(text) || IMPERATIVE_TECH_REQUEST.test(text)) && !WORK_OBSERVATION.test(text));
+}
 const SENSITIVE = /诊断|处方|确诊|治疗方案|用药|药物剂量|吃什么药|开什么药|开药|(?:头疼|胸痛|症状).{0,12}(?:怎么办|判断|治疗)|金融交易|交易策略|投资建议|投资组合|股票推荐|买入|卖出|做多|做空|(?:买|卖|交易|推荐).{0,10}(?:股票|期货|基金|比特币|加密货币)|炒股|杠杆|止盈|止损|\b(?:diagnose|diagnosis|prescription|prescribe|dosage)\b|\b(?:buy|sell|trade|short)\s+(?:stocks?|shares?|crypto|bitcoin|futures?)\b/iu;
 
 const unicodeLength = text => [...text].length;
@@ -43,7 +56,7 @@ export function checkChatInput(raw) {
   if (/```|~~~|[A-Za-z0-9_+/.=-]{80,}/u.test(text)) return reject('CHAT_INPUT_COMPLEX');
   if (/(?:https?|ftp|file|javascript|data):|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|cn|io)\b|附件|上传的|\battachments?\b|(?:看|分析|读取|总结|处理|打开).{0,12}(?:文件|文档|PDF|图片|照片|视频|音频|链接|网址)|\b(?:read|summarize|analyze|open)\s+(?:(?:this|the|a)\s+)?(?:file|pdf|image|video|audio)\b|\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|mp4|mp3)\b/iu.test(text)) return reject('CHAT_INPUT_ATTACHMENT');
   const calculation=/古月币|HU\$|马里|马时|生活费|全马|半马|工资/iu.test(text)&&!/代码|程序|编程|部署|论文|长文|千字|\d{3,}字|python|script|shell/iu.test(text);
-  if (COMPLEX.test(text)&&!calculation) return reject('CHAT_INPUT_COMPLEX');
+  if (technicalTask(text)||(COMPLEX.test(text)&&!calculation)) return reject('CHAT_INPUT_COMPLEX');
   if (SENSITIVE.test(text)) return reject('CHAT_INPUT_SENSITIVE');
   return { ok: true, reason: 'CHAT_INPUT_OK' };
 }

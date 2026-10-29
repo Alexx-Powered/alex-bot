@@ -23,6 +23,14 @@ function fixture({handler=async()=>null,send=async()=>({ok:true}),beforeSave=asy
 async function ready(options){const f=fixture(options);await f.core.init();return f;}
 async function probe(f,id='probe',groupId=A,senderId=MEMBER){await f.core.handleMessage(group('梁祖 看看上下文',id,groupId,senderId));return f.calls.at(-1).context;}
 
+test('forgetting personal memory discards ephemeral group context so erased facts cannot leak back through recent messages',async()=>{
+  const f=await ready({handler:async text=>text==='清空我的记忆'?{text:'已经清空',memoryReset:true,requiredAccess:'chat'}:null});
+  await f.core.handleMessage(group('我叫需要忘掉的名字','old-name'));
+  await f.core.handleMessage(group('梁祖 清空我的记忆','forget-memory'));
+  const next=await probe(f,'after-forget');
+  assert.ok(next.groupContext.every(row=>!row.text.includes('需要忘掉的名字')));
+});
+
 test('allowed ordinary group messages keep only the preceding ten anonymous entries without writes or handler work',async()=>{
   const f=await ready(),before=f.state(),writes=f.writes.length;
   for(let i=0;i<12;i++)assert.equal((await f.core.handleMessage(group('普通消息'+i,'ordinary-'+i))).code,'IGNORED');

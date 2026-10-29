@@ -5,6 +5,9 @@ import {gzipSync,gunzipSync} from 'node:zlib';
 import {randomBytes,publicEncrypt,privateDecrypt,createCipheriv,createDecipheriv,constants} from 'node:crypto';
 import {unprotectCredential,atomicJson} from '../src/storage.mjs';
 import {unseal} from '../src/secret-codec.mjs';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
 const options={padding:constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'};
 const aad=Buffer.from('alexbot-backup-v1');
 try{
@@ -14,6 +17,8 @@ try{
     for(const name of await fs.readdir(path.join(home,'.private/morning-scheduler')))if(/^\d{4}-\d{2}-\d{2}\.json$/.test(name))names.push('.private/morning-scheduler/'+name);
     const files={};
     for(const name of names){try{const raw=await fs.readFile(path.join(home,name));if(raw.length>2_000_000)throw Error('OVERSIZE');files[name]=raw.toString('base64');}catch(e){if(e.code!=='ENOENT')throw e;}}
+    const snapshot=await promisify(execFile)('/opt/alex-bot-runtime/python/app-venv/bin/python',[fileURLToPath(new URL('../python/chat_memory_snapshot.py',import.meta.url))],{maxBuffer:6*1024*1024,timeout:15000});
+    if(snapshot.stdout)files['.private/chat-memory/chat-memory.sqlite3']=snapshot.stdout;
     const key=randomBytes(32),nonce=randomBytes(12),at=new Date().toISOString();
     try{
       const plain=Buffer.from(JSON.stringify({version:1,createdAt:at,files}));if(plain.length>32_000_000)throw Error('OVERSIZE');

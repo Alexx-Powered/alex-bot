@@ -35,6 +35,7 @@
 !/codex-qq-plugin/deploy/chat-silence-fix-20261029.json
 !/codex-qq-plugin/deploy/campus-view-fix-20261029.json
 !/codex-qq-plugin/deploy/cloud-migration-20261029.json
+!/codex-qq-plugin/deploy/chat-memory-20261029.json
 /workbuddy-study-qq/preview/
 /workbuddy-study-qq/integration-test/
 /buaa-classrooms/observed-*.json

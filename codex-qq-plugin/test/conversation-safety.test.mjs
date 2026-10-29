@@ -57,7 +57,7 @@ test('output is hard bounded even when the worker exceeds policy or returns fake
 });
 test('enabled persona policy stays brief and defaults to an eighty-character response cap',async()=>{
   const p=await loadChatPolicy(new URL('../config/chat-policy.md',import.meta.url));
-  assert.equal(p.enabled,true);assert.equal(p.maxChars,600);assert.match(p.instructions,/爱吃白饭的大肥鱼/);assert.match(p.instructions,/闲聊通常/);
+  assert.equal(p.enabled,true);assert.equal(p.maxChars,600);assert.match(p.instructions,/爱吃白饭的大肥鱼/);assert.match(p.instructions,/闲聊可以/);
 });
 
 test('model rate limits provide a single local notice per scope instead of repeated silence or spam',async()=>{
