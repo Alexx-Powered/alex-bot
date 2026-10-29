@@ -67,7 +67,7 @@ test('fixed campus command works without model configuration; group fixed comman
   const service={handle:async(text,context)=>{if(text!=='查空教室')return null;calls.push(context.scope);return {text:context.scope==='c2c'?'fixed JSON':'owner only'};}};
   const agent=new ConversationAgent({campusTools:service,toolbox:{handle:async()=>null},configStore:{read:async()=>assert.fail('model config must not be read')},worker:{},modelBudget:{acquire:async()=>assert.fail('no model budget')}});
   assert.deepEqual(await agent.handle('查空教室',{scope:'c2c'}),{text:'fixed JSON'});
-  assert.deepEqual(await agent.handle('查空教室',{scope:'group'}),{text:'owner only'});
+  assert.equal((await agent.handle('查空教室',{scope:'group'})).text,'owner only');
   assert.deepEqual(calls,['c2c','group']);
 });
 

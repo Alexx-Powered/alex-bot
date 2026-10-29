@@ -2,7 +2,7 @@
 
 更新日期：2026-10-29。运行工作区：`D:\Projects\Alex Bot`。本文描述本机当前代码与已核对状态，不代表云端部署或未来平台权限承诺。
 
-本轮维护已完成并发安全控制、MCP测试端口隔离和WorkBuddy陈旧测试修正；源码已建立工作区根目录Git管理。维护证据见 `codex-qq-plugin/deploy/maintenance-20261029.json`。GitHub交付信息见文末，原始只读交接与较早验收作为历史保留。
+最新维护已加入白名单全业务权限及灰名单聊天/换算权限；设置页支持名单绑定与切换，执行和发送阶段均校验权限。最新证据见 `codex-qq-plugin/deploy/group-tiers-20261029.json`。此前并发控制、校园接入与真实本人收图记录作为历史保留；其中余额/校园仅本人可用的旧范围已被本轮授权替代。GitHub交付信息见文末。
 
 ## 1. 接手先看这里
 
@@ -10,7 +10,7 @@
 
 四条入口共用同一个 QQ 发送核心：
 
-1. QQ 本人私聊／白名单群：固定命令或自然语言 → 查询／聊天 → QQ。
+1. QQ 本人私聊／白名单群：固定命令或自然语言 → 查询／聊天 → QQ；灰名单群仅聊天和换算。
 2. 独立早安调度脚本：北京时间08:00，晚启动补发 → 本人。
 3. Codex MCP：已授权通知或手动测试 → 本人；显式授权的广播可到当前白名单。
 4. WorkBuddy 自习 skill：截图分析与核对 → Python 绘图 → 本地图片接口 → 本人。
@@ -23,16 +23,18 @@
 |---|---|
 | QQ 服务版本 | 0.2.1（本轮维护用Git提交定位，不修改各业务发布版本） |
 | QQ 连接与配对 | connected、已配对本人、未暂停 |
-| 群 | 1个白名单；已配置群备注“万通荆古帖v2.0”，实际按 groupOpenid 授权 |
+| 群 | 现有1个白名单保留，灰名单初始为空；实际按 groupOpenid 授权 |
 | QQ 额度 | 15次/滚动分钟、300次/北京时间自然日，预留10次主动通知；普通回复上限290 |
 | 增强早安 | `config/morning-report.json` enabled=true |
 | Windows 任务 | `AlexQQ-Morning-Service`，本次查询为 Running |
 | 聊天 | `chat-policy.md` 启用，安全输出上限600字符 |
 | WorkBuddy skill | 2.3.1；标识仍为 `building3-study-planner-v2-1`；校园链路直接复用Python规划/绘图，不执行skill |
-| 学院路空教室 | 已接入：单独加密校园配置、固定JSON查询、三号楼本人简报；真实验收结果见校园维护记录 |
+| 学院路空教室 | 单独加密校园配置、固定JSON查询、三号楼图片；本人私聊及白名单群主动查询可用 |
 | 云端 | 未部署；电脑关机、休眠或断网不保证服务与投递 |
 
 前次并发控制维护运行了完整离线测试并重启服务，当时未发送QQ测试消息，重启前后计数39。本轮校园接入已另外完成一次真实本人图片测试：接口SENT，用户确认“已收到，显示正常”；计数由39增至40。服务connected、已配对、未暂停、1个白名单群、无不确定投递，没有重置计数/配对/幂等记录。原早安计划任务此前核对为Running。状态均为时点快照，接口接受与用户实际收件分开记录。
+
+最新群权限代码已重启生效，状态新增`grayGroupCount=0`，原白名单1群保留；仍connected、已配对、未暂停、无不确定投递，发送计数重启前后均40。此轮仅离线回归和本机状态检查，未实际查询余额/校园、调用在线模型或发送QQ测试消息；新增群核心权限尚未做真实QQ收件验收。
 
 ## 2. 总体架构与流程
 
@@ -70,7 +72,20 @@ flowchart TD
 4. `agent_worker.py` 使用 LangChain `create_agent`；参数由 Pydantic schema 约束，每个请求只允许一个工具动作。
 5. 天气等通过受限 RPC 回调 Node 的 `WeatherToolbox`；换算、预算、官方状态、余额等由 Python 实现。
 6. 天气／雷达成功直接输出图片；复杂换算、生活费及状态查询可在工具取得事实后追加一次**没有工具权限**的模型解释。余额结果直接输出，不交给模型续写。
-7. 发送核心再次处理暂停、目的地、发送预算及请求标识，最后调用官方接口。
+7. 发送核心再次处理权限档位、暂停、目的地、发送预算及请求标识，最后调用官方接口；图片上传后、消息发送前再校验权限。
+
+### 当前群权限（本轮用户授权）
+
+| 入口 | 开放范围 |
+|---|---|
+| 已配对本人私聊 | 全部业务；既有本人管理命令 |
+| 白名单群 | 所有成员带原有前缀主动询问可用全部业务，包括DeepSeek余额、学院路JSON查询与三号楼图片 |
+| 灰名单群 | 基础聊天、固定单位换算；HU$/人民币、马里/长度、马时/时间、全马/半马换算均可；不开放预算及其他查询 |
+| 未列入名单的群、非本人私聊 | 不开放 |
+
+第04节选择白/灰档位生成绑定码、在目标群发送并回页确认；也可直接切换已有群或移除。两档各最多10群，不能重复归类。迁移旧状态仅补空的`grayGroups`，保留白名单、配对、暂停、额度和幂等记录；没有将现有群自动降级。日常自动任务仍只发本人，显式授权广播仍只枚举本人与白名单，灰名单不在广播范围。
+
+可信档位由`BridgeCore`读持久名单生成，不接受QQ文字或模型参数指定；Python LangChain只绑定该档位的工具，Node再校验实际执行与返回结果。切换清理该群背景；降级或移除立即影响处理中请求，等待查询或图片上传结束后不再按旧权限发出结果。已交给QQ的消息无法撤回。余额结果直接回复、不回传模型，群背景只留“已查询账户余额”占位。旧`CAMPUS_OWNER_ONLY`错误码为兼容保留，当前含义是仅本人或可信白名单群可查询。
 
 本轮修复：HTTP暂停（只限`paused:true`）与断开在认证、来源及JSON校验后绕过耗时操作锁；恢复发送与凭据修改仍按原规则串行。断开会取消正在等待凭据或尚未完成的连接，返回`CONNECT_CANCELLED`，避免稍后意外重新连接。暂停标志立即参与状态与发送判断；图片上传完成后、真正发消息前再核对一次。已提交给QQ平台的消息不能靠暂停撤回。
 
@@ -88,11 +103,11 @@ LangChain 的优势是统一工具描述、参数校验、上下文与语义路�
 | 单位换算 | HU$/人民币、马里/长度、马时/时间；支持复杂问题先算后解释 | `python/conversions.py`；`convert_units` |
 | 生活费 | 已知可用余额是否撑到发薪日 | 同上；`living_cost_budget` |
 | OpenAI 状态 | 泛问简报、具体服务或故障追问 | `python/openai_status.py`；`openai_service_status` |
-| DeepSeek 余额 | 仅本人私聊，查本机已保存 API Key 的账户 | `python/deepseek_balance.py`；`deepseek_account_balance` |
+| DeepSeek 余额 | 本人私聊或白名单群主动问，查本机已保存 API Key 的账户 | `python/deepseek_balance.py`；`deepseek_account_balance` |
 | 早安报告 | 每天08:00天气三联图与运动建议，固定脚本，无需模型推理 | `morning-*.mjs`、`python/morning_report.py` |
 | Codex 通知 | 执行任务的授权通知、阻塞求助；不是 QQ 任意遥控 Codex | `src/mcp.mjs`、`codex-package/` |
 | WorkBuddy 自习图 | 分析截图，双栏长图发本人 | `workbuddy-study-qq/`、`src/study-briefing.mjs` |
-| 学院路空教室 | 本人私聊“查空教室”“三号楼简报”或自然语言；本机JSON与三号楼图片 | `python/campus_classrooms.py`、`campus_report.py`、`campus_worker.py`、`src/campus-*.mjs` |
+| 学院路空教室 | 本人私聊或白名单群“查空教室”“三号楼简报”或自然语言；本机JSON与三号楼图片 | `python/campus_classrooms.py`、`campus_report.py`、`campus_worker.py`、`src/campus-*.mjs` |
 
 固定比例不得被提示词改变：0.6 HU$=70人民币；1马里=3.08km；1马时=1.5小时；全马42.195km，半马21.0975km。古月币没有钱包、交易或实时外汇服务。
 
@@ -100,7 +115,7 @@ LangChain 的优势是统一工具描述、参数校验、上下文与语义路�
 
 OpenAI 状态来自固定官方 `status.openai.com` 数据端点，缓存60秒；泛问不主动带历史事件或示例型号，用户追问再展开。官方正常不保证个人网络、账号或某个具体模型可用。
 
-DeepSeek 余额是 API 账户余额，不是网页版订阅／QQ钱包／生活费。自然语言可由模型选择；明确“查DeepSeek余额”保留无模型备用路径。群聊不开放此工具，结果不进入普通会话记忆。
+DeepSeek 余额是本机配置的 API 账户余额，不是提问者自己的任意账户、网页版订阅／QQ钱包／生活费。自然语言可由模型选择；明确“查DeepSeek余额”保留无模型备用路径。本人私聊与白名单群主动查询可用；灰名单在读取凭据前即拒绝，结果不进入普通会话记忆。
 
 ### 天气数据与图表语义
 
@@ -113,7 +128,7 @@ DeepSeek 余额是 API 账户余额，不是网页版订阅／QQ钱包／生活�
 
 ## 4. 上下文、模型与发送限制
 
-白名单群只保留服务实际收到的最近10条、30分钟内的筛选匿名背景，不读取 QQ 历史消息。无前缀普通文字只更新背景，不调用模型；触发请求时背景会发给 DeepSeek。群之间隔离，移除、暂停、断开或重启清理背景；筛选不保证文本绝无个人信息。
+白名单及灰名单群只保留服务实际收到的最近10条、30分钟内的筛选匿名背景，不读取 QQ 历史消息。无前缀普通文字只更新背景，不调用模型；触发请求时背景会发给 DeepSeek。群之间隔离，切换名单、移除、暂停、断开或重启清理背景；筛选不保证文本绝无个人信息。
 
 模型配置由本地页面保存，经 Windows DPAPI 加密；源码默认 model 名不代表本机当前已配置型号。不要直接把模型固定成用户曾举例的型号。当前代码设置 `temperature=0.9`、`max_tokens=768`、模型超时20秒、SDK自动重试0；worker总超时上限60秒。
 
@@ -196,7 +211,7 @@ WorkBuddy原脚本仍由其自带Python执行OCR与绘图，Bot `.venv` 执行La
 | GET `/api/status` | 安全状态，配对、连接、额度及agent状态 |
 | `/api/config`、`/api/agent/config` | QQ凭据与模型配置；敏感值仅本地输入 |
 | `/api/connect`、`/api/disconnect`、`/api/pause` | 生命周期与暂停 |
-| `/api/pair/*`、`/api/group/*` | 本人和群本机确认绑定 |
+| `/api/pair/*`、`/api/group/*` | 本人及白/灰名单绑定；`group/access`切换档位，`group/remove`移除 |
 | `/api/notify` | 已授权本人文本通知 |
 | `/api/notify-all-allowed` | 显式授权后枚举当前本人和白名单广播 |
 | `/api/weather/preview`、`/api/weather/briefing` | 天气预览、daily或test发送 |
@@ -211,7 +226,7 @@ MCP源码注册 `qq_status`、`qq_notify`、`qq_weather_preview`、`qq_weather_b
 | 文件／目录（相对QQ项目） | 责任 |
 |---|---|
 | `src/server.mjs` | HTTP路由、认证及组件装配 |
-| `src/core.mjs` | 配对、群白名单、入站验证、发送队列、预算和状态 |
+| `src/core.mjs`、`src/access-policy.mjs` | 配对、群白/灰名单、入站及工具权限、发送队列、预算和状态 |
 | `src/qq-adapter.mjs` | 腾讯SDK事件、上传及发送 |
 | `src/storage.mjs` | DPAPI、受限目录、原子持久化 |
 | `src/conversation-agent.mjs`、`chat-safety.mjs` | 自然语言边界、模型请求预算及上下文 |
@@ -278,7 +293,7 @@ WorkBuddy测试在`workbuddy-study-qq`目录运行：Bot环境执行`-m unittest
 | 版本控制 | 已建立工作区根Git仓库；源码与非密钥配置纳入管理 | `.private`、浏览器profile、备份、回执、ZIP与隐私样本保留本地 |
 | 持续运行验收 | 历史人工测试不等于跨夜、休眠恢复或长期无互动投递成功 | 用真实调度记录与本人收件反馈验收，不循环补发 |
 
-并发控制维护的回归为Node353、Bot Python82、WorkBuddy发送4与渲染1项通过。本轮校园接入后的最新回归为Node363、Bot Python94、WorkBuddy完整5项通过，无跳过；校园JSON和本人图片另经真实链路验收，见第10节。没有为此调用在线聊天模型或天气源。长时间运行与休眠恢复仍待独立验收，不能用离线测试替代。
+最新群权限回归为Node373项、Bot Python100项全部通过，无跳过；覆盖旧状态迁移、两档名单变更、灰名单固定/自然换算、越权强制工具调用、白名单余额/校园、余额背景脱敏、查询及上传期间降级/移除、HTTP鉴权与广播排除灰名单。未调用在线模型、真实余额/校园查询或发送测试QQ。WorkBuddy代码未变，前次完整5项测试通过。此前校园JSON和本人图片另经真实链路验收，见第10节。长时间运行与休眠恢复仍待独立验收，不能用离线测试替代。
 
 ### 常见排障顺序
 
@@ -295,7 +310,7 @@ WorkBuddy测试在`workbuddy-study-qq`目录运行：Bot环境执行`-m unittest
 
 ## 10. 学院路查询、校园凭据与迁移边界
 
-`buaa-classrooms/` 保留最初独立采集原型。当前Bot生产链路位于`codex-qq-plugin/python/campus_classrooms.py`：真实LangChain Tool固定查询学院路全部教学楼，参数仅date（今天至未来7天），成功和失败都返回`buaa-classrooms.v1` JSON。自然语言agent仅本人私聊公开入口；固定命令“查空教室 [YYYY-MM-DD]”“三号楼简报 [YYYY-MM-DD]”无需模型Key。群聊不开放校园工具，Node也再次校验scope。
+`buaa-classrooms/` 保留最初独立采集原型。当前Bot生产链路位于`codex-qq-plugin/python/campus_classrooms.py`：真实LangChain Tool固定查询学院路全部教学楼，参数仅date（今天至未来7天），成功和失败都返回`buaa-classrooms.v1` JSON。本人私聊及白名单群主动自然询问可选校园工具；固定命令“查空教室 [YYYY-MM-DD]”“三号楼简报 [YYYY-MM-DD]”无需模型Key。灰名单禁用；Node在实际执行和返回时再次校验可信档位。
 
 **按2026-10-29用户明确指定的口径**：接口`kxsds`列出的节次为空闲，其余1–14节为有课；不额外按当前时刻删改接口空闲标记。JSON的`free_periods`与`busy_periods`完整划分14节，绘图F/B使用同一数据。此约定取代前次交接建议的未知格映射，不更改WorkBuddy截图输入本身的F/B/?规则。
 
@@ -303,9 +318,9 @@ WorkBuddy测试在`workbuddy-study-qq`目录运行：Bot环境执行`-m unittest
 
 校园worker使用本机Edge专用profile，位于受保护的`.private/campus-browser/`；认证会话与学号密码都不上传。只允许HTTPS北航域名资源，且只在`sso.buaa.edu.cn`已核对的登录输入框使用保存的凭据，每次查询最多自动提交一次。遇验证码/二次验证返回`CAMPUS_INTERACTION_REQUIRED`，由用户在配置页打开可见浏览器自行完成，不自动识别或绕过。不同凭据使用不同profile，避免换账号后沿用旧会话。
 
-JSON保留学院路全部楼宇/教室；图片只筛选三号楼，直接导入既有`plan.py`及`briefing_layout.py`，保留六级排序、排除名单、推荐理由和双栏版式，增加来源及获取时间。没有执行SKILL.md、OCR、WorkBuddy进程或旧发送器。最新JSON保存在`.private/campus-output/latest.json`，图片为同目录内部随机ID的PNG；这些课堂数据文件受目录权限保护、不进入Git。固定JSON可在本机控制页查看和下载，QQ成功回复仅发本人一张图片。
+JSON保留学院路全部楼宇/教室；图片只筛选三号楼，直接导入既有`plan.py`及`briefing_layout.py`，保留六级排序、排除名单、推荐理由和双栏版式，增加来源及获取时间。没有执行SKILL.md、OCR、WorkBuddy进程或旧发送器。最新JSON保存在`.private/campus-output/latest.json`，图片为同目录内部随机ID的PNG；这些课堂数据文件受目录权限保护、不进入Git。固定JSON可在本机控制页查看和下载，QQ成功回复向请求所在的本人私聊或白名单群发一张图片；配置页发送按钮仍只发本人。
 
-校园浏览器查询在独立worker执行；公共模型worker默认60秒，仅已识别的校园RPC延长到120秒；可见浏览器验证单独最多约3分钟。相同专用profile不并发查询，失败不以旧JSON冒充当前数据。图片发送继续经BridgeCore校验配对、暂停、限额及单次请求标识，不向群发。
+校园浏览器查询在独立worker执行；公共模型worker默认60秒，仅已识别的校园RPC延长到120秒；可见浏览器验证单独最多约3分钟。相同专用profile不并发查询，失败不以旧JSON冒充当前数据。图片发送经BridgeCore校验配对、名单档位、暂停、限额及单次请求标识。仅回复主动请求，不新增自动群推送。
 
 真实验收：用户在第06节自行填写并加密保存凭据后，首次查询遇到登录iframe跳转竞态，返回固定错误JSON，未发送图片。通过只含阶段/错误类型的诊断定位并修复；回归补测正常跳转、认证失败和验证码分支。修复后2026-10-29 15:24:55（北京时间）真实查询成功：学院路158间教室，其中三号楼45间，另外为主楼与新主楼；JSON为`buaa-classrooms.v1`，图片按规则排除8间后纳入37间。本人图片仅发送一次，接口SENT，用户在本聊天确认“已收到，显示正常”。不据此声称验证码/二次验证已实际触发验收或QQ自然语言已做真实在线模型测试；这些分支仅离线模拟覆盖。
 
@@ -321,6 +336,7 @@ Codex阻塞求助遵守最新AGENTS：至少三次有效诊断、已问具体问
 - 最近审查：`codex-qq-plugin/deploy/codex-review-20261029.json`。
 - 本轮修复及离线/重启验收：`codex-qq-plugin/deploy/maintenance-20261029.json`。
 - 校园接入、真实采集/本人收图及新增回归：`codex-qq-plugin/deploy/campus-integration-20261029.json`。
+- 白名单全业务与灰名单聊天/换算权限、最新回归与部署快照：`codex-qq-plugin/deploy/group-tiers-20261029.json`。
 - 真实验收历史：`deploy/langchain-live-verification.json`、`enhanced-morning-live-test.json` 等；结论限于各次记录。
 - WorkBuddy实际规则：已安装及源目录的 `SKILL.md`、`references/qq-briefing.md`、`scripts/send_qq.py`。
 - 备份：项目根 `backups/`。含运行文件与用户内容的备份不得默认公开。

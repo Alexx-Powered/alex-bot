@@ -4,6 +4,7 @@ import {PythonAgentWorker} from './python-agent.mjs';
 import {atomicJson} from './storage.mjs';
 import {studyImage} from './study-briefing.mjs';
 import {z} from 'zod';
+import {fullAccess} from './access-policy.mjs';
 
 const source='https://app.buaa.edu.cn/site/classRoomQuery/index';
 const semantics='接口标空闲则为空闲，其余课节为有课；保留接口给出的节次。';
@@ -73,9 +74,10 @@ export class CampusService{
     finally{this.#busy=false;}
   }
   async execute(args,context){
-    if(context?.scope!=='c2c')return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY'))};
+    if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     const result=await this.run(args,'report');
-    return result.image?{image:result.image,text:'',campusData:result.data}:{text:JSON.stringify(result.data)};
+    if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
+    return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify(result.data),requiredAccess:'white'};
   }
   async handle(text,context){const args=parseCampusCommand(text);return args?this.execute(args,context):null;}
   close(){this.worker.close();}

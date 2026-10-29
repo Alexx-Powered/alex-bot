@@ -54,7 +54,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core;
   const adapter = adapterFactory({
-    canSend: () => core?.sendingEnabled() === true,
+    canSend: request => core?.canDeliver(request) === true,
     onMessage: async (message) => {
       try { await core.handleMessage(message); } catch { /* no text or credential logging */ }
     },
@@ -108,6 +108,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         await Promise.all([paused, adapter.disconnect()]);
         await core.cancelPairing();
         return json(res, 200, { ok: true, code: 'DISCONNECTED' });
+      }
+      if(pathname==='/api/group/remove'||(pathname==='/api/group/access'&&data.access==='gray')){
+        if(!/^[a-f0-9]{64}$/.test(data.groupKey||''))throw new Error('INVALID_INPUT');
+        return json(res,200,await(pathname.endsWith('/remove')?core.removeAllowedGroup({groupKey:data.groupKey}):core.setGroupAccess({groupKey:data.groupKey,access:'gray'})));
       }
       if (configBusy) return json(res, 409, { ok: false, code: 'CONFIG_BUSY' });
       configBusy = true; mutationHeld = true;
@@ -208,7 +212,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         case '/api/group/start':
           if (typeof data.name !== 'string' || !data.name.trim() || data.name.length > 80 || /[\u0000-\u001f\u007f]/u.test(data.name)) throw new Error('INVALID_INPUT');
           if (adapter.status().state !== 'connected') return json(res, 409, { ok: false, code: 'NOT_CONNECTED' });
-          result = await core.startGroupPairing({ name: data.name.trim() }); break;
+          if(data.access!==undefined&&!['white','gray'].includes(data.access))throw new Error('INVALID_INPUT');
+          result = await core.startGroupPairing({ name: data.name.trim(),access:data.access||'white' }); break;
         case '/api/group/confirm':
           if (!/^[a-f0-9]{64}$/.test(data.groupKey || '')) throw new Error('INVALID_INPUT');
           if (adapter.status().state !== 'connected') return json(res, 409, { ok: false, code: 'NOT_CONNECTED' });
@@ -217,6 +222,9 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         case '/api/group/remove':
           if (!/^[a-f0-9]{64}$/.test(data.groupKey || '')) throw new Error('INVALID_INPUT');
           result = await core.removeAllowedGroup({ groupKey: data.groupKey }); break;
+        case '/api/group/access':
+          if(!/^[a-f0-9]{64}$/.test(data.groupKey||'')||!['white','gray'].includes(data.access))throw new Error('INVALID_INPUT');
+          result=await core.setGroupAccess({groupKey:data.groupKey,access:data.access});break;
         case '/api/pause':
           if (typeof data.paused !== 'boolean') throw new Error('INVALID_INPUT');
           result = await core.setPaused(data.paused); break;

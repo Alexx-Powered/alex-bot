@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {checkChatInput,boundChatReply,sanitizeContextText,naturalChatReply} from './chat-safety.mjs';
 import {isBalanceQuery,balanceReply} from './balance-tools.mjs';
 import {conversionReply} from './conversion-tools.mjs';
+import {isGray,fullAccess,basicAccess,RESTRICTED_REPLY} from './access-policy.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
@@ -12,16 +13,20 @@ export class ConversationAgent{
   }
   async handle(text,context={}){
     const sessionKey=context.sessionKey||'private';
-    const campus=await this.campusTools?.handle(text,context);if(campus)return campus;
+    const gray=isGray(context);
+    const decorate=(value,requiredAccess='white',sensitive=false)=>value&&context.scope==='group'?{...value,requiredAccess,...(sensitive?{sensitive:true}:{})}:value;
+    const denied=()=>decorate({text:RESTRICTED_REPLY},'chat');
+    const campus=await this.campusTools?.handle(text,context);if(campus)return gray?denied():decorate(campus);
     if(isBalanceQuery(text)){
-      if(context.scope!=='c2c')return {text:'账户余额仅支持本人私聊查询。'};
+      if(!fullAccess(context))return gray?denied():{text:'账户余额仅支持本人私聊或白名单群主动查询。'};
       let config;try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机检查。'};}
       if(!config.apiKey)return {text:'尚未配置 DeepSeek API Key，请在本机配置页保存。'};
-      try{return await this.worker.run({type:'execute',name:'deepseek_account_balance',args:{},config,context:{scope:'c2c'}},async()=>{throw Error('BALANCE_RPC_DENIED');},balanceReply);}
+      try{return await this.worker.run({type:'execute',name:'deepseek_account_balance',args:{},config,context:{scope:context.scope,...(context.scope==='group'?{access:'white'}:{})}},async()=>{throw Error('BALANCE_RPC_DENIED');},value=>fullAccess(context)?decorate(balanceReply(value),'white',true):denied());}
       catch{return {text:'余额查询暂不可用，请稍后再试。'};}
     }
-    const fixed=await this.toolbox.handle(text);if(fixed)return fixed;
-    const conversion=await this.conversionTools?.handle(text);if(conversion)return conversion;
+    const conversion=await this.conversionTools?.handle(text);if(conversion)return decorate(conversion,'chat');
+    if(!gray){const fixed=await this.toolbox.handle(text);if(fixed)return decorate(fixed);}
+    if(!basicAccess(context))return null;
     let config,policy;
     try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机设置中检查。'};}
     if(!config.enabled||!config.apiKey)return null;
@@ -40,7 +45,7 @@ export class ConversationAgent{
       if(last!==undefined&&now-last<60000)return null;
       this.#limitNotices.set(scopeKey,now);
       while(this.#limitNotices.size>32)this.#limitNotices.delete(this.#limitNotices.keys().next().value);
-      return {text:budget.code==='MODEL_RATE_LIMIT_DAY'?'今天的智能问答额度用完了，明天再聊。天气和固定换算仍可用。':'问得有点密，等一分钟再继续就好。'};
+      return decorate({text:budget.code==='MODEL_RATE_LIMIT_DAY'?(gray?'今天的智能聊天额度用完了，固定换算仍可用。':'今天的智能问答额度用完了，明天再聊。天气和固定换算仍可用。'):'问得有点密，等一分钟再继续就好。'},'chat');
     }
     let groupContext;
     if(context.scope==='group'){
@@ -50,23 +55,28 @@ export class ConversationAgent{
         const text=sanitizeContextText(row.text,{maxChars:240});return text?[{speaker:row.speaker,role:row.role,text}]:[];
       });
     }
-    const packetContext=groupContext?{scope:'group',groupContext,currentSpeaker:/^member-[a-f0-9]{1,64}$/.test(context.currentSpeaker||'')?context.currentSpeaker:'member-'+userKey.slice(0,12)}:{scope:'c2c'};
+    const packetContext=groupContext?{scope:'group',...(context.access?{access:context.access}:{}),groupContext,currentSpeaker:/^member-[a-f0-9]{1,64}$/.test(context.currentSpeaker||'')?context.currentSpeaker:'member-'+userKey.slice(0,12)}:{scope:'c2c'};
     try{
       return await this.worker.run({type:'request',text:requestText,sessionKey,context:packetContext,config,policy,now:new Date().toISOString()},async(name,args)=>{
         if(name==='local_weather_briefing')throw new Error('TOOL_DENIED');
         if(name==='buaa_classroom_query'){
-          if(!this.campusTools||context.scope!=='c2c')throw new Error('TOOL_DENIED');
+          if(!this.campusTools||!fullAccess(context))return denied();
           return this.campusTools.execute(args,context);
         }
-        return this.toolbox.execute(name,args);
+        if(gray||!basicAccess(context))return denied();
+        return decorate(await this.toolbox.execute(name,args));
       },result=>{
-        if(result.kind==='balance')return context.scope==='c2c'?balanceReply(result):null;
-        if(result.kind==='reasoned'){const text=naturalChatReply(result.text,540);const source=result.source==='openai-status'?'\nhttps://status.openai.com/':'';return text?{text:text+source}:null;}
-        const converted=conversionReply(result);if(converted)return converted;
-        if(result.kind==='chat'&&policy.enabled&&policy.topics.includes(result.topic)){
-          const text=naturalChatReply(result.text,policy.maxChars);return text?{text}:null;
+        if(result.kind==='balance')return fullAccess(context)?decorate(balanceReply(result),'white',true):gray?denied():null;
+        if(result.kind==='reasoned'){
+          if(gray&&result.source!=='conversion')return denied();
+          const text=naturalChatReply(result.text,540);const source=result.source==='openai-status'?'\nhttps://status.openai.com/':'';
+          return text?decorate({text:text+source},result.source==='conversion'?'chat':'white'):null;
         }
-        if(result.kind==='clarify')return result.reason==='missing_place'?{text:'请告诉我城市或区县；雷达也可以使用区域名，例如华北。'}:result.reason==='unsupported_time'?{text:'天气三联图目前只支持今天；空气质量曲线展示未来48小时。'}:null;
+        const converted=conversionReply(result);if(converted)return decorate(converted,'chat');
+        if(result.kind==='chat'&&policy.enabled&&policy.topics.includes(result.topic)){
+          const text=naturalChatReply(result.text,policy.maxChars);return text?decorate({text},'chat'):null;
+        }
+        if(result.kind==='clarify')return result.reason==='restricted_access'?denied():result.reason==='missing_place'?decorate({text:'请告诉我城市或区县；雷达也可以使用区域名，例如华北。'},'chat'):result.reason==='unsupported_time'?decorate({text:'天气三联图目前只支持今天；空气质量曲线展示未来48小时。'},'chat'):null;
         return null;
       });
     }catch(error){

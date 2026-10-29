@@ -61,7 +61,7 @@ export function projectStatus(body) {
     for (const key of ['ready', 'paired', 'pendingPairing', 'paused']) {
       if (typeof core[key] === 'boolean') result.core[key] = core[key];
     }
-    for (const key of ['dailyAttempts', 'minuteAttempts', 'uncertainDeliveries', 'groupCount', 'remainingDailyAttempts']) {
+    for (const key of ['dailyAttempts', 'minuteAttempts', 'uncertainDeliveries', 'groupCount', 'grayGroupCount', 'remainingDailyAttempts']) {
       if (Number.isSafeInteger(core[key]) && core[key] >= 0) result.core[key] = core[key];
     }
     if(core.limits&&typeof core.limits==='object'){

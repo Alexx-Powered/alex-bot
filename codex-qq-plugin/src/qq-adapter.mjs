@@ -256,7 +256,7 @@ export class QQAdapter {
     return target;
   }
 
-  async send({ ownerId, text, replyTarget, image, groupId, proactiveGroup = false } = {}) {
+  async send({ ownerId, text, replyTarget, image, groupId, proactiveGroup = false, requiredAccess = 'chat' } = {}) {
     if (!isId(ownerId)) throw new QQAdapterError('QQ_OWNER_INVALID');
     if (typeof text !== 'string' || text.length > MAX_TEXT_LENGTH ||
         (image === undefined && !text.trim())) throw new QQAdapterError('QQ_TEXT_INVALID');
@@ -277,7 +277,7 @@ export class QQAdapter {
     let phase = fileData === null ? 'send' : 'upload';
     let messageAttempted = false;
     try {
-      if (this.#canSend() !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
+      if (this.#canSend({groupId,proactiveGroup,requiredAccess}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
       if (fileData !== null) {
         // SDK 1.0.5 uploadMedia/sendImage have a built-in two-retry policy and
         // may select chunked upload. Its public api.post -> ApiClient.request
@@ -299,7 +299,7 @@ export class QQAdapter {
         // Upload can take time. Recheck the original local authorization for
         // either scope before sending; expiry or reconnect always stops delivery.
         if (authorizedTarget.msgId) this.#target(ownerId, authorizedTarget, groupId);
-        if (this.#canSend() !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
+        if (this.#canSend({groupId,proactiveGroup,requiredAccess}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
         messageAttempted = true;
         // Image replies are image-only even if a caller supplied a caption.
         // SDK 1.0.5 send() and sendRaw() preserve an omitted content field.

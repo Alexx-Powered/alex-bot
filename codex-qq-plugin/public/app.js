@@ -6,12 +6,13 @@ if (location.hash) history.replaceState(null, '', '/');
 const token = sessionStorage.getItem('qq-local-token');
 let pendingGroupKey = null;
 const descriptions = {
+  GRAY_GROUP_ALLOWED:'已加入灰名单：基础聊天与换算。',GROUP_ACCESS_CHANGED:'群权限已更新，该群上下文已清除。',GROUP_ACCESS_DENIED:'群权限已改变，本次结果未发送。',
   OK:'查询完成，JSON已更新。',CAMPUS_CONFIG_SAVED:'校园设置已加密保存。',CAMPUS_CONFIG_INVALID:'请检查学号和密码；首次启用或修改账号时需要同时填写两项。',
   CAMPUS_CONFIG_UNAVAILABLE:'校园加密配置暂不可用，请检查本机存储。',CAMPUS_NOT_CONFIGURED:'请先在本页填写并保存校园学号密码。',CAMPUS_DISABLED:'校园查询未启用。',
   CAMPUS_BUSY:'已有校园查询或浏览器验证正在进行，请稍后再试。',CAMPUS_INVALID_DATE:'请选择今天至未来7天内的日期。',CAMPUS_AUTH_FAILED:'校园认证未成功，请检查凭据或打开浏览器完成验证。',
   CAMPUS_INTERACTION_REQUIRED:'需要你在专用浏览器完成验证码或二次验证，请点击“打开浏览器完成验证”。',CAMPUS_NETWORK_ERROR:'校园网络请求失败，本次没有返回旧数据。',
   CAMPUS_SCHEMA_CHANGED:'校园接口数据格式发生变化，已停止生成。',CAMPUS_BROWSER_UNAVAILABLE:'校园查询浏览器未能启动，请检查Edge和本机Python依赖。',
-  CAMPUS_QUERY_FAILED:'校园查询未能完成，请检查网络或重新进行浏览器验证。',CAMPUS_RENDER_FAILED:'查询或三号楼简报绘制未完成，未发送图片。',CAMPUS_OWNER_ONLY:'校园查询仅支持本人私聊。',
+  CAMPUS_QUERY_FAILED:'校园查询未能完成，请检查网络或重新进行浏览器验证。',CAMPUS_RENDER_FAILED:'查询或三号楼简报绘制未完成，未发送图片。',CAMPUS_OWNER_ONLY:'校园查询仅支持本人或白名单群，当前会话未开放。',
   AGENT_CONFIG_SAVED:'模型设置已保存，下次请求生效。', AGENT_CONFIG_INVALID:'请检查模型名、Key 格式；首次启用需要填写 Key。', AGENT_CONFIG_UNAVAILABLE:'模型配置暂不可用，请检查本机加密存储。',
   CONFIG_SAVED:'凭据已加密保存。现在可以连接 QQ。', CONNECTING:'正在连接 QQ，请稍候。',
   CONNECT_CANCELLED:'连接请求已被断开操作取消。',
@@ -27,10 +28,10 @@ const descriptions = {
   ALREADY_PAIRED:'已经配对，不能覆盖现有接收人。', NO_PAIRING_CANDIDATE:'尚未收到有效配对消息。',
   PAIRING_EXPIRED:'配对码已过期，请重新生成。', PAIRED_APP_CHANGE_DENIED:'已配对时不允许更换 AppID，避免把消息发给其他应用下的用户。',
   GROUP_PAIRING_STARTED:'群绑定码已生成，请只在指定群发送。机器人需有接收所有消息权限。',
-  GROUP_PAIRING_CANCELLED:'已取消待绑定群。', GROUP_ALLOWED:'这个群已加入白名单。', GROUP_REMOVED:'已移出群白名单。',
+  GROUP_PAIRING_CANCELLED:'已取消待绑定群。', GROUP_ALLOWED:'这个群已加入白名单。', GROUP_REMOVED:'已移出群权限名单。',
   GROUP_PAIRING_EXPIRED:'群绑定码已过期，请重新生成。', NO_GROUP_PAIRING_CANDIDATE:'尚未收到有效的群绑定消息。',
-  GROUP_PAIRING_KEY_MISMATCH:'待确认群已变化，请刷新并重新核对。', GROUP_ALREADY_ALLOWED:'这个群已在白名单中。',
-  GROUP_LIMIT_REACHED:'群白名单数量已达本地上限。', GROUP_NOT_FOUND:'这个群已不在白名单中。', INVALID_INPUT:'请检查输入内容。',
+  GROUP_PAIRING_KEY_MISMATCH:'待确认群已变化，请刷新并重新核对。', GROUP_ALREADY_ALLOWED:'这个群已在权限名单中，可在列表切换档位。',
+  GROUP_LIMIT_REACHED:'所选名单已达10群的本地上限。', GROUP_NOT_FOUND:'这个群已不在权限名单中。', INVALID_INPUT:'请检查输入内容。',
 };
 function feedback(data) {
   const success = data?.ok === true;
@@ -71,16 +72,18 @@ async function refresh() {
     $('groupStart').disabled = !core.paired || core.paused || transport.state !== 'connected';
     $('groupConfirm').disabled = !pendingGroupKey || core.paused || transport.state !== 'connected';
     $('groupStatus').textContent = pendingGroup
-      ? `收到“${pendingGroup.name}”绑定请求（${pendingGroup.groupHint}）。请确认它来自你指定的群。`
+      ? `收到“${pendingGroup.name}”${pendingGroup.access==='gray'?'灰名单':'白名单'}绑定请求（${pendingGroup.groupHint}）。请确认它来自你指定的群。`
       : core.pendingGroupPairing ? '等待目标群发送绑定命令。' : '尚无待确认群。';
     if (!core.pendingGroupPairing || pendingGroup) $('groupCodeBox').classList.add('hidden');
     $('groupList').replaceChildren();
-    for (const group of core.allowedGroups || []) {
+    for (const [access,groups] of [['white',core.allowedGroups||[]],['gray',core.grayGroups||[]]]) for (const group of groups) {
       const row = document.createElement('p');
-      const name = document.createElement('span'); name.textContent = `${group.name} · ${group.groupHint} `;
-      const remove = document.createElement('button'); remove.className = 'subtle'; remove.textContent = '移出白名单';
+      const name = document.createElement('span'); name.textContent = `${group.name} · ${access==='white'?'白名单：全部业务':'灰名单：聊天与换算'} · ${group.groupHint} `;
+      const change=document.createElement('button');change.className='secondary';change.textContent=access==='white'?'改为灰名单':'改为白名单';
+      change.onclick=()=>action('group/access',{groupKey:group.groupKey,access:access==='white'?'gray':'white'});
+      const remove = document.createElement('button'); remove.className = 'subtle'; remove.textContent = '移出名单';
       remove.onclick = () => action('group/remove', { groupKey: group.groupKey });
-      row.append(name, remove); $('groupList').append(row);
+      row.append(name, change, remove); $('groupList').append(row);
     }
   } catch { $('connection').textContent='本地服务不可达'; }
 }
@@ -138,7 +141,7 @@ else {
   $('pairConfirm').onclick=()=>action('pair/confirm'); $('testNotify').onclick=()=>action('test-notify');
   $('pause').onclick=()=>action('pause',{paused:true}); $('resume').onclick=()=>action('pause',{paused:false});
   $('groupStart').onclick=async()=>{
-    const result = await action('group/start', { name: $('groupName').value.trim() });
+    const result = await action('group/start', { name: $('groupName').value.trim(),access:$('groupAccess').value });
     if (result?.ok && result.groupPairingCode) {
       $('groupCommand').textContent = '/group-bind ' + result.groupPairingCode;
       $('groupCodeBox').classList.remove('hidden');

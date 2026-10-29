@@ -87,7 +87,7 @@ test('failed reserved notifications count before send, stay paused across restar
 test('state with more than 256 attempts and 512 history entries restores without dropping records',async()=>{
   const original=state(600),f=fixture({initial:original,limits:{dailyAttempts:1000,minuteAttempts:10,reservedNotifications:100}});
   await f.core.init();
-  assert.deepEqual(f.storage.value,original);
+  assert.deepEqual(f.storage.value,{...original,grayGroups:[]});
   assert.equal(f.core.status().dailyAttempts,600);assert.equal(f.core.status().remainingDailyAttempts,400);
   assert.equal((await f.core.notify({text:'new',idempotencyKey:'new'})).code,'SENT');
   assert.equal(f.storage.value.attempts.length,601);assert.equal(f.storage.value.deliveries.length,601);
@@ -96,13 +96,13 @@ test('state with more than 256 attempts and 512 history entries restores without
 
 test('old twenty-send state migrates to higher defaults without clearing counters, keys or pause',async()=>{
   const original=state(20,{paused:true});const f=fixture({initial:original});await f.core.init();
-  assert.deepEqual(f.storage.value,original);assert.equal(f.core.status().paused,true);
+  assert.deepEqual(f.storage.value,{...original,grayGroups:[]});assert.equal(f.core.status().paused,true);
   assert.equal(f.core.status().dailyAttempts,20);assert.equal(f.core.status().remainingDailyAttempts,180);
   assert.equal((await f.core.notify({text:'no unpause',idempotencyKey:'new'})).code,'PAUSED');assert.equal(f.sent.length,0);
   // A lower configured limit remains a quota decision, never invalidates larger existing state.
   const lowered=new BridgeCore({...f.deps,limits:{dailyAttempts:10,minuteAttempts:1,reservedNotifications:0}});await lowered.init();
   assert.equal(lowered.status().dailyAttempts,20);assert.equal(lowered.status().remainingDailyAttempts,0);
-  assert.equal(lowered.status().paused,true);assert.deepEqual(f.storage.value,original);
+  assert.equal(lowered.status().paused,true);assert.deepEqual(f.storage.value,{...original,grayGroups:[]});
 });
 
 test('all constructor limit fields are validated before any state I/O',()=>{

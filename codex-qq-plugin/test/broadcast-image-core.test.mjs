@@ -24,7 +24,7 @@ test('generated image broadcast uses the same in-memory image for owner and allo
   const f=fixture();await ready(f);const image=png();
   const result=await f.core.notifyImageAllAllowed({image,idempotencyKey:'morning-image-test',text:'@someone',ownerId:'OTHER',groupId:'OTHER_GROUP'});
   assert.equal(result.code,'SENT');assert.equal(result.attempted,2);assert.equal(result.sent,2);
-  assert.deepEqual(f.sent,[{ownerId:'OWNER_PRIVATE',text:'',image},{ownerId:'OWNER_PRIVATE',text:'',image,groupId:'GROUP_PRIVATE',proactiveGroup:true}]);
+  assert.deepEqual(f.sent,[{ownerId:'OWNER_PRIVATE',text:'',image},{ownerId:'OWNER_PRIVATE',text:'',image,groupId:'GROUP_PRIVATE',requiredAccess:'white',proactiveGroup:true}]);
   assert.strictEqual(f.sent[0].image,image);assert.strictEqual(f.sent[1].image.buffer,image.buffer);
   assert.ok(f.sent.every(item=>!Object.hasOwn(item,'replyTarget')&&item.text===''));
   assert.equal(f.core.status().dailyAttempts,2);

@@ -35,7 +35,7 @@ class FakeBot {
   }
 }
 
-function fixture() {
+function fixture(options = {}) {
   const bots = [], messages = [], statuses = [];
   const clock = { value: Date.parse('2026-10-28T10:00:00Z') };
   const adapter = new QQAdapter({
@@ -43,6 +43,7 @@ function fixture() {
     createBot: () => { const bot = new FakeBot(); bots.push(bot); return bot; },
     onMessage: (message) => messages.push(message),
     onStatus: (status) => statuses.push(status),
+    ...options,
   });
   return { adapter, bots, messages, statuses, clock, async connect(appId = APP_ID) {
     await adapter.connect({ appId, appSecret: 'test-only-not-real' });
@@ -66,6 +67,31 @@ const request = (message, extra = {}) => ({
   ownerId: OWNER, groupId: message.groupOpenid, text: '回复', replyTarget: message.replyTarget, ...extra,
 });
 const groupWireTarget = (groupId = 'GROUP_A') => ({ scope: 'group', targetId: groupId });
+
+test('group access is checked before and after upload while gray conversion text remains deliverable', async () => {
+  let tier = 'white';
+  const checks = [];
+  const f = fixture({ canSend: input => {
+    checks.push(input);
+    return input.groupId === 'GROUP_A' && (input.requiredAccess === 'chat' || tier === 'white');
+  } });
+  const bot = await f.connect();
+  try {
+    const event = group();
+    await bot.emit('message', {}, event);
+    bot.beforeUpload = async () => { tier = 'gray'; };
+    await assert.rejects(f.adapter.send(request(event, {
+      text: '', requiredAccess: 'white', image: { buffer: PNG, mimeType: 'image/png' },
+    })), { code: 'QQ_SEND_CANCELLED', messageAttempted: false });
+    assert.deepEqual(checks, Array.from({ length: 2 }, () => ({ groupId: 'GROUP_A', proactiveGroup: false, requiredAccess: 'white' })));
+    assert.equal(bot.uploads.length, 1);
+    assert.equal(bot.media.length, 0);
+    await f.adapter.send(request(event, { text: '1 马里 = 3.08 公里', requiredAccess: 'chat' }));
+    assert.equal(bot.texts.length, 1);
+    await assert.rejects(f.adapter.send(request(event, { requiredAccess: 'white' })), { code: 'QQ_SEND_CANCELLED', messageAttempted: false });
+    assert.equal(bot.texts.length, 1);
+  } finally { await f.adapter.disconnect(); }
+});
 
 test('platform group @ event with already-stripped text produces only the normalized group contract', async () => {
   const f = fixture(); const bot = await f.connect();

@@ -37,7 +37,7 @@ test('broadcast enumerates only persisted owner and groups, uses distinct durabl
   assert.deepEqual(result,{ok:true,code:'SENT',results:[{destination:'owner',ok:true,code:'SENT'},
     {destination:'测试群1',ok:true,code:'SENT'}],attempted:2,sent:2});
   assert.deepEqual(f.sent,[{ownerId:'OWNER_PRIVATE_ID',text:message.text},
-    {ownerId:'OWNER_PRIVATE_ID',text:message.text,groupId:'GROUP_PRIVATE_0',proactiveGroup:true}]);
+    {ownerId:'OWNER_PRIVATE_ID',text:message.text,groupId:'GROUP_PRIVATE_0',requiredAccess:'white',proactiveGroup:true}]);
   assert.equal(f.storage.value.deliveries.length,2);
   assert.equal(new Set(f.storage.value.deliveries.map(entry=>entry.key)).size,2);
   assert.doesNotMatch(JSON.stringify(result),/OWNER_PRIVATE|GROUP_PRIVATE|MEMBER_PRIVATE/);

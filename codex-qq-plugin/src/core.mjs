@@ -9,6 +9,7 @@ export const CORE_LIMITS = Object.freeze({
   pairingTtlMs: 5 * 60_000,
   historySize: 4096,
   allowedGroups: 10,
+  grayGroups: 10,
 });
 
 const STORED_ATTEMPT_LIMIT = 4096;
@@ -62,6 +63,7 @@ function initialState() {
     incoming: [],
     lastDeliveryCode: null,
     allowedGroups: [],
+    grayGroups: [],
   };
 }
 
@@ -99,6 +101,13 @@ function restoreState(raw) {
     return { id: entry.id, name: entry.name };
   });
   if (new Set(allowedGroups.map(entry => entry.id)).size !== allowedGroups.length) throw new Error('STATE_INVALID');
+  const gray = raw.grayGroups === undefined ? [] : raw.grayGroups;
+  if (!Array.isArray(gray) || gray.length > CORE_LIMITS.grayGroups || (gray.length && !raw.ownerId)) throw new Error('STATE_INVALID');
+  const grayGroups=gray.map(entry=>{
+    if(!entry||typeof entry!=='object'||Array.isArray(entry)||Object.keys(entry).length!==2||!validGroupId(entry.id)||!validGroupName(entry.name))throw new Error('STATE_INVALID');
+    return {id:entry.id,name:entry.name};
+  });
+  if(new Set([...allowedGroups,...grayGroups].map(g=>g.id)).size!==allowedGroups.length+grayGroups.length)throw new Error('STATE_INVALID');
   return {
     version: 1,
     ownerId: raw.ownerId,
@@ -109,12 +118,14 @@ function restoreState(raw) {
     incoming,
     lastDeliveryCode: raw.lastDeliveryCode ?? null,
     allowedGroups,
+    grayGroups,
   };
 }
 
 // Only return fixed categories. Upstream error text, URLs, message bodies and
 // credentials must never reach status(), persisted state or API responses.
 function classifyError(error) {
+  if(error?.code==='QQ_SEND_CANCELLED'&&error?.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false};
   const status = Number(error?.httpStatus ?? error?.status ?? error?.statusCode);
   const category = `${error?.code ?? ''} ${error?.kind ?? ''}`.toLowerCase().slice(0, 256);
   const bizCode = error?.bizCode;
@@ -156,6 +167,7 @@ export class BridgeCore {
   #limits;
   #groupContexts = new Map();
   #pendingIncoming = 0;
+  #groupRestrictions = new Map();
 
   constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, limits = {} }) {
     if (![loadState, saveState, send, now].every((fn) => typeof fn === 'function')) {
@@ -191,8 +203,28 @@ export class BridgeCore {
 
   #canRememberGroup(groupId) {
     return this.#ready && Boolean(this.#state.ownerId) && !this.#state.paused && !this.#pauseRequested &&
-      this.#state.allowedGroups.some(group => group.id === groupId);
+      this.groupAccess(groupId)!==null;
   }
+
+  groupAccess(groupId) {
+    if(this.#groupRestrictions.has(groupId))return this.#groupRestrictions.get(groupId).access;
+    if(this.#state.allowedGroups.some(g=>g.id===groupId))return 'white';
+    if(this.#state.grayGroups.some(g=>g.id===groupId))return 'gray';
+    return null;
+  }
+
+  canDeliver({groupId,requiredAccess='chat',proactiveGroup=false}={}) {
+    if(!this.sendingEnabled())return false;
+    if(groupId===undefined)return true;
+    const access=this.groupAccess(groupId);
+    return access!==null&&(!(requiredAccess==='white'||proactiveGroup)||access==='white');
+  }
+
+  #restrictGroup(groupId,access){
+    if(access==='white')return null; // Promotion takes effect only after persistence.
+    const ticket={access};this.#groupRestrictions.set(groupId,ticket);this.#groupContexts.delete(groupId);return ticket;
+  }
+  #releaseRestriction(groupId,ticket){if(ticket&&this.#groupRestrictions.get(groupId)===ticket)this.#groupRestrictions.delete(groupId);}
 
   #groupContext(groupId) {
     const now = this.#time();
@@ -221,7 +253,7 @@ export class BridgeCore {
 
   #groupMessageContext(groupId, senderId) {
     const currentSpeaker = 'member-' + hash('group-sender:' + groupId + ':' + senderId).slice(0, 12);
-    return { scope: 'group', sessionKey: hash('chat:group:' + groupId + ':' + senderId),
+    return { scope: 'group', access:this.groupAccess(groupId), sessionKey: hash('chat:group:' + groupId + ':' + senderId),
       scopeKey: hash('chat-scope-group:' + groupId), userKey: hash('chat-user:' + senderId), currentSpeaker,
       groupContext: this.#groupContext(groupId).rows.map(({ speaker, role, text }) => ({ speaker, role, text })) };
   }
@@ -290,10 +322,12 @@ export class BridgeCore {
       uncertainDeliveries: this.#state.deliveries.filter((entry) => entry.state === 'uncertain' || entry.state === 'inFlight').length,
       groupCount: this.#state.allowedGroups.length,
       allowedGroups: this.#state.allowedGroups.map(describeGroup),
+      grayGroupCount:this.#state.grayGroups.length,
+      grayGroups:this.#state.grayGroups.map(describeGroup),
       pendingGroupPairing: Boolean((this.#groupPairing && now < this.#groupPairing.expiresAt) ||
         (this.#groupCandidate && now < this.#groupCandidate.expiresAt)),
       pendingGroup: this.#groupCandidate && now < this.#groupCandidate.expiresAt
-        ? { ...describeGroup(this.#groupCandidate), expiresAt: this.#groupCandidate.expiresAt } : null,
+        ? { ...describeGroup(this.#groupCandidate), ...(this.#groupCandidate.access==='gray'?{access:'gray'}:{}), expiresAt: this.#groupCandidate.expiresAt } : null,
     };
   }
 
@@ -326,17 +360,17 @@ export class BridgeCore {
     this.#groupCandidate = null;
   }
 
-  async startGroupPairing({ name } = {}) {
+  async startGroupPairing({ name, access='white' } = {}) {
     return this.#enqueue(async () => {
       if (!this.#ready) return result(false, 'NOT_READY');
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
       if (this.#state.paused) return result(false, 'PAUSED');
       const normalizedName = typeof name === 'string' ? name.trim() : name;
-      if (!validGroupName(normalizedName)) return result(false, 'INVALID_INPUT');
-      if (this.#state.allowedGroups.length >= CORE_LIMITS.allowedGroups) return result(false, 'GROUP_LIMIT_REACHED');
+      if (!validGroupName(normalizedName)||!['white','gray'].includes(access)) return result(false, 'INVALID_INPUT');
+      if ((access==='white'?this.#state.allowedGroups:this.#state.grayGroups).length >= (access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups)) return result(false, 'GROUP_LIMIT_REACHED');
       const expiresAt = this.#time() + CORE_LIMITS.pairingTtlMs;
       const code = randomBytes(16).toString('hex');
-      this.#groupPairing = { name: normalizedName, code, expiresAt };
+      this.#groupPairing = { name: normalizedName, access, code, expiresAt };
       this.#groupCandidate = null;
       return result(true, 'GROUP_PAIRING_STARTED', { groupPairingCode: code, expiresAt });
     });
@@ -361,28 +395,56 @@ export class BridgeCore {
         return result(false, 'GROUP_PAIRING_EXPIRED');
       }
       if (groupKey !== groupKeyFor(this.#groupCandidate.id)) return result(false, 'GROUP_PAIRING_KEY_MISMATCH');
-      if (this.#state.allowedGroups.some(group => group.id === this.#groupCandidate.id)) return result(false, 'GROUP_ALREADY_ALLOWED');
-      if (this.#state.allowedGroups.length >= CORE_LIMITS.allowedGroups) return result(false, 'GROUP_LIMIT_REACHED');
+      if ([...this.#state.allowedGroups,...this.#state.grayGroups].some(group => group.id === this.#groupCandidate.id)) return result(false, 'GROUP_ALREADY_ALLOWED');
+      const access=this.#groupCandidate.access||'white',key=access==='gray'?'grayGroups':'allowedGroups';
+      if (this.#state[key].length >= (access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups)) return result(false, 'GROUP_LIMIT_REACHED');
       const next = structuredClone(this.#state);
-      next.allowedGroups.push({ id: this.#groupCandidate.id, name: this.#groupCandidate.name });
+      next[key].push({ id: this.#groupCandidate.id, name: this.#groupCandidate.name });
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       this.#clearGroupPairing();
-      return result(true, 'GROUP_ALLOWED', { status: this.status() });
+      return result(true, access==='gray'?'GRAY_GROUP_ALLOWED':'GROUP_ALLOWED', { status: this.status() });
     });
   }
 
   async removeAllowedGroup({ groupKey } = {}) {
-    return this.#enqueue(async () => {
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>groupKeyFor(g.id)===groupKey);
+    const ticket=group?this.#restrictGroup(group.id,null):null;
+    try{
+    return await this.#enqueue(async () => {
       if (!this.#ready) return result(false, 'NOT_READY');
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
       if (!validGroupKey(groupKey)) return result(false, 'INVALID_INPUT');
-      if (!this.#state.allowedGroups.some(group => groupKeyFor(group.id) === groupKey)) return result(false, 'GROUP_NOT_FOUND');
+      if (![...this.#state.allowedGroups,...this.#state.grayGroups].some(group => groupKeyFor(group.id) === groupKey)) return result(false, 'GROUP_NOT_FOUND');
       const next = structuredClone(this.#state);
       next.allowedGroups = next.allowedGroups.filter(group => groupKeyFor(group.id) !== groupKey);
+      next.grayGroups = next.grayGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       for (const id of this.#groupContexts.keys()) if (groupKeyFor(id) === groupKey) this.#groupContexts.delete(id);
       return result(true, 'GROUP_REMOVED', { status: this.status() });
     });
+    }finally{if(group)this.#releaseRestriction(group.id,ticket);}
+  }
+
+  async setGroupAccess({groupKey,access}={}){
+    if(!validGroupKey(groupKey)||!['white','gray'].includes(access))return result(false,'INVALID_INPUT');
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>groupKeyFor(g.id)===groupKey);
+    if(!group)return result(false,'GROUP_NOT_FOUND');
+    const ticket=this.#restrictGroup(group.id,access);
+    try{return await this.#enqueue(async()=>{
+      if(!this.#ready)return result(false,'NOT_READY');
+      if(!this.#state.ownerId)return result(false,'NOT_PAIRED');
+      const current=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===group.id);
+      if(!current)return result(false,'GROUP_NOT_FOUND');
+      const key=access==='gray'?'grayGroups':'allowedGroups';
+      if(this.#state[key].some(g=>g.id===group.id))return result(true,'GROUP_ACCESS_CHANGED',{status:this.status()});
+      if(this.#state[key].length>=(access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups))return result(false,'GROUP_LIMIT_REACHED');
+      const next=structuredClone(this.#state);
+      next.allowedGroups=next.allowedGroups.filter(g=>g.id!==group.id);next.grayGroups=next.grayGroups.filter(g=>g.id!==group.id);
+      next[key].push(current);
+      try{await this.#persist(next);}catch{return this.#storageFailed();}
+      this.#groupContexts.delete(group.id);
+      return result(true,'GROUP_ACCESS_CHANGED',{status:this.status()});
+    });}finally{this.#releaseRestriction(group.id,ticket);}
   }
 
   async confirmPairing() {
@@ -538,7 +600,7 @@ export class BridgeCore {
     if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
     if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
     const rawCommand = text.trim();
-    if (!this.#state.allowedGroups.some(group => group.id === groupId)) {
+    if (this.groupAccess(groupId)===null) {
       if (!this.#groupPairing) return result(false, 'GROUP_DENIED');
       if (this.#time() >= this.#groupPairing.expiresAt) {
         this.#clearGroupPairing();
@@ -546,7 +608,7 @@ export class BridgeCore {
       }
       const match = /^\/group-bind ([a-f0-9]{32})$/.exec(rawCommand);
       if (!match || !timingSafeEqual(Buffer.from(match[1]), Buffer.from(this.#groupPairing.code))) return result(false, 'GROUP_DENIED');
-      this.#groupCandidate = { id: groupId, name: this.#groupPairing.name, expiresAt: this.#groupPairing.expiresAt };
+      this.#groupCandidate = { id: groupId, name: this.#groupPairing.name, access:this.#groupPairing.access, expiresAt: this.#groupPairing.expiresAt };
       this.#groupPairing = null;
       // Candidate capture is memory-only and sends no group acknowledgement.
       return result(true, 'GROUP_PAIRING_PENDING', { ...describeGroup(this.#groupCandidate), expiresAt: this.#groupCandidate.expiresAt });
@@ -567,7 +629,7 @@ export class BridgeCore {
     const target = { scope: 'group', targetId: groupId, msgId: id };
     if (command === '/ping') return this.#notify({ text: '连接正常（固定测试回复）', idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     if (['帮助', '菜单', '/help'].includes(command)) return this.#notify({
-      text: '群命令：前缀任选一个，后加空格和命令。\n前缀：梁圣、梁祖、梁嗨、小难梁\n例如：梁祖 发 天气 上海\n命令：\n发 天气 城市或区县（如北京）\n发 雷达 站名或区域（如华北）\n雷达目录 [省份]\n发 雾霾 城市或区县（如北京）\n换算 0.6 HU$ 人民币（也支持马里、马时）\n同名地点请加省市。\n帮助\n/ping',
+      text: this.groupAccess(groupId)==='gray'?'灰名单群：仅开放基础聊天与换算。\n前缀：梁圣、梁祖、梁嗨、小难梁，后加空格。\n例如：梁祖 你好\n梁祖 1马里换公里\n余额、三号楼及其他查询未开放。\n帮助\n/ping':'白名单群：主动询问可使用全部业务功能。\n前缀：梁圣、梁祖、梁嗨、小难梁，后加空格。\n天气、雷达、空气、换算、生活费、官方状态、DeepSeek余额、三号楼简报均可自然询问。\n例如：梁祖 今天学院路有哪些空教室\n固定命令：发 天气 城市或区县、发 雷达 地点、雷达目录、发 雾霾 城市或区县、查DeepSeek余额、查空教室、换算 0.6 HU$ 人民币。\n帮助\n/ping',
       idempotencyKey: `reply:${incomingKey}`,
     }, target, groupId);
     if (this.#commandHandler) {
@@ -576,11 +638,14 @@ export class BridgeCore {
       const budgetCode = this.#budgetCode(now, { reply: true });
       if (budgetCode) return result(false, budgetCode);
       let response;
-      try { response = await this.#commandHandler(command, groupContext ?? { scope: 'group',
+      const access=this.groupAccess(groupId);
+      const context=groupContext&&groupContext.access===access?groupContext:{ scope: 'group', access,
         sessionKey: hash('chat:group:'+groupId+':'+senderId), scopeKey: hash('chat-scope-group:'+groupId),
-        userKey: hash('chat-user:'+senderId), currentSpeaker: 'member-'+hash('group-sender:'+groupId+':'+senderId).slice(0,12), groupContext: [] }); }
+        userKey: hash('chat-user:'+senderId), currentSpeaker: 'member-'+hash('group-sender:'+groupId+':'+senderId).slice(0,12), groupContext: [] };
+      Object.defineProperty(context,'authorize',{value:required=>this.canDeliver({groupId,requiredAccess:required}),enumerable:false});
+      try { response = await this.#commandHandler(command, context); }
       catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
-      if (response) return this.#notify({ text: response.text, image: response.image, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
+      if (response) return this.#notify({ text: response.text, image: response.image,requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     }
     return result(true, 'IGNORED');
   }
@@ -662,7 +727,8 @@ export class BridgeCore {
     if (!this.#ready) return result(false, 'NOT_READY');
     if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
     if (groupId !== undefined) {
-      if (!validGroupId(groupId) || !this.#state.allowedGroups.some(group => group.id === groupId)) return result(false, 'GROUP_DENIED');
+      if (!validGroupId(groupId) || this.groupAccess(groupId)===null) return result(false, 'GROUP_DENIED');
+      if((proactiveGroup||(input?.requiredAccess||(input?.image?'white':'chat'))==='white')&&this.groupAccess(groupId)!=='white')return result(false,'GROUP_ACCESS_DENIED');
       if (!proactiveGroup && (replyTarget?.scope !== 'group' || replyTarget.targetId !== groupId || !validId(replyTarget.msgId))) return result(false, 'GROUP_REPLY_TARGET_INVALID');
     }
     const { text, idempotencyKey, image } = input ?? {};
@@ -695,7 +761,7 @@ export class BridgeCore {
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
     let failure = null;
     try {
-      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(groupId !== undefined ? { groupId } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
+      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat') } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
       if (response?.ok === false) throw response;
     } catch (error) { failure = classifyError(error); }
     const finished = structuredClone(this.#state);
@@ -717,7 +783,7 @@ export class BridgeCore {
       return this.#storageFailed();
     }
     if (!failure && groupId !== undefined && replyTarget && !proactiveGroup) this.#rememberGroup(groupId, {
-      key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: image ? '[已发送查询图片]' : text,
+      key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,
     });
     return failure ? result(false, failure.code, { deliveryState: record.state }) : result(true, 'SENT');
   }
