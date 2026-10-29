@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-29",
+  "workspace": "D:/Projects/Alex Bot",
+  "baseline_commit": "270b4e0",
+  "repository": {"url": "https://github.com/Alexx-Powered/alex-bot", "visibility": "PRIVATE", "visibility_verified": true, "branch": "main"},
+  "changes": [
+    "Authenticated pause(true) and disconnect bypass the slow HTTP operation lock; resume/configuration retain serialization.",
+    "Disconnect invalidates pending connection attempts, including a delayed credential read or adapter connection.",
+    "Core pending-pause flag participates in status and transport authorization. Image upload completion rechecks authorization before message send.",
+    "MCP stdio integration tests use an ephemeral loopback port injected only by trusted test code. Public schemas and production default endpoint are unchanged.",
+    "WorkBuddy sender tests follow documented 2.3.1 semantics: each explicit invocation gets a fresh request ID; a timeout never causes an automatic retry.",
+    "Updated current configuration and routing documentation while retaining dated historical evidence.",
+    "Initialized workspace Git with credentials, state, browser sessions, backups, previews, collected samples and release archives excluded."
+  ],
+  "tests": {
+    "node_targeted": {"passed": 55, "failed": 0, "skipped": 0, "log": "../test-output/maintenance-targeted.txt"},
+    "node_full": {"passed": 353, "failed": 0, "skipped": 0, "command": "npm test", "log": "../test-output/maintenance-node-full.txt"},
+    "bot_python": {"passed": 82, "failed": 0, "skipped": 0, "command": ".venv/Scripts/python.exe -B -X utf8 -m unittest discover -s python -p test_*.py"},
+    "workbuddy_sender": {"passed": 4, "failed": 0, "skipped": 0, "environment": "Bot .venv", "command": "python -B -X utf8 -m unittest test_briefing.SenderTests"},
+    "workbuddy_renderer": {"passed": 1, "failed": 0, "skipped": 0, "environment": "WorkBuddy default Python", "command": "python -B -X utf8 -m unittest test_briefing.BriefingTests"}
+  },
+  "deployment": {
+    "bridge_restarted": true,
+    "transport_before_and_after": "connected",
+    "paired_before_and_after": true,
+    "paused_before_and_after": false,
+    "allowed_group_count_before_and_after": 1,
+    "daily_attempts_before_and_after": 39,
+    "uncertain_deliveries_before_and_after": 0,
+    "limits": {"dailyAttempts": 300, "minuteAttempts": 15, "reservedNotifications": 10},
+    "morning_task": {"name": "AlexQQ-Morning-Service", "state": "Running", "configuration_changed": false},
+    "workbuddy_version": "2.3.1",
+    "workbuddy_runtime_modified": false,
+    "workbuddy_sender_source_matches_installed_sha256": "58b24188447200d499994a9bd41b38442d7a07b4721932b98905520be4d4da63",
+    "real_qq_test_messages": 0,
+    "online_model_test_calls": 0
+  },
+  "remaining_validation": [
+    "Long-running morning delivery, sleep/resume and extended inactivity require separate real runtime evidence.",
+    "Standalone BUAA crawler browser authentication and integration with QQ remain untested and unimplemented respectively."
+  ]
+}

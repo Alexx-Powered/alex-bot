@@ -8,6 +8,7 @@ let pendingGroupKey = null;
 const descriptions = {
   AGENT_CONFIG_SAVED:'模型设置已保存，下次请求生效。', AGENT_CONFIG_INVALID:'请检查模型名、Key 格式；首次启用需要填写 Key。', AGENT_CONFIG_UNAVAILABLE:'模型配置暂不可用，请检查本机加密存储。',
   CONFIG_SAVED:'凭据已加密保存。现在可以连接 QQ。', CONNECTING:'正在连接 QQ，请稍候。',
+  CONNECT_CANCELLED:'连接请求已被断开操作取消。',
   CONFIG_BUSY:'上一项操作仍在进行，请等待完成后再操作。',
   DISCONNECTED:'已断开连接，发送已暂停。', PAIRING_STARTED:'配对码已生成，请用自己的 QQ 私聊机器人。',
   PAIRING_PENDING:'收到了配对请求，请确认本次是你自己的操作。', PAIRED:'配对成功。现在可以发送 /ping 或测试通知。',

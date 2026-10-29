@@ -4,7 +4,7 @@ import http from 'node:http';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createBridgeClient, projectWeatherError, projectNotify } from '../src/bridge-client.mjs';
@@ -81,10 +81,18 @@ test('MCP stdio communicates only through the authenticated local owner bridge',
     if (mock.listening) await new Promise((done) => mock.close(done));
     await rm(home, { recursive: true, force: true });
   });
-  await new Promise((done, reject) => { mock.once('error', reject); mock.listen(19327, '127.0.0.1', done); });
+  await new Promise((done, reject) => { mock.once('error', reject); mock.listen(0, '127.0.0.1', done); });
+  const port = mock.address().port;
+  const localClient = options => createBridgeClient({ home, port, ...options });
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [join(projectRoot, 'src', 'mcp.mjs')],
+    args: ['--input-type=module', '--eval', `
+      import {createMcpServer} from ${JSON.stringify(pathToFileURL(join(projectRoot, 'src', 'mcp.mjs')).href)};
+      import {createBridgeClient} from ${JSON.stringify(pathToFileURL(join(projectRoot, 'src', 'bridge-client.mjs')).href)};
+      import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
+      const server = createMcpServer(createBridgeClient({home:process.env.QQ_BRIDGE_HOME,port:${port},timeoutMs:60000}));
+      await server.connect(new StdioServerTransport());
+    `],
     cwd: projectRoot,
     env: { QQ_BRIDGE_HOME: home },
     stderr: 'pipe',
@@ -194,11 +202,17 @@ test('MCP stdio communicates only through the authenticated local owner bridge',
 
   await t.test('missing token fails locally; stalled HTTP has a total timeout', async () => {
     const before = requests.length;
-    await assert.rejects(createBridgeClient({ home: join(home, 'absent') }).status(), { code: 'BRIDGE_NOT_INITIALIZED' });
+    await assert.rejects(localClient({ home: join(home, 'absent') }).status(), { code: 'BRIDGE_NOT_INITIALIZED' });
     assert.equal(requests.length, before);
     mode = 'timeout';
-    await assert.rejects(createBridgeClient({ home, timeoutMs: 50 }).status(), { code: 'BRIDGE_TIMEOUT' });
+    await assert.rejects(localClient({ timeoutMs: 50 }).status(), { code: 'BRIDGE_TIMEOUT' });
     mode = 'normal';
   });
   assert.equal(stderr, '');
+});
+
+test('trusted bridge port injection stays numeric and never appears in public tool arguments', async () => {
+  for (const port of [0, -1, 65536, 1.5, '19327', 'https://example.invalid', null]) {
+    assert.throws(() => createBridgeClient({port}), {code:'BRIDGE_INVALID_PORT'});
+  }
 });

@@ -115,7 +115,11 @@ export function projectWeatherError(body) {
   return result;
 }
 
-export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAULT_HOME, timeoutMs = 10_000 } = {}) {
+export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAULT_HOME, timeoutMs = 10_000, port = 19327 } = {}) {
+  // Trusted local construction only: public MCP arguments never select a port
+  // or host. Tests inject an ephemeral loopback port without touching live QQ.
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new BridgeClientError('BRIDGE_INVALID_PORT');
+  const origin = `http://127.0.0.1:${port}`;
   const tokenPath = resolve(home, '.private', 'admin-token');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new BridgeClientError('BRIDGE_INVALID_TIMEOUT');
@@ -123,8 +127,8 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
 
   async function request(path, payload) {
     // There is no URL override, destination parameter, redirect, or proxy path.
-    const url = new URL(path, BRIDGE_ORIGIN);
-    if (url.origin !== BRIDGE_ORIGIN || !['/api/status', '/api/notify', '/api/notify-all-allowed', '/api/weather/preview', '/api/weather/briefing', '/api/morning/test-all-allowed'].includes(url.pathname) || url.search || url.hash) {
+    const url = new URL(path, origin);
+    if (url.origin !== origin || !['/api/status', '/api/notify', '/api/notify-all-allowed', '/api/weather/preview', '/api/weather/briefing', '/api/morning/test-all-allowed'].includes(url.pathname) || url.search || url.hash) {
       throw new BridgeClientError('BRIDGE_INVALID_ENDPOINT');
     }
     let token;

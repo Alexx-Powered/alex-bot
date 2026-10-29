@@ -2,6 +2,8 @@
 
 更新日期：2026-10-29。运行工作区：`D:\Projects\Alex Bot`。本文描述本机当前代码与已核对状态，不代表云端部署或未来平台权限承诺。
 
+本轮维护已完成并发安全控制、MCP测试端口隔离和WorkBuddy陈旧测试修正；源码已建立工作区根目录Git管理。维护证据见 `codex-qq-plugin/deploy/maintenance-20261029.json`。GitHub交付信息见文末，原始只读交接与较早验收作为历史保留。
+
 ## 1. 接手先看这里
 
 亚历克斯是通过腾讯官方 QQ Bot API 运行的独立机器人。日常 QQ 客户端不需要注入、替换或第三方协议登录。Node.js 服务负责接收消息、授权和发送；Python LangChain 负责自然语言工具选择及新增业务规则。**正常聊天、查询和早安任务不依赖 Codex 开着**；Codex 仅在自己的任务需要通知时调用本地 MCP。
@@ -15,11 +17,11 @@
 
 接手顺序：读本目录 `AGENTS.md` → 本文 → 对应模块 → 测试与部署记录。`codex-qq-plugin/README.md` 包含大量历史记录，旧额度、旧路由说明不能直接当成当前配置。
 
-### 本次只读核对的状态
+### 本轮维护后的运行状态
 
 | 项目 | 状态 |
 |---|---|
-| QQ 服务版本 | 0.2.1（不是各业务模块的独立发布版本） |
+| QQ 服务版本 | 0.2.1（本轮维护用Git提交定位，不修改各业务发布版本） |
 | QQ 连接与配对 | connected、已配对本人、未暂停 |
 | 群 | 1个白名单；已配置群备注“万通荆古帖v2.0”，实际按 groupOpenid 授权 |
 | QQ 额度 | 15次/滚动分钟、300次/北京时间自然日，预留10次主动通知；普通回复上限290 |
@@ -29,7 +31,7 @@
 | WorkBuddy skill | 2.3.1；标识仍为 `building3-study-planner-v2-1` |
 | 云端 | 未部署；电脑关机、休眠或断网不保证服务与投递 |
 
-本次交接没有发送 QQ、调用在线大模型、重启服务或重跑全量测试。上述运行状态是时点快照。API 返回 `SENT` 仅表示接口接受，不等于用户已阅读。
+本轮维护运行了完整离线测试，并重启本地桥接服务加载修复；没有发送真实QQ测试消息或调用在线大模型。重启前后均connected、已配对、未暂停、1个白名单群，当天发送计数均为39、无不确定投递；没有重置计数、配对或幂等记录。原早安计划任务核对为Running。上述状态是时点快照，API返回`SENT`仅表示接口接受，不等于用户已阅读。
 
 ## 2. 总体架构与流程
 
@@ -68,6 +70,8 @@ flowchart TD
 5. 天气等通过受限 RPC 回调 Node 的 `WeatherToolbox`；换算、预算、官方状态、余额等由 Python 实现。
 6. 天气／雷达成功直接输出图片；复杂换算、生活费及状态查询可在工具取得事实后追加一次**没有工具权限**的模型解释。余额结果直接输出，不交给模型续写。
 7. 发送核心再次处理暂停、目的地、发送预算及请求标识，最后调用官方接口。
+
+本轮修复：HTTP暂停（只限`paused:true`）与断开在认证、来源及JSON校验后绕过耗时操作锁；恢复发送与凭据修改仍按原规则串行。断开会取消正在等待凭据或尚未完成的连接，返回`CONNECT_CANCELLED`，避免稍后意外重新连接。暂停标志立即参与状态与发送判断；图片上传完成后、真正发消息前再核对一次。已提交给QQ平台的消息不能靠暂停撤回。
 
 LangChain 的优势是统一工具描述、参数校验、上下文与语义路由，让“北京雷达图”“全马是多少马里”不必逐句编写关键词模板。它不是定时器，也不会自动获得网页、账户、文件或发送权限。新增业务默认按 `AGENTS.md` 使用 Python LangChain Tool，既有 Node 天气实现是保留的实现，不应为“统一语言”盲目重写。
 
@@ -179,6 +183,8 @@ flowchart LR
 
 两个Python环境不同：WorkBuddy自带Python有Pillow/NumPy负责OCR与绘图；QQ项目 `.venv` 有LangChain负责发送。不能假设任意 `python` 同时具备依赖。
 
+本轮只更新源目录陈旧测试与README，发送器行为仍为2.3.1，没有重发安装包或修改已安装skill。源目录与已安装`send_qq.py`的SHA256核对一致。发送测试覆盖同manifest两次独立POST、超时单次POST及回执、暂停/离线/额度拒绝、未核对与图片篡改；分别在Bot与WorkBuddy的现有环境运行，避免因缺少另一环境依赖而跳过验证。
+
 ## 7. 本地接口、插件与文件地图
 
 服务监听 `127.0.0.1:19327`，UI `/`，开发说明页 `/guide`，公开健康检查 `/health`。`/api/*` 有本机认证与来源校验；不要在日志或交接文档写访问口令、带口令的设置URL。
@@ -233,13 +239,17 @@ Set-Location -LiteralPath 'D:\Projects\Alex Bot\codex-qq-plugin'
 Get-ScheduledTask -TaskName 'AlexQQ-Morning-Service'
 # 离线Python测试
 .\.venv\Scripts\python.exe -m unittest discover -s python -p 'test_*.py'
+# 完整Node离线回归，可与正式服务同时运行
+npm test
 # 模拟早安图，无QQ发送
 node scripts/preview-morning-local.mjs
 ```
 
 依赖恢复：Node用`npm ci`，Python优先检查 `scripts/install-python-agent.ps1` 与 `python/requirements*.txt`，保持虚拟环境隔离。安装自启动见 `scripts/install-autostart.ps1`，不要在不需要时重复创建任务。
 
-**不要直接在运行服务旁执行全量 `npm test`**：当前 `test/mcp.test.mjs` 固定绑定生产19327端口。安排维护窗口、避免调度器自动重启服务后再全量测试，或先把测试端口隔离修好。单个纯模块测试可按实际依赖选择，不要把 `EADDRINUSE` 误判成业务回归。
+MCP测试已改用系统分配的回环临时端口，子进程通过测试代码注入受信任客户端；可以在正式服务占用19327时执行完整`npm test`。正式MCP仍固定默认19327，不新增任意URL、主机、环境变量端口或工具参数。其他临时服务测试同样使用独立端口。
+
+WorkBuddy测试在`workbuddy-study-qq`目录运行：Bot环境执行`-m unittest test_briefing.SenderTests`（4项），WorkBuddy环境执行`-m unittest test_briefing.BriefingTests`（1项）。只用模拟发送接口和本地渲染，不发送真实QQ消息。
 
 新功能推荐流程：
 
@@ -250,20 +260,20 @@ node scripts/preview-morning-local.mjs
 5. 备份变更文件；同步源码、安装副本、元数据及ZIP，检查hash和版本；不要覆盖用户其他任务改动。
 6. 重启影响到的服务并查状态。记录测试环境、命令、结果、未覆盖项；平台接受和客户端确认分开记录。
 
-## 9. 已知问题与后续优先级
+## 9. 本轮修复与后续优先级
 
-依据 `codex-qq-plugin/deploy/codex-review-20261029.json`，本次交接核对代码后以下仍需处理；本文没有顺带修改运行逻辑。
+最初审阅见`codex-qq-plugin/deploy/codex-review-20261029.json`；以下是本轮处理结果，以维护记录和当前源码为准。
 
 | 优先项 | 证据与影响 | 建议 |
 |---|---|---|
-| HTTP全局操作锁 | `server.mjs` 的 `configBusy` 覆盖慢预览／发送；同时暂停／断开可能409 CONFIG_BUSY | 分离慢操作与管理锁，保留真正发送前授权复核；加并发回归 |
-| 全量测试端口冲突 | MCP测试固定19327，在线服务时EADDRINUSE | 测试注入回环临时端口，不把任意地址开放成用户参数 |
-| WorkBuddy源目录测试陈旧 | 项目 `test_briefing.py` 仍断言第二次ALREADY_ATTEMPTED；实际2.3.1已每次新发。更新过的测试留在此前暂存目录，未同步入项目 | 将正确测试迁入项目，覆盖同manifest两次独立POST、单次超时不自动重试、暂停/篡改拒绝 |
-| 文档漂移 | WorkBuddy README仍写2.2.0；QQ README含旧额度及旧余额快捷路由 | 本文作为交接入口，后续清理历史内容并保留验收时间线 |
-| 版本控制 | 最近审查记录运行目录非Git仓库，依赖备份交付 | 后续建立版本控制，排除密钥、认证profile、状态及隐私测试数据 |
+| HTTP全局操作锁 | 已修复：暂停/断开绕过慢操作锁，取消晚到连接，上传后复核暂停；相关并发回归通过 | 当前运行服务已重启加载，已发往QQ的请求不能撤回 |
+| 全量测试端口冲突 | 已修复：MCP测试注入回环随机端口，在线服务19327持续运行时全量通过 | 测试端口不进入公共工具schema或正式环境配置 |
+| WorkBuddy源目录测试陈旧 | 已修复：测试按2.3.1每次明确调用新发的规则重写，4项发送、1项绘图通过 | 保留单次超时不重试，不恢复跨调用内容去重 |
+| 文档漂移 | 已更新WorkBuddy版本、QQ当前额度/余额路由说明、本交接与根README；旧验收按时间保留 | 以后发布同时更新行为、证据与待验项 |
+| 版本控制 | 已建立工作区根Git仓库；源码与非密钥配置纳入管理 | `.private`、浏览器profile、备份、回执、ZIP与隐私样本保留本地 |
 | 持续运行验收 | 历史人工测试不等于跨夜、休眠恢复或长期无互动投递成功 | 用真实调度记录与本人收件反馈验收，不循环补发 |
 
-最近审查记录：Python Bot 82通过；Node 336通过、1项因端口冲突失败；WorkBuddy测试与新语义不符。更早记录有其他测试总数，不可拼成“当前全绿”。本次只核对记录，没有重新运行整套。
+本轮实际回归：Node353项全部通过（含恢复运行的MCP子测试），Bot Python82项全部通过；WorkBuddy发送4项、渲染1项分别在正确环境全部通过，无跳过。定向Node回归55项通过。未重新调用在线模型、天气源或QQ发送作业务验收；长时间运行/休眠恢复与校园浏览器采集仍属待验，不能用离线测试替代。
 
 ### 常见排障顺序
 
@@ -275,7 +285,7 @@ node scripts/preview-morning-local.mjs
 | WorkBuddy只有本地图片 | 是否执行publish -Reviewed、manifest新鲜度、发送回执、实际加载的skill版本 |
 | WorkBuddy旧版DUPLICATE | 旧发送器按内容去重；当前2.3.1每次新调用已修正，不删除服务器记录 |
 | 早安没到 | 用户是否登录、任务是否运行、联网与暂停、当天是否已登记、日期与额度 |
-| 测试EADDRINUSE | 测试占用真实19327；不要停止不相关进程 |
+| 测试EADDRINUSE | MCP已用独立临时端口；检查其他测试或旧代码副本，不停止不相关进程 |
 | SENT却未看到 | 区分接口接受与QQ客户端实际收件，不换标识循环重发 |
 
 ## 10. 尚未接入的教室采集与迁移边界
@@ -292,8 +302,19 @@ Codex阻塞求助遵守最新AGENTS：至少三次有效诊断、已问具体问
 
 - 当前业务源码与配置：`codex-qq-plugin/src/`、`python/`、`config/`。
 - 最近审查：`codex-qq-plugin/deploy/codex-review-20261029.json`。
+- 本轮修复及离线/重启验收：`codex-qq-plugin/deploy/maintenance-20261029.json`。
 - 真实验收历史：`deploy/langchain-live-verification.json`、`enhanced-morning-live-test.json` 等；结论限于各次记录。
 - WorkBuddy实际规则：已安装及源目录的 `SKILL.md`、`references/qq-briefing.md`、`scripts/send_qq.py`。
 - 备份：项目根 `backups/`。含运行文件与用户内容的备份不得默认公开。
 
 每次发布请更新本文的日期、版本、变更行为、部署副本及验证状态。不要把凭据、本人或群的完整平台标识、带授权参数URL、校园profile或完整聊天日志写进交接资料。
+
+## 12. Git与GitHub交付
+
+仓库：[Alexx-Powered/alex-bot](https://github.com/Alexx-Powered/alex-bot)。2026-10-29新建并查询API核实为PRIVATE；默认分支main，origin指向该仓库。本地Git根目录是`D:\Projects\Alex Bot`，统一管理QQ主服务、WorkBuddy扩展、教室采集原型及交接资料。作者采用GitHub账号的noreply邮箱。
+
+提交区分原始源码基线和本轮修复，后续用`git log`定位维护版本。旧版服务号仍为0.2.1，不用它判断是否包含本次修复。
+
+根`.gitignore`排除所有`.private`、校园`.private-profile`、`.qq-delivery`、备份、依赖/虚拟环境、预览、运行日志、ZIP、真实采集样本及原始验收记录。这些本机文件保留不动。仅经过筛选的初始审阅与本轮维护摘要进入Git；`deploy`中其他原始证据及`test-output`在远端克隆中不存在。文中引用的安装ZIP和采集样本同样属于本地材料，不能声称远端仓库包含它们。
+
+上传前检查了跟踪文件路径与常见凭据特征；命中的测试凭据为明确合成值。后续每次提交仍需检查暂存区，private并不能替代凭据保护。改可见性、迁移登录材料或新增对外部署需另行授权与验证。

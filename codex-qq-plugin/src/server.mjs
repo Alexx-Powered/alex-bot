@@ -51,6 +51,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core;
   const adapter = adapterFactory({
+    canSend: () => core?.sendingEnabled() === true,
     onMessage: async (message) => {
       try { await core.handleMessage(message); } catch { /* no text or credential logging */ }
     },
@@ -62,6 +63,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     send: (request) => adapter.send(request), now: () => Date.now(), limits, commandHandler: (text,context) => agent.handle(text,context) });
   await core.init();
   let configBusy = false;
+  let connectionGeneration = 0;
   let boundPort = port;
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -90,6 +92,19 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus() });
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req, pathname === '/api/study-briefing' ? 2100000 : maxBody);
+      // Safety controls must reach the core even while a slow preview, send or
+      // credential read holds the operation lock. setPaused sets its stop flag
+      // synchronously, before waiting for the core's persistence queue.
+      if (pathname === '/api/pause' && data.paused === true) {
+        return json(res, 200, await core.setPaused(true));
+      }
+      if (pathname === '/api/disconnect') {
+        ++connectionGeneration;
+        const paused = core.setPaused(true);
+        await Promise.all([paused, adapter.disconnect()]);
+        await core.cancelPairing();
+        return json(res, 200, { ok: true, code: 'DISCONNECTED' });
+      }
       if (configBusy) return json(res, 409, { ok: false, code: 'CONFIG_BUSY' });
       configBusy = true; mutationHeld = true;
       let result;
@@ -144,17 +159,19 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
           break;
         }
         case '/api/connect': {
+            const generation = connectionGeneration;
             const credentials = await store.readCredentials();
+            if (generation !== connectionGeneration) { result = { ok: false, code: 'CONNECT_CANCELLED' }; break; }
             if (!credentials) return json(res, 409, { ok: false, code: 'NOT_CONFIGURED' });
             await adapter.disconnect();
             await core.cancelPairing();
+            if (generation !== connectionGeneration) { result = { ok: false, code: 'CONNECT_CANCELLED' }; break; }
             await adapter.connect(credentials);
+            if (generation !== connectionGeneration) {
+              await adapter.disconnect();
+              result = { ok: false, code: 'CONNECT_CANCELLED' }; break;
+            }
             result = { ok: true, code: 'CONNECTING' };
-          break;
-        }
-        case '/api/disconnect': {
-          await adapter.disconnect(); await core.cancelPairing(); await core.setPaused(true);
-          result = { ok: true, code: 'DISCONNECTED' };
           break;
         }
         case '/api/pair/start':

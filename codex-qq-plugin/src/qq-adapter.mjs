@@ -81,17 +81,20 @@ export class QQAdapter {
   #onStatus;
   #createBot;
   #now;
+  #canSend;
   #bot = null;
   #botMentionId = null;
   #generation = 0;
   #current = { state: 'disconnected', code: null };
   #observed = new Map();
 
-  constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now } = {}) {
+  constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true } = {}) {
+    if (typeof canSend !== 'function') throw new TypeError('INVALID_SEND_GUARD');
     this.#onMessage = onMessage;
     this.#onStatus = onStatus;
     this.#createBot = createBot;
     this.#now = now;
+    this.#canSend = canSend;
   }
 
   status() {
@@ -274,6 +277,7 @@ export class QQAdapter {
     let phase = fileData === null ? 'send' : 'upload';
     let messageAttempted = false;
     try {
+      if (this.#canSend() !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
       if (fileData !== null) {
         // SDK 1.0.5 uploadMedia/sendImage have a built-in two-retry policy and
         // may select chunked upload. Its public api.post -> ApiClient.request
@@ -295,6 +299,7 @@ export class QQAdapter {
         // Upload can take time. Recheck the original local authorization for
         // either scope before sending; expiry or reconnect always stops delivery.
         if (authorizedTarget.msgId) this.#target(ownerId, authorizedTarget, groupId);
+        if (this.#canSend() !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
         messageAttempted = true;
         // Image replies are image-only even if a caller supplied a caption.
         // SDK 1.0.5 send() and sendRaw() preserve an omitted content field.

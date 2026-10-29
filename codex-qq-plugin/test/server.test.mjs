@@ -103,7 +103,7 @@ test('setup UI has restrictive CSP and JSON-only authenticated writes',async()=>
   }finally{await f.app.close()}
 });
 
-test('credential changes and disconnect cannot race a pending connection',async()=>{
+test('disconnect cancels a pending credential read while other config writes stay locked',async()=>{
   const f=await fixture();
   let release;
   try {
@@ -115,10 +115,64 @@ test('credential changes and disconnect cannot race a pending connection',async(
     const pending=f.request('/api/connect',{});
     await reading;
     assert.equal((await f.request('/api/config',{appId:'987654321',appSecret:'different-secret'})).status,409);
-    assert.equal((await f.request('/api/disconnect',{})).status,409);
+    assert.equal((await(await f.request('/api/disconnect',{})).json()).code,'DISCONNECTED');
     release(); release=null;
-    assert.equal((await pending).status,200);
+    assert.equal((await(await pending).json()).code,'CONNECT_CANCELLED');
+    assert.equal(f.app.adapter.status().state,'disconnected');
   } finally { release?.(); await f.app.close(); }
+});
+
+test('pause and disconnect interrupt slow reports before any message or send budget is consumed', async (t) => {
+  for (const control of ['/api/pause', '/api/disconnect']) await t.test(control, async () => {
+    let release, entered;
+    const waiting = new Promise(resolve => { entered = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    const f = await fixture({briefing: async () => {
+      entered(); await gate;
+      return {date:new Date(Date.now()+8*3600000).toISOString().slice(0,10),cities:['beijing'],
+        image:{buffer:Buffer.alloc(16),mimeType:'image/png'}};
+    }});
+    let pending;
+    try {
+      await f.request('/api/config',{appId:'123456789',appSecret:'dummy-secret-not-real'});
+      await f.request('/api/connect',{});
+      const pair = await f.app.core.startPairing();
+      await f.receive({kind:'c2c',id:'control-pair',senderId:'owner',text:'/pair '+pair.pairingCode});
+      await f.app.core.confirmPairing();
+      pending = f.request('/api/weather/briefing',{mode:'test'});
+      await waiting;
+      assert.equal((await f.request('/api/pause',{paused:false})).status,409);
+      const stopped = await f.request(control,control==='/api/pause'?{paused:true}:{});
+      assert.equal(stopped.status,200);
+      assert.equal((await stopped.json()).code,control==='/api/pause'?'PAUSED':'DISCONNECTED');
+      assert.equal(f.app.core.sendingEnabled(),false);
+      assert.equal(f.app.core.status().paused,true);
+      release();
+      assert.equal((await(await pending).json()).code,'PAUSED');
+      assert.equal(f.sent.length,0);
+      assert.equal(f.app.core.status().dailyAttempts,0);
+      // Safety controls cannot release another request's operation lock.
+      assert.equal((await(await f.request('/api/pause',{paused:false})).json()).code,'RESUMED');
+    } finally { release(); if(pending)await pending; await f.app.close(); }
+  });
+});
+
+test('disconnect during adapter connection prevents a late connection from restoring transport', async () => {
+  const f = await fixture();
+  let release, entered, pending;
+  const waiting = new Promise(resolve=>{entered=resolve;});
+  const gate = new Promise(resolve=>{release=resolve;});
+  const connect = f.app.adapter.connect.bind(f.app.adapter);
+  f.app.adapter.connect = async (...args)=>{entered();await gate;return connect(...args);};
+  try {
+    await f.request('/api/config',{appId:'123456789',appSecret:'dummy-secret-not-real'});
+    pending = f.request('/api/connect',{});
+    await waiting;
+    assert.equal((await(await f.request('/api/disconnect',{})).json()).code,'DISCONNECTED');
+    release();
+    assert.equal((await(await pending).json()).code,'CONNECT_CANCELLED');
+    assert.equal(f.app.adapter.status().state,'disconnected');
+  } finally { release(); if(pending)await pending; await f.app.close(); }
 });
 
 test('weather preview is read-only; daily report deduplicates and respects pause',async()=>{

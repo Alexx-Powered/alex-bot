@@ -39,7 +39,7 @@ class FakeQQBot {
   }
 }
 
-function fixture() {
+function fixture(options = {}) {
   const bots = [], messages = [], statuses = [];
   let now = Date.parse('2026-10-28T10:00:00Z');
   const adapter = new QQAdapter({
@@ -47,6 +47,7 @@ function fixture() {
     now: () => now,
     onMessage: (message) => messages.push(message),
     onStatus: (status) => statuses.push(status),
+    ...options,
   });
   return { adapter, bots, messages, statuses, advance(ms) { now += ms; }, async connect() {
     await adapter.connect({ appId: '123', appSecret: 'private-secret' });
@@ -327,6 +328,23 @@ test('malformed upload response cannot produce a media message', async () => {
   await assert.rejects(f.adapter.send({ ownerId: 'OWNER_OPENID', text: 'x', image: { buffer: PNG, mimeType: 'image/png' } }), { code: 'QQ_UPLOAD_RESPONSE_INVALID', phase: 'upload', messageAttempted: false });
   assert.equal(bot.mediaCalls.length, 0);
   await f.adapter.disconnect();
+});
+
+test('a local pause during upload cancels the final media send without retrying', async () => {
+  let enabled = true;
+  const f = fixture({canSend:()=>enabled});
+  const bot = await f.connect();
+  try {
+    bot.beforeUpload = async()=>{enabled=false;};
+    await assert.rejects(f.adapter.send({ownerId:'OWNER_OPENID',text:'',image:{buffer:PNG,mimeType:'image/png'}}),
+      {code:'QQ_SEND_CANCELLED',phase:'send',messageAttempted:false});
+    assert.equal(bot.uploadCalls.length,1);
+    assert.equal(bot.mediaCalls.length,0);
+    assert.equal(bot.calls.length,0);
+    await assert.rejects(f.adapter.send({ownerId:'OWNER_OPENID',text:'paused'}),
+      {code:'QQ_SEND_CANCELLED',messageAttempted:false});
+    assert.equal(bot.calls.length,0);
+  } finally { await f.adapter.disconnect(); }
 });
 
 test('reply expiry during upload stops before media send and never falls back to proactive', async () => {

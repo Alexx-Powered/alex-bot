@@ -264,6 +264,10 @@ export class BridgeCore {
     });
   }
 
+  sendingEnabled() {
+    return this.#ready && Boolean(this.#state.ownerId) && !this.#state.paused && !this.#pauseRequested;
+  }
+
   status() {
     const now = this.#time();
     const day = hkDay(now);
@@ -274,7 +278,7 @@ export class BridgeCore {
       ownerHint: hint(this.#state.ownerId),
       pendingPairing: Boolean(this.#candidate && now < this.#candidate.expiresAt),
       candidateHint: this.#candidate && now < this.#candidate.expiresAt ? hint(this.#candidate.ownerId) : null,
-      paused: this.#state.paused,
+      paused: this.#state.paused || this.#pauseRequested,
       pauseReason: this.#state.pauseReason,
       dailyAttempts,
       minuteAttempts: this.#state.attempts.filter((entry) => entry.at > now - 60_000).length,

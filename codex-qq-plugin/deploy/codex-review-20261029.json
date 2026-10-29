@@ -1,5 +1,6 @@
 {
   "date": "2026-10-29",
+  "follow_up": {"status": "resolved", "record": "maintenance-20261029.json", "note": "Preserve this original review as history. WorkBuddy 2.3.1 deliberately sends on every explicit invocation; its outdated tests were corrected without restoring content deduplication."},
   "scope": "Initial code and offline test review for future development; no production code edits or real QQ sends",
   "workspace": "D:/Projects/Alex Bot",
   "components": {
