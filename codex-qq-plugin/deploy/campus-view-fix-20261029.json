@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-29",
+  "cause": "The previous natural-query default forced a current-time compact image even for a full-day overview. Collection still contained all fourteen periods.",
+  "fix": [
+    "Python LangChain intent tool distinguishes dated overviews from current/session recommendations on both query and recommendation paths",
+    "Day overviews do not require the literal phrase full day; explicit full-day requests take precedence",
+    "Full-day region unions render all selected rooms and fourteen periods; Building 3 retains the optimized original board",
+    "Fresh current recommendations use a distinct acknowledgement; cached recommendations do not claim a fresh fetch",
+    "Bounded ignored-query recovery checks explicit classroom intent, unambiguous Beijing dates and full access; unrelated chat and gray access cannot fetch classrooms"
+  ],
+  "tests": {
+    "node_passed": 394,
+    "python_passed": 138,
+    "failed": 0,
+    "real_model_langchain_to_node_to_python_png": [
+      {"prompt": "今天三号楼的空教室情况", "view": "full", "width": 1800, "height": 4984},
+      {"prompt": "我现在去哪个教室自习？", "view": "compact", "width": 1080},
+      {"prompt": "今天主M和新主楼A座空教室情况", "view": "full", "width": 1800, "height": 890}
+    ],
+    "campus_collection": "Existing campus snapshot substituted at the collector boundary; no live campus login or query in these tests",
+    "image_previews_reviewed": true,
+    "qq_test_messages": 0
+  },
+  "deployment": {
+    "verified": true,
+    "listener_port": 19327,
+    "listener_pid": 29540,
+    "started_at": "2026-10-29T18:34:25.2381140+08:00",
+    "workspace_server_path_verified": true,
+    "started_after_all_changed_sources": true,
+    "pid_file_matches_actual_listener": true,
+    "connected": true,
+    "paired": true,
+    "paused": false,
+    "uncertain_deliveries": 0
+  },
+  "github_updated": false
+}

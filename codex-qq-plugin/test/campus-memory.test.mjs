@@ -14,16 +14,26 @@ const snapshot=(date='2026-10-29')=>({...campusFailure('OK',date),ok:true,fetche
 const report=()=>({schema_version:'buaa-recommendations.v1',ok:true,code:'OK',date:'2026-10-29',now:'2026-10-29T16:00:00+08:00',fetched_at:'2026-10-29T09:00:00+08:00',session:'晚上',
   message:'105（小，1级）19:00—22:15，稍后可用',candidates:[{room:'105',small:true,tier:1,start_period:11,end_period:14,usable_from:'19:00',usable_until:'22:15',available_now:false,complete_remaining:true,period5_busy:false,full_afternoon:true}]});
 
-async function coreFixture({send,limits={}}={}){
+async function coreFixture({send,limits={},handler}={}){
   let fetched=0;const sent=[];
   const campus=new CampusService({home:'D:/unused',configStore:{},worker:{close(){}}});
   campus.run=async()=>{fetched++;assert.equal(sent[0]?.text,'正在抓取数据');return {data:snapshot(),image};};
   const core=new BridgeCore({loadState:async()=>null,saveState:async()=>{},limits:{dailyAttempts:300,minuteAttempts:30,reservedNotifications:10,...limits},
     send:async request=>{sent.push(request);await send?.(request,core);return {ok:true};},
-    commandHandler:(text,context)=>campus.handle(text,context)});
+    commandHandler:handler||((text,context)=>campus.handle(text,context))});
   await core.init();const pair=await core.startPairing();await core.handleMessage(owner('pair','/pair '+pair.pairingCode));await core.confirmPairing();
   return {core,sent,fetched:()=>fetched};
 }
+
+test('fresh current-time query acknowledgement explicitly labels the upcoming recommendation image',async()=>{
+  const f=await coreFixture({handler:async(_text,context)=>{
+    assert.equal(await context.progress('campus-fetch-current'),true);
+    assert.equal(await context.progress('campus-fetch'),false);
+    return {image,text:''};
+  }});
+  assert.equal((await f.core.handleMessage(owner('instant','现在刷新一下可用教室'))).code,'SENT');
+  assert.equal(f.sent[0].text,'正在抓取数据，随后生成当前推荐图');assert.equal(f.sent.length,2);
+});
 
 test('campus request sends a durable acknowledgement before crawling and then a single image; duplicate input does nothing',async()=>{
   const f=await coreFixture();

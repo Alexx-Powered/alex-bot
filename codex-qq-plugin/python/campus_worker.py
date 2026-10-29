@@ -12,6 +12,12 @@ LIMIT=262144
 def process(packet,*,collector=None):
     private=Path.cwd()/'.private'
     options={} if collector is None else {'collector':collector}
+    if packet.get('type')=='campus' and packet.get('mode')=='recognize':
+        from campus_intent import recover_classroom_request
+        return {'kind':'campus',**recover_classroom_request.invoke({**packet['args'],'now':packet['now']})}
+    if packet.get('type')=='campus' and packet.get('mode')=='intent':
+        from campus_intent import classroom_report_intent
+        return {'kind':'campus','intent':classroom_report_intent.invoke(packet['args'])}
     if packet.get('type')=='campus' and packet.get('mode')=='recommend_render':
         from campus_compact import render_compact
         artifact=render_compact(packet['report'],private,packet.get('explanation',''))
@@ -26,14 +32,14 @@ def process(packet,*,collector=None):
     artifact=None
     if data['ok'] and packet['mode']=='report':
         try:
-            from campus_recommendations import recommend
-            report=recommend(data,{},data['fetched_at'],packet.get('request_text'))
-            if report['regions']==['三号楼']:
+            from campus_regions import resolve_regions
+            selected,_=resolve_regions(data,packet.get('building') or '三号楼',packet.get('regions'),packet.get('request_text'))
+            if selected==['三号楼']:
                 from campus_report import render_report
                 artifact=render_report(data,private)
             else:
-                from campus_compact import render_compact
-                artifact=render_compact(report,private)
+                from campus_report import render_region_day
+                artifact=render_region_day(data,private,selected)
         except Exception:return {'kind':'campus','data':data,'artifact_id':None,'render_error':True}
     return {'kind':'campus','data':data,'artifact_id':artifact}
 

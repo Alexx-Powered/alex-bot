@@ -19,9 +19,10 @@ def multi():
 class CompactTests(unittest.TestCase):
     def test_fresh_query_respects_explicit_region_even_when_model_omits_it(self):
         from campus_worker import process
-        with tempfile.TemporaryDirectory() as directory,patch('campus_worker.Path.cwd',return_value=Path(directory)),patch('campus_worker.build_query_tool',return_value=SimpleNamespace(invoke=lambda _:multi())),patch('campus_compact.render_compact',wraps=render_compact) as render:
+        from campus_report import render_region_day
+        with tempfile.TemporaryDirectory() as directory,patch('campus_worker.Path.cwd',return_value=Path(directory)),patch('campus_worker.build_query_tool',return_value=SimpleNamespace(invoke=lambda _:multi())),patch('campus_report.render_region_day',wraps=render_region_day) as render:
             result=process(dict(type='campus',mode='report',args={},request_text='查新主楼空教室'))
-            self.assertIsNotNone(result['artifact_id']);self.assertEqual(render.call_args.args[0]['building'],'新主楼')
+            self.assertIsNotNone(result['artifact_id']);self.assertTrue(all(region.startswith('新主楼') for region in render.call_args.args[2]))
     def test_default_does_not_inherit_region_from_model_or_history(self):
         result=recommend(multi(),dict(building='主楼'),'2026-10-29T16:36:00+08:00','现在去哪个教室')
         self.assertEqual(result['building'],'三号楼')

@@ -10,19 +10,31 @@ import {ConversationAgent} from '../src/conversation-agent.mjs';
 const home=fileURLToPath(new URL('..',import.meta.url));
 const report=()=>({schema_version:'buaa-recommendations.v1',ok:true,code:'OK',building:'新主楼',date:'2026-10-29',now:'2026-10-29T16:36:00+08:00',fetched_at:'2026-10-29T15:00:00+08:00',session:'下午',message:'A101可用',candidates:[{building:'新主楼',room:'A101',small:false,tier:1,start_period:9,end_period:10,usable_from:'16:36',usable_until:'18:15',available_now:true,complete_remaining:true,period5_busy:false,full_afternoon:false,just_released:true,release_pending:false}]});
 
+test('model ignore can recover a confirmed campus image without an extra routing model call',async()=>{
+  const image={mimeType:'image/png'};let calls=0,recovered=0;
+  const agent=new ConversationAgent({campusTools:{handle:async()=>null,recoverIgnored:async(text,context)=>{recovered++;assert.equal(text,'今天三号楼的空教室情况');assert.equal(context.access,'white');return {image,text:'',requiredAccess:'white'};}},
+    toolbox:{handle:async()=>null},configStore:{read:async()=>({enabled:true,apiKey:'offline-model-key'})},
+    policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})},
+    worker:{run:async(_packet,_execute,finish)=>{calls++;return finish({kind:'ignore'});}}});
+  const result=await agent.handle('今天三号楼的空教室情况',{scope:'group',access:'white'});
+  assert.equal(result.image,image);assert.equal(result.requiredAccess,'white');assert.equal(calls,1);assert.equal(recovered,1);
+});
+
 test('fresh multi-region query preserves the region array through cache and recommendation without leaking credentials',async t=>{
   const folder=await mkdtemp(path.join(tmpdir(),'qq-regions-'));t.after(()=>rm(folder,{recursive:true,force:true}));
   const calls=[],regions=['主M','新主楼A座'];
   const data={...campusFailure('OK','2026-10-29'),ok:true,buildings:['主楼','新主楼'],rooms:[{building:'主楼',room:'主M201',free_periods:Array.from({length:14},(_,i)=>i+1),busy_periods:[]}]};
   const worker={close(){},run:async(payload,_execute,finish)=>{
     calls.push(payload);
+    if(payload.mode==='intent')return finish({intent:{view:'compact',session:'now'}});
     return finish(payload.mode==='query'?{data,artifact_id:null}:{recommendation:{...report(),building:'组合区域',regions,missing_regions:['新主楼A座'],candidates:[{...report().candidates[0],building:'主楼',room:'主M201',region:'主M'}]}});
   }};
   const service=new CampusService({home:folder,worker,now:()=>Date.parse('2026-10-29T08:36:00Z'),configStore:{read:async()=>({enabled:true,username:'offline-student',password:'offline-password'}),status:async()=>({enabled:true,configured:true})}});
-  const result=await service.execute({date:'2026-10-29',regions},{scope:'c2c'},'主M和新主楼A座');
+  const result=await service.execute({date:'2026-10-29',regions},{scope:'c2c'},'主M和新主楼A座现在去哪');
   assert.deepEqual(result.campusRecommendation.regions,regions);assert.equal(result.campusRecommendation.candidates[0].region,'主M');
-  assert.equal(calls[0].mode,'query');assert.deepEqual(calls[0].args,{date:'2026-10-29'});
-  assert.deepEqual(calls[1].args.regions,regions);assert.equal(Object.hasOwn(calls[1],'credentials'),false);
+  const business=calls.filter(call=>call.mode!=='intent');
+  assert.equal(business[0].mode,'query');assert.deepEqual(business[0].args,{date:'2026-10-29'});
+  assert.deepEqual(business[1].args.regions,regions);assert.equal(Object.hasOwn(business[1],'credentials'),false);
   assert.doesNotMatch(JSON.stringify(result),/offline-student|offline-password/);
 });
 

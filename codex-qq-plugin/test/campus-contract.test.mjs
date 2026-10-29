@@ -4,6 +4,7 @@ import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {CampusService,recommendationArgs} from '../src/campus-service.mjs';
+import {PythonAgentWorker} from '../src/python-agent.mjs';
 const home=fileURLToPath(new URL('..',import.meta.url));
 
 test('real LangChain tool defaults cross the Python/Node boundary and remain compatible with the previous default contract',()=>{
@@ -38,8 +39,9 @@ test('internal argument errors never ask the user to supply an already-known cur
   }finally{console.warn=warn;}
 });
 
-test('natural fresh-query routing also returns current recommendations; explicit full-day and fixed commands retain full reports',async()=>{
-  const service=new CampusService({home,configStore:{},worker:{close(){}}}),calls=[];
+test('natural fresh-query routing distinguishes day overviews from current recommendations using the real intent worker',async t=>{
+  const worker=new PythonAgentWorker({home,workerPath:path.join(home,'python','campus_worker.py')});t.after(()=>worker.close());
+  const service=new CampusService({home,configStore:{},worker}),calls=[];
   service.run=async(args,mode)=>{calls.push({args,mode});return {data:{ok:true,date:'2026-10-29'},image:{mimeType:'image/png'}};};
   service.recommend=async(args,_context,text)=>{assert.equal(args.date,'2026-10-29');return {text:'current facts',campusRecommendation:{ok:true},question:text};};
   for(const text of ['我现在去哪个教室自习？','现在有什么空教室能去？','给我推荐个能自习的教室']){
@@ -47,5 +49,29 @@ test('natural fresh-query routing also returns current recommendations; explicit
     assert.equal(calls.at(-1).mode,'query');assert.equal(result.campusRecommendation.ok,true);assert.equal(result.question,text);
   }
   await service.execute({view:'full'},{scope:'c2c'},'生成全天完整简报');assert.equal(calls.at(-1).mode,'report');
+  await service.execute({view:'compact'},{scope:'c2c'},'今天三号楼的空教室情况');assert.equal(calls.at(-1).mode,'report');
   await service.execute({},{scope:'c2c'});assert.equal(calls.at(-1).mode,'report');
+});
+
+test('day overview routed to cached-recommend tool still requests the full report, with full acknowledgement',async t=>{
+  const worker=new PythonAgentWorker({home,workerPath:path.join(home,'python','campus_worker.py')});t.after(()=>worker.close());
+  const service=new CampusService({home,configStore:{status:async()=>({enabled:true,configured:true})},worker}),calls=[];
+  const image={mimeType:'image/png'};
+  service.run=async(args,mode)=>{calls.push(mode);return {data:{ok:true,date:'2026-10-29'},image};};
+  const stages=[];const result=await service.recommend({},{scope:'c2c',progress:async stage=>{stages.push(stage);return true;}},'今天三号楼的空教室情况');
+  assert.equal(result.image,image);assert.deepEqual(calls,['report']);assert.deepEqual(stages,['campus-fetch']);
+});
+
+test('ignored-query recovery keeps dates and presentation, and refuses unrelated chat and gray access',async t=>{
+  const worker=new PythonAgentWorker({home,workerPath:path.join(home,'python','campus_worker.py')});t.after(()=>worker.close());
+  const service=new CampusService({home,worker,configStore:{},now:()=>Date.parse('2026-10-29T17:00:00Z')}),calls=[];
+  service.execute=async args=>{calls.push(['full',args]);return {image:{},requiredAccess:'white'};};
+  service.recommend=async args=>{calls.push(['compact',args]);return {campusRecommendation:{ok:true}};};
+  await service.recoverIgnored('明天主M和新主楼A座空教室情况',{scope:'c2c'});
+  assert.deepEqual(calls.at(-1),['full',{date:'2026-10-31',view:'full'}]);
+  await service.recoverIgnored('我现在去哪个教室自习',{scope:'group',access:'white'});
+  assert.deepEqual(calls.at(-1),['compact',{date:'2026-10-30',session:'now'}]);
+  for(const text of ['让Tibo升级服务器','教室英文怎么说','下周三号楼空教室'])assert.equal(await service.recoverIgnored(text,{scope:'c2c'}),null);
+  assert.equal(await service.recoverIgnored('今天三号楼空教室情况',{scope:'group',access:'gray'}),null);
+  assert.equal(calls.length,2);
 });

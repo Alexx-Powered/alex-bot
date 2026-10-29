@@ -225,11 +225,11 @@ export class BridgeCore {
     Object.defineProperties(context, {
       authorize: { enumerable:false, value:required => this.canDeliver({groupId,requiredAccess:required}) },
       progress: { enumerable:false, value:async stage => {
-        if(stage!=='campus-fetch'||acknowledged||!this.canDeliver({groupId,requiredAccess:'white'}))return false;
+        if(!['campus-fetch','campus-fetch-current'].includes(stage)||acknowledged||!this.canDeliver({groupId,requiredAccess:'white'}))return false;
         // Reserve enough capacity for both the acknowledgement and final reply.
         if(this.#budgetCode(this.#time(),{reply:true,count:2}))return false;
         acknowledged=true;
-        const delivery=await this.#notify({text:'正在抓取数据',requiredAccess:'white',progress:true,
+        const delivery=await this.#notify({text:stage==='campus-fetch-current'?'正在抓取数据，随后生成当前推荐图':'正在抓取数据',requiredAccess:'white',progress:true,
           idempotencyKey:`progress:${incomingKey}:campus-fetch`},target,groupId);
         return delivery.code==='SENT';
       } },
