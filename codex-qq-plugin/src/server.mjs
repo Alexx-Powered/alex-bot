@@ -19,6 +19,8 @@ import {ConversionToolbox} from './conversion-tools.mjs';
 import {CampusConfigStore} from './campus-config.mjs';
 import {CampusService} from './campus-service.mjs';
 import {isEntrypoint} from './entrypoint.mjs';
+import {MonitoringConfigStore} from './monitoring-config.mjs';
+import {Telemetry,measureSpan} from './telemetry.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const maxBody = 16384;
@@ -43,11 +45,13 @@ async function body(req, limit = maxBody) {
 }
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 
-export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands(), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
+export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands(), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
   const limits=sendLimits??await loadSendLimits(home);
+  const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
   let configured = Boolean(await store.readCredentials());
   const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000}});
+  if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   const campus = campusService || new CampusService({home,configStore:campusConfigStore});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,worker});
@@ -57,14 +61,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const adapter = adapterFactory({
     canSend: request => core?.canDeliver(request) === true,
     onMessage: async (message) => {
-      try { await core.handleMessage(message); } catch { /* no text or credential logging */ }
+      try { await monitoring.run({scope:message?.kind},()=>core.handleMessage(message)); } catch { /* no text or credential logging */ }
     },
     onStatus: (status) => {
       if (['blocked', 'error'].includes(status.state)) core?.setPaused(true).catch(() => {});
     },
   });
   core = new BridgeCore({ loadState: () => store.loadState(), saveState: (state) => store.saveState(state),
-    send: (request) => adapter.send(request), now: () => Date.now(), limits, commandHandler: (text,context) => agent.handle(text,context) });
+    send: (request) => measureSpan('qq_send',()=>adapter.send(request)), now: () => Date.now(), limits, commandHandler: (text,context) => measureSpan('agent',()=>agent.handle(text,context)) });
   await core.init();
   let configBusy = false;
   let connectionGeneration = 0;
@@ -97,6 +101,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     let mutationHeld = false;
     try {
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status() });
+      if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status()});
       if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req, pathname === '/api/study-briefing' ? 2100000 : maxBody);
@@ -121,6 +126,16 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       configBusy = true; mutationHeld = true;
       let result;
       switch (pathname) {
+        case '/api/monitoring/test': {
+          if(Object.keys(data).length)throw Error('INVALID_INPUT');
+          await monitoring.run({scope:'c2c',synthetic:true},()=>measureSpan('agent',async()=>({ok:true,code:'MONITORING_TEST'})));
+          result={ok:true,code:'MONITORING_TEST_QUEUED'};break;
+        }
+        case '/api/monitoring/config': {
+          try{const config=await monitoringConfigStore.save(data);result={ok:true,code:'MONITORING_CONFIG_SAVED',config};}
+          catch(error){result={ok:false,code:error.code==='MONITORING_CONFIG_INVALID'?'MONITORING_CONFIG_INVALID':'MONITORING_CONFIG_UNAVAILABLE'};}
+          break;
+        }
         case '/api/campus/config': {
           try{const status=await campusConfigStore.save(data);result={ok:true,code:'CAMPUS_CONFIG_SAVED',campus:status};}
           catch(error){result={ok:false,code:error.code==='CAMPUS_CONFIG_INVALID'?'CAMPUS_CONFIG_INVALID':'CAMPUS_CONFIG_UNAVAILABLE'};}
@@ -284,7 +299,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 3000;
   return {
-    server, core, adapter, store,
+    server, core, adapter, store, monitoring,
     async listen() {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
       boundPort = server.address().port;
@@ -302,7 +317,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
 
 if (await isEntrypoint(import.meta.url)) {
   try {
-    const app = await createBridgeServer();
+    const app = await createBridgeServer({prewarm:true});
     const port = await app.listen();
     if (process.argv.includes('--connect') && app.core.status().paired) {
       const credentials=await app.store.readCredentials();

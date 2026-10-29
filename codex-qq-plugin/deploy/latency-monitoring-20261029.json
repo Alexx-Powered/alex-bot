@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-29",
+  "release": "linux-c514d2a91f75",
+  "archiveSha256": "54a58cc2e47daace9e2cbd2296c1732f7ab6905acb4c4b1bd24de4530f6d6643",
+  "runtime": {"pid": 20495, "startedAt": "2026-10-29T21:56:25+08:00", "sourceManifestVerified": true, "sourceInstalledBeforeProcessStart": true, "uid": 998, "listener": "127.0.0.1:19327", "localTunnelPid": 70700, "connected": true, "paired": true, "paused": false, "dailyAttemptsBefore": 70, "dailyAttemptsAfter": 70, "uncertainDeliveries": 0},
+  "tests": {"windowsNodeFullPassed": 423, "linuxNodeFullBeforeFinalSelfTestIsolationPassed": 416, "linuxNodeFullSkippedPlatformOnly": 5, "linuxNodeFinalMonitoringRelatedPassed": 33, "windowsPythonPassed": 185, "linuxPythonPassed": 185},
+  "syntheticModelBenchmark": {"qqMessagesSent": 0, "includesQqTransport": false, "sampleCountPerVariant": 3, "baselineMs": [7445, 2123, 2125], "prewarmedMs": [1904, 2017, 2156], "offlineWarmupMs": 4670, "memoryTypicalMs": 2},
+  "realQqSample": {"serverReceiveThroughSendMs": 3349.75, "agentMs": 2282.88, "routerModelMs": 1338.35, "chatModelMs": 582.5, "qqSendMs": 1054.98, "coreQueueMs": 0.28, "memoryMs": 8.12, "excludesPreServerAndClientDisplayLatency": true},
+  "optimizations": {"offlinePythonAndProviderWarmupBeforeQqConnect": true, "modelWarmupApiRequests": 0, "httpKeepaliveSeconds": 60, "separateChatExpressionPreserved": true, "longTermMemoryPreserved": true, "globalBusinessQueueStillSerial": true},
+  "monitoring": {"langsmithEnabledByUser": true, "remoteHttpAccepted": 202, "realRootAndModelAndQqSendReadbackHttp": 200, "parentAndTraceIdsVerified": true, "userConfirmedVisible": true, "finalReleaseLastCode": "SENT", "finalReleaseSelfTestsAccepted": 1, "finalReleaseSelfTestNetworkTimeouts": 1, "automaticRetries": 0, "inputsAndOutputsContent": false, "rawErrorsOrMessageIdsOrPromptOrMemoryExported": false, "numericTimingsAndTokensOnly": true, "independentBoundedQueue": 32, "localHistoryMax": 50, "syntheticChecksExcludedFromBusinessPercentiles": true, "apiKeyPlatformEncrypted": true, "configFileMode": "0600", "pythonReceivesLangsmithKey": false, "automaticLangchainTracing": false},
+  "backup": {"at": "2026-10-29T13:57:56.581Z", "files": 17, "monitoringConfigIncluded": true, "sqliteConsistentSnapshotIncluded": true, "wholePackageEncrypted": true, "localInMemoryRecoveryVerified": true, "plaintextWritten": false},
+  "githubUpdated": false,
+  "notes": "Runtime IDs, counters and trace acceptance are audit snapshots. Benchmarks are small samples, not an SLA; nested stages must not be summed. The final Linux metadata/UI-only self-test isolation change was checked by 33 targeted tests after the preceding full regression."
+}

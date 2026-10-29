@@ -13,7 +13,7 @@ const aad=Buffer.from('alexbot-backup-v1');
 try{
   if(process.argv[2]==='create'&&process.platform==='linux'){
     const home='/var/lib/alexbot';
-    const names=['.private/credentials.json','.private/agent-config.json','.private/campus-config.json','.private/campus-session.json','.private/admin-token','.private/integration-token','.private/state.json','.private/model-budget.json','.private/campus-output/latest.json','.private/campus-output/memory.json','config/send-limits.json','config/chat-policy.md','config/morning-report.json'];
+    const names=['.private/credentials.json','.private/agent-config.json','.private/campus-config.json','.private/campus-session.json','.private/monitoring-config.json','.private/admin-token','.private/integration-token','.private/state.json','.private/model-budget.json','.private/campus-output/latest.json','.private/campus-output/memory.json','config/send-limits.json','config/chat-policy.md','config/morning-report.json'];
     for(const name of await fs.readdir(path.join(home,'.private/morning-scheduler')))if(/^\d{4}-\d{2}-\d{2}\.json$/.test(name))names.push('.private/morning-scheduler/'+name);
     const files={};
     for(const name of names){try{const raw=await fs.readFile(path.join(home,name));if(raw.length>2_000_000)throw Error('OVERSIZE');files[name]=raw.toString('base64');}catch(e){if(e.code!=='ENOENT')throw e;}}
@@ -40,8 +40,9 @@ try{
       const plain=gunzipSync(Buffer.concat([cipher.update(Buffer.from(packet.ciphertext,'base64')),cipher.final()]),{maxOutputLength:32_000_000});
       const payload=JSON.parse(plain);plain.fill(0);
       const master=Buffer.from(recovery.masterRecovery,'base64');
-      try{for(const name of ['credentials','agent-config','campus-config','campus-session']){const data=JSON.parse(Buffer.from(payload.files['.private/'+name+'.json'],'base64'));if(data.format!=='aes-256-gcm-v1')throw Error('FORMAT');unseal(data.cipher,master);}}finally{master.fill(0);}
-      console.log(JSON.stringify({ok:true,createdAt:payload.createdAt,files:Object.keys(payload.files).length,encrypted_credentials_recoverable:true,plaintext_written:false}));
+      const monitoringIncluded=Object.hasOwn(payload.files,'.private/monitoring-config.json');
+      try{for(const name of ['credentials','agent-config','campus-config','campus-session',...monitoringIncluded?['monitoring-config']:[]]){const data=JSON.parse(Buffer.from(payload.files['.private/'+name+'.json'],'base64'));if(data.format!=='aes-256-gcm-v1')throw Error('FORMAT');unseal(data.cipher,master);}}finally{master.fill(0);}
+      console.log(JSON.stringify({ok:true,createdAt:payload.createdAt,files:Object.keys(payload.files).length,encrypted_credentials_recoverable:true,monitoring_config_included:monitoringIncluded,plaintext_written:false}));
     }finally{key.fill(0);}
   }else throw Error('INVALID_MODE');
 }catch{console.error('BACKUP_OPERATION_FAILED');process.exitCode=1;}

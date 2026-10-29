@@ -15,6 +15,7 @@ def get_model_http_client():
         raise ValueError('MODEL_PROXY_CONFIG_UNSUPPORTED')
     if _client is None or _client.is_closed or proxy!=_proxy_key:
         if _client is not None:_client.close()
-        _client=httpx.Client(proxy=proxy,trust_env=False,timeout=20)
+        _client=httpx.Client(proxy=proxy,trust_env=False,timeout=20,
+            limits=httpx.Limits(max_connections=4,max_keepalive_connections=2,keepalive_expiry=60))
         _proxy_key=proxy
     return _client

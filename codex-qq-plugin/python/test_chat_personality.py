@@ -18,6 +18,12 @@ class ConversationTests(unittest.TestCase):
     def new_runner(self):
         return worker.build_runner(model_factory=lambda _:self.model,memory_store=self.store,rpc_callback=lambda *_:self.fail('no external tools'))
 
+    def test_warmup_imports_dependencies_without_key_model_request_or_memory(self):
+        self.runner.model_factory=lambda _:self.fail('warmup cannot call a model')
+        self.assertEqual(self.runner.run({'id':'warmup_test','type':'warmup'}),{'type':'result','id':'warmup_test','kind':'ignore'})
+        self.assertEqual(self.runner.sessions,{})
+        self.assertFalse((Path(self.temp.name)/'memory').exists())
+
     def run_chat(self,response,text='我叫测试小鱼',key='a'*64,context=None):
         self.model.responses.append(response)
         return self.runner.run(packet(text=text,sessionKey=key,policy=POLICY,context=context or {'scope':'c2c'}))

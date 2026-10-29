@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sanitizeContextText } from './chat-safety.mjs';
+import {recordTiming} from './telemetry.mjs';
 
 export const CORE_LIMITS = Object.freeze({
   textLength: 1500,
@@ -196,7 +197,8 @@ export class BridgeCore {
   }
 
   #enqueue(work) {
-    const pending = this.#tail.then(work);
+    const queuedAt=performance.now();
+    const pending = this.#tail.then(()=>{recordTiming('core_queue',performance.now()-queuedAt);return work();});
     this.#tail = pending.catch(() => {});
     return pending;
   }

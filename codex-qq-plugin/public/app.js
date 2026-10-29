@@ -5,7 +5,10 @@ if (incoming && /^[0-9a-f]{64}$/.test(incoming)) sessionStorage.setItem('qq-loca
 if (location.hash) history.replaceState(null, '', '/');
 const token = sessionStorage.getItem('qq-local-token');
 let pendingGroupKey = null;
+let monitoringInitialized=false,monitoringDirty=false,monitoringBusy=false;
 const descriptions = {
+  MONITORING_TEST_QUEUED:'已提交监控自检，请查看下方发送状态；不会发送QQ消息。',
+  MONITORING_CONFIG_SAVED:'监控设置已加密保存。',MONITORING_CONFIG_INVALID:'请检查项目名、区域、工作区ID和Key；首次启用需要Key。',MONITORING_CONFIG_UNAVAILABLE:'监控配置暂不可用，请检查加密存储。',
   GRAY_GROUP_ALLOWED:'已加入灰名单：基础聊天与换算。',GROUP_ACCESS_CHANGED:'群权限已更新，该群上下文已清除。',GROUP_ACCESS_DENIED:'群权限已改变，本次结果未发送。',
   OK:'查询完成，JSON已更新。',CAMPUS_CONFIG_SAVED:'校园设置已加密保存。',CAMPUS_CONFIG_INVALID:'请检查学号和密码；首次启用或修改账号时需要同时填写两项。',
   CAMPUS_CONFIG_UNAVAILABLE:'校园加密配置暂不可用，请检查本机存储。',CAMPUS_NOT_CONFIGURED:'请先在本页填写并保存校园学号密码。',CAMPUS_DISABLED:'校园查询未启用。',
@@ -37,6 +40,39 @@ function feedback(data) {
   const success = data?.ok === true;
   $('feedback').className = success ? 'success' : 'error';
   $('feedback').textContent = descriptions[data?.code] || (success ? '操作完成：' : '操作未完成：') + (data?.code || 'UNKNOWN');
+}
+const stageNames={core_queue:'消息排队',agent:'业务处理',worker_queue:'Python排队',worker_startup:'Python启动',worker_total:'Python总耗时',router_setup:'路由初始化',router_model:'模型路由',chat_setup:'口吻初始化',chat_model:'聊天表达',memory:'记忆',tool:'工具查询',qq_send:'QQ发送'};
+const duration=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0?`${Math.round(value)} ms`:'—';
+async function refreshMonitoring({force=false}={}){
+  if(monitoringBusy)return;monitoringBusy=true;
+  try{
+    const state=await api('monitoring/status');
+    if(!state?.ok){$('monitoringState').textContent=descriptions[state?.code]||'监控状态暂不可用';return;}
+    const config=state.config||{},telemetry=state.telemetry||{},remote=telemetry.langsmith||{};
+    $('monitoringState').textContent=(config.configured?'LangSmith Key 已加密保存':'尚未保存 LangSmith Key')+' · '+(config.enabled?'远端监控已启用':'仅本地耗时记录')+' · '+(remote.lastCode||'等待样本');
+    if(force||(!monitoringInitialized&&!monitoringDirty&&!document.querySelector('#monitoringConfig:focus-within'))){
+      $('monitoringEnabled').checked=config.enabled===true;$('monitoringProject').value=config.project||'alex-bot';
+      $('monitoringEndpoint').value=config.endpoint||'https://api.smith.langchain.com';$('monitoringWorkspace').value=config.workspaceId||'';
+      monitoringInitialized=true;
+    }
+    const count=value=>Number.isSafeInteger(value)&&value>=0?value:0;
+    const summary=telemetry.summary||{};
+    $('monitoringCounters').textContent=`远端已发送 ${count(remote.sent)} · 待发送 ${count(remote.pending)} · 已丢弃 ${count(remote.dropped)}；业务样本 ${count(summary.count)} · 耗时中位数 ${duration(summary.medianMs)} · P95 ${duration(summary.p95Ms)}（不计监控自检）。监控发送失败不会阻塞QQ回复。`;
+    const recent=Array.isArray(telemetry.recent)?telemetry.recent.slice(0,10):[];
+    const container=$('monitoringRecent');container.replaceChildren();
+    if(!recent.length){const p=document.createElement('p');p.className='help';p.textContent='暂无耗时样本，收到下一条QQ请求后更新。';container.append(p);return;}
+    const table=document.createElement('table'),head=document.createElement('thead'),heading=document.createElement('tr');
+    for(const label of ['时间','场景','总耗时','分段']){const th=document.createElement('th');th.textContent=label;heading.append(th);}
+    head.append(heading);table.append(head);const body=document.createElement('tbody');
+    for(const trace of recent){
+      const row=document.createElement('tr'),stamp=new Date(trace.at);
+      const stages=Array.isArray(trace.stages)?trace.stages.slice(0,24):[];
+      const values=[Number.isFinite(stamp.getTime())?stamp.toLocaleTimeString('zh-CN',{hour12:false}):'—',trace.synthetic===true?'监控自检':trace.scope==='group'?'群聊':trace.scope==='c2c'?'私聊':'请求',duration(trace.totalMs),stages.map(stage=>`${stageNames[stage.name]||'其他'} ${duration(stage.ms)}`).join(' / ')];
+      for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}body.append(row);
+    }
+    table.append(body);container.append(table);
+  }catch{$('monitoringState').textContent='监控状态暂不可用';}
+  finally{monitoringBusy=false;}
 }
 async function api(route, data) {
   const response = await fetch('/api/' + route, { method:data===undefined?'GET':'POST',
@@ -85,11 +121,23 @@ async function refresh() {
       remove.onclick = () => action('group/remove', { groupKey: group.groupKey });
       row.append(name, change, remove); $('groupList').append(row);
     }
+    void refreshMonitoring();
   } catch { $('connection').textContent='本地服务不可达'; }
 }
 async function action(route,data={}) { try { const result=await api(route,data); feedback(result); await refresh(); return result; } catch { feedback({ok:false,code:'OPERATION_FAILED'}); } }
 if (!token) { $('locked').classList.remove('hidden'); $('workspace').classList.add('hidden'); }
 else {
+  $('monitoringConfig').addEventListener('input',()=>{monitoringDirty=true;});
+  $('monitoringConfig').addEventListener('submit',async event=>{
+    event.preventDefault();
+    const value={enabled:$('monitoringEnabled').checked,project:$('monitoringProject').value.trim(),endpoint:$('monitoringEndpoint').value,workspaceId:$('monitoringWorkspace').value.trim()};
+    if($('monitoringKey').value.trim())value.apiKey=$('monitoringKey').value.trim();
+    $('monitoringKey').value='';
+    const result=await action('monitoring/config',value);
+    if(result?.ok){monitoringDirty=false;await refreshMonitoring({force:true});}
+  });
+  $('monitoringRefresh').onclick=()=>refreshMonitoring();
+  $('monitoringTest').onclick=async()=>{await action('monitoring/test',{});await refreshMonitoring();};
   let jsonObjectUrl;
   const today=new Date(Date.now()+8*3600000).toISOString().slice(0,10);
   $('campusDate').value=today;$('campusDate').min=today;$('campusDate').max=new Date(Date.now()+8*3600000+7*86400000).toISOString().slice(0,10);

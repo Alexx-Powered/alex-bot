@@ -2,6 +2,8 @@ import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
+import {recordTiming} from './telemetry.mjs';
+import {AsyncLocalStorage} from 'node:async_hooks';
 export function pythonEnvironment(source=process.env){
   const env={};for(const key of ['SystemRoot','WINDIR','PATH','TEMP','TMP','TMPDIR','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','PLAYWRIGHT_BROWSERS_PATH','QQ_FONT_REGULAR','QQ_FONT_BOLD'])if(source[key])env[key]=source[key];
   return {...env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8',PYTHONDONTWRITEBYTECODE:'1',LANGCHAIN_TRACING:'false',LANGCHAIN_TRACING_V2:'false',LANGSMITH_TRACING:'false',LANGCHAIN_VERBOSE:'false'};
@@ -12,6 +14,8 @@ export class PythonAgentWorker{
   constructor({home,pythonPath=pythonExecutable(),workerPath=resolve(APP_ROOT,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000,maxLineBytes=65536,toolTimeouts={}}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs,maxLineBytes,toolTimeouts});}
   #stop(){const child=this.#child;this.#child=null;this.#buffer='';if(child)child.kill();if(this.#current){const task=this.#current;this.#current=null;clearTimeout(task.timer);task.reject(Object.assign(failure(),{toolExecuted:task.called}));}}
   close(){this.#closed=true;this.#stop();}
+  prewarm(){if(this.#closed)return false;try{this.#start();return true;}catch{return false;}}
+  warmup(){return this.run({type:'warmup'},async()=>{throw Error('WARMUP_RPC_DENIED');},()=>true);}
   #write(value){if(!this.#child?.stdin.writable)throw failure();this.#child.stdin.write(JSON.stringify(value)+'\n');}
   #start(){
     if(this.#child)return;
@@ -46,6 +50,9 @@ export class PythonAgentWorker{
       return;
     }
     if(value.type!=='result'||!['tool','conversion','reasoned','balance','chat','clarify','ignore','error','analysis','campus'].includes(value.kind))throw failure();
+    task.record('worker_total',performance.now()-task.startedAt);
+    if(Number.isFinite(value.startupMs))task.record('worker_startup',value.startupMs,{startedAtMs:task.sentAtMs});
+    for(const timing of Array.isArray(value.timings)?value.timings.slice(0,32):[])if(timing&&typeof timing==='object')task.record(timing.name,timing.ms,{...timing,...Number.isFinite(timing.offsetMs)&&Number.isFinite(value.startupMs)?{startedAtMs:task.sentAtMs+value.startupMs+timing.offsetMs}:{}});
     if(value.kind==='campus'&&task.requestType!=='campus')throw failure();
     if(value.kind==='balance'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='deepseek_account_balance'))throw failure();
     if(value.kind==='reasoned'&&!['request','campus_advice'].includes(task.requestType))throw failure();
@@ -62,8 +69,9 @@ export class PythonAgentWorker{
     clearTimeout(task.timer);this.#current=null;task.resolve(output);
   }
   run(payload,execute,finish=()=>null){
+    const queuedAt=performance.now();
     const operation=this.#tail.then(()=>new Promise((resolveTask,reject)=>{
-      try{if(this.#closed)throw failure();this.#start();const id=randomUUID();this.#current={id,requestType:payload.type,requestName:payload.name,execute,finish,resolve:resolveTask,reject,called:false,completed:false,timer:setTimeout(()=>this.#stop(),this.timeoutMs)};this.#write({...payload,id});}
+      try{if(this.#closed)throw failure();recordTiming('worker_queue',performance.now()-queuedAt);this.#start();const id=randomUUID(),sentAtMs=Date.now();this.#current={id,sentAtMs,startedAt:performance.now(),record:AsyncLocalStorage.bind(recordTiming),requestType:payload.type,requestName:payload.name,execute:AsyncLocalStorage.bind(execute),finish:AsyncLocalStorage.bind(finish),resolve:resolveTask,reject,called:false,completed:false,timer:setTimeout(()=>this.#stop(),this.timeoutMs)};this.#write({...payload,id,_sentAtMs:sentAtMs});}
       catch{this.#stop();reject(failure());}
     }));this.#tail=operation.catch(()=>{});return operation;
   }
