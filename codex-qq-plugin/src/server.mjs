@@ -276,7 +276,13 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
           if(report.date!==beijingDay())throw new Error('WEATHER_DATE_CHANGED');
           const key=mode === 'test' ? 'weather-test-'+randomUUID() : 'weather-daily-'+report.date;
           if(!report.image) throw new Error('WEATHER_IMAGE_MISSING');
-          result=await core.notifyImage({image:report.image,idempotencyKey:key});
+          if(mode==='daily'){
+            result=await core.notifyImageAllAllowed({image:report.image,idempotencyKey:key,groupsOnly:true});
+            const campusReport=await campus.run({date:report.date},'report');
+            if(!campusReport.image)throw Error('CAMPUS_IMAGE_MISSING');
+            const campusDelivery=await core.notifyImageAllAllowed({image:campusReport.image,idempotencyKey:key+'-building3',groupsOnly:true});
+            result={ok:result.ok&&campusDelivery.ok,code:result.ok&&campusDelivery.ok?'SENT':'MORNING_PARTIAL',weather:result,campus:campusDelivery};
+          }else result=await core.notifyImage({image:report.image,idempotencyKey:key});
           break;
         }
         default: return json(res, 404, { ok: false, code: 'NOT_FOUND' });

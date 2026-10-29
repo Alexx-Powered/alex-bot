@@ -5,14 +5,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {beijingClock,createMorningTick} from '../scripts/morning-scheduler.mjs';
 
-test('Beijing 08:00 boundary independent of host timezone',()=>{
-  assert.deepEqual(beijingClock(new Date('2026-10-28T23:59:59Z')),{date:'2026-10-29',due:false});
-  assert.deepEqual(beijingClock(new Date('2026-10-29T00:00:00Z')),{date:'2026-10-29',due:true});
+test('Beijing 07:30 boundary independent of host timezone',()=>{
+  assert.deepEqual(beijingClock(new Date('2026-10-28T23:29:59Z')),{date:'2026-10-29',due:false});
+  assert.deepEqual(beijingClock(new Date('2026-10-28T23:30:00Z')),{date:'2026-10-29',due:true});
 });
-test('before 8 waits, late startup catches up, restarts dedupe, next day sends',async()=>{
+test('before 7:30 waits, late startup catches up, restarts dedupe, next day sends',async()=>{
   const stateDir=await mkdtemp(join(tmpdir(),'alex-morning-'));
   try {
-    let current=new Date('2026-10-28T23:59:00Z'),calls=0;
+    let current=new Date('2026-10-28T23:29:00Z'),calls=0;
     const options={stateDir,now:()=>current,ensureService:async()=>{},client:{status:async()=>({configured:true,core:{paired:true,paused:false},transport:{state:'connected'}}),weatherBriefing:async args=>{calls++;assert.deepEqual(args,{mode:'daily'});return {ok:true,code:'SENT'};}}};
     const tick=createMorningTick(options);
     await tick();assert.equal(calls,0);
@@ -37,7 +37,7 @@ test('a full quota window does not consume the daily morning claim',async()=>{
   const stateDir=await mkdtemp(join(tmpdir(),'alex-morning-quota-'));
   try{
     let minuteAttempts=3,remainingDailyAttempts=198,calls=0;
-    const tick=createMorningTick({stateDir,now:()=>new Date('2026-10-29T00:00:00Z'),ensureService:async()=>{},client:{status:async()=>({configured:true,core:{paired:true,paused:false,minuteAttempts,remainingDailyAttempts,limits:{minuteAttempts:3}},transport:{state:'connected'}}),weatherBriefing:async()=>{calls++;return {ok:true,code:'SENT'};}}});
+    const tick=createMorningTick({stateDir,now:()=>new Date('2026-10-28T23:30:00Z'),ensureService:async()=>{},client:{status:async()=>({configured:true,core:{paired:true,paused:false,minuteAttempts,remainingDailyAttempts,limits:{minuteAttempts:3}},transport:{state:'connected'}}),weatherBriefing:async()=>{calls++;return {ok:true,code:'SENT'};}}});
     await tick();assert.equal(calls,0);minuteAttempts=0;remainingDailyAttempts=0;await tick();assert.equal(calls,0);
     remainingDailyAttempts=198;await tick();assert.equal(calls,1);await tick();assert.equal(calls,1);
   }finally{await rm(stateDir,{recursive:true,force:true});}

@@ -694,15 +694,15 @@ export class BridgeCore {
   }
 
   /** Internal generated-image operation; callers cannot choose recipients. */
-  async notifyImageAllAllowed({image,idempotencyKey}={}) {
+  async notifyImageAllAllowed({image,idempotencyKey,groupsOnly=false}={}) {
     if (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 ||
         !['image/png','image/jpeg'].includes(image.mimeType)) {
       return result(false, 'INVALID_INPUT', { results: [], attempted: 0, sent: 0 });
     }
-    return this.#notifyAllAllowed({text:'',image,idempotencyKey});
+    return this.#notifyAllAllowed({text:'',image,idempotencyKey,groupsOnly});
   }
 
-  async #notifyAllAllowed({text,image,idempotencyKey}) {
+  async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false}) {
     return this.#enqueue(async () => {
       const empty = code => result(false, code, { results: [], attempted: 0, sent: 0 });
       if (!this.#ready) return empty('NOT_READY');
@@ -711,7 +711,7 @@ export class BridgeCore {
       // Validate before enumerating or sending any target, including after queue wait.
       if (image !== undefined && (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 || !['image/png','image/jpeg'].includes(image.mimeType))) return empty('INVALID_INPUT');
       const operation = hash(`broadcast:${idempotencyKey}`);
-      const targets = [{ destination: 'owner', idempotencyKey: `broadcast:${operation}:owner` },
+      const targets = [...(groupsOnly?[]:[{ destination: 'owner', idempotencyKey: `broadcast:${operation}:owner` }]),
         ...this.#state.allowedGroups.map(group => ({ destination: group.name, groupId: group.id,
           idempotencyKey: `broadcast:${operation}:${groupKeyFor(group.id)}` }))];
       // Snapshot existing records before new sends can evict settled history.

@@ -9,8 +9,8 @@ import {isEntrypoint} from '../src/entrypoint.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const run=promisify(execFile);
 export function beijingClock(now=new Date()) {
-  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(now).map(p=>[p.type,p.value]));
-  return {date:`${parts.year}-${parts.month}-${parts.day}`,due:Number(parts.hour)>=8};
+  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(p=>[p.type,p.value]));
+  return {date:`${parts.year}-${parts.month}-${parts.day}`,due:Number(parts.hour)*60+Number(parts.minute)>=450};
 }
 
 export function createMorningTick({client,stateDir,ensureService,log=async()=>{},now=()=>new Date()}) {
