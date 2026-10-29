@@ -220,6 +220,23 @@ export class BridgeCore {
     return access!==null&&(!(requiredAccess==='white'||proactiveGroup)||access==='white');
   }
 
+  #bindRequest(context, incomingKey, target, groupId) {
+    let acknowledged = false;
+    Object.defineProperties(context, {
+      authorize: { enumerable:false, value:required => this.canDeliver({groupId,requiredAccess:required}) },
+      progress: { enumerable:false, value:async stage => {
+        if(stage!=='campus-fetch'||acknowledged||!this.canDeliver({groupId,requiredAccess:'white'}))return false;
+        // Reserve enough capacity for both the acknowledgement and final reply.
+        if(this.#budgetCode(this.#time(),{reply:true,count:2}))return false;
+        acknowledged=true;
+        const delivery=await this.#notify({text:'正在抓取数据',requiredAccess:'white',progress:true,
+          idempotencyKey:`progress:${incomingKey}:campus-fetch`},target,groupId);
+        return delivery.code==='SENT';
+      } },
+    });
+    return context;
+  }
+
   #restrictGroup(groupId,access){
     if(access==='white')return null; // Promotion takes effect only after persistence.
     const ticket={access};this.#groupRestrictions.set(groupId,ticket);this.#groupContexts.delete(groupId);return ticket;
@@ -582,8 +599,9 @@ export class BridgeCore {
         const budgetCode = this.#budgetCode(now, { reply: true });
         if (budgetCode) return result(false, budgetCode);
         let response;
-        try { response = await this.#commandHandler(command, { scope: 'c2c', sessionKey: hash('chat:c2c:'+senderId),
-          scopeKey: hash('chat-scope-c2c:'+senderId), userKey: hash('chat-user:'+senderId) }); }
+        const context=this.#bindRequest({scope:'c2c',sessionKey:hash('chat:c2c:'+senderId),
+          scopeKey:hash('chat-scope-c2c:'+senderId),userKey:hash('chat-user:'+senderId)},incomingKey,replyTarget);
+        try { response = await this.#commandHandler(command, context); }
         catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
         if (response) return this.#notify({ text: response.text, image: response.image, idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
@@ -642,7 +660,7 @@ export class BridgeCore {
       const context=groupContext&&groupContext.access===access?groupContext:{ scope: 'group', access,
         sessionKey: hash('chat:group:'+groupId+':'+senderId), scopeKey: hash('chat-scope-group:'+groupId),
         userKey: hash('chat-user:'+senderId), currentSpeaker: 'member-'+hash('group-sender:'+groupId+':'+senderId).slice(0,12), groupContext: [] };
-      Object.defineProperty(context,'authorize',{value:required=>this.canDeliver({groupId,requiredAccess:required}),enumerable:false});
+      this.#bindRequest(context,incomingKey,target,groupId);
       try { response = await this.#commandHandler(command, context); }
       catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
       if (response) return this.#notify({ text: response.text, image: response.image,requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
@@ -782,7 +800,7 @@ export class BridgeCore {
       this.#state.lastDeliveryCode = 'STORAGE_ERROR';
       return this.#storageFailed();
     }
-    if (!failure && groupId !== undefined && replyTarget && !proactiveGroup) this.#rememberGroup(groupId, {
+    if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress) this.#rememberGroup(groupId, {
       key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,
     });
     return failure ? result(false, failure.code, { deliveryState: record.state }) : result(true, 'SENT');

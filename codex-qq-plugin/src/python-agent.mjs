@@ -40,14 +40,14 @@ export class PythonAgentWorker{
         const artifact=await task.execute(value.name,value.args);
         if(this.#current!==task)return;
         task.artifact=artifact;task.completed=true;
-        this.#write({type:'tool_result',id:task.id,callId:value.callId,content:artifact?.image?'本机图片已生成。':String(artifact?.text||'没有结果。').slice(0,3000)});
+        this.#write({type:'tool_result',id:task.id,callId:value.callId,content:artifact?.image?'本机图片已生成。':artifact?.campusRecommendation?'已生成缓存推荐事实，将由独立解释阶段回答。':String(artifact?.text||'没有结果。').slice(0,3000)});
       }catch(error){if(this.#current===task){task.toolError=error instanceof Error?error:new Error('WEATHER_TOOL_ERROR');this.#write({type:'tool_result',id:task.id,callId:value.callId,content:'工具暂不可用。'});}}
       return;
     }
     if(value.type!=='result'||!['tool','conversion','reasoned','balance','chat','clarify','ignore','error','analysis','campus'].includes(value.kind))throw failure();
     if(value.kind==='campus'&&task.requestType!=='campus')throw failure();
     if(value.kind==='balance'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='deepseek_account_balance'))throw failure();
-    if(value.kind==='reasoned'&&task.requestType!=='request')throw failure();
+    if(value.kind==='reasoned'&&!['request','campus_advice'].includes(task.requestType))throw failure();
     if(value.kind==='analysis'&&task.requestType!=='morning')throw failure();
     if(value.kind==='conversion'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='convert_units'))throw failure();
     if(value.kind==='error'){

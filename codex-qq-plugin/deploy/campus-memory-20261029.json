@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-29",
+  "scope": "Building 3 session priorities, orange shade separation, fetch acknowledgement and cached classroom recommendations",
+  "github_policy": "Local changes and Git records only; update GitHub solely on an explicit user request",
+  "priority": {
+    "morning_and_evening": ["Small continuous room: 1", "Other continuous room: 2", "Transfer route: 3", "Partial interval: 4"],
+    "afternoon": ["Period 5 busy and all periods 6-10 free: 1, small rooms first within this tier", "Other small continuous room: 2", "Other continuous room: 3", "Transfer route: 4", "Partial interval: 5"],
+    "preceding_period": "Only afternoon period 5 changes priority; unknown is never treated as busy",
+    "palette": "Original orange family, with stronger lightness separation; tier 1 background #edb17d, tier 2 #fbe3ca",
+    "excluded_rooms_or_source_free_busy_semantics_changed": false,
+    "skill_executed_or_installed_copy_updated": false
+  },
+  "fetch_workflow": {
+    "first_reply": "正在抓取数据",
+    "order": "Authorized QQ request -> successful acknowledgement -> query and cache -> image or explicit error",
+    "deduplication": "Separate persisted acknowledgement and final-reply keys, with original incoming deduplication",
+    "quotas": "Both replies count; preflight requires capacity for two ordinary replies",
+    "pause_or_permission_revocation": "Rechecked before crawling and before final delivery",
+    "ack_failure_or_uncertain_delivery": "No query and no automatic retry"
+  },
+  "memory": {
+    "path": ".private/campus-output/memory.json",
+    "maximum_distinct_dates": 8,
+    "replacement": "Latest successful snapshot for each date; restored after restart, with legacy latest.json fallback",
+    "maximum_snapshot_age_hours": 24,
+    "render_failure": "Successful classroom data still cached",
+    "contents": "Classroom facts and source timestamps only, no credentials or chat transcripts"
+  },
+  "recommendation": {
+    "langchain_tool": "buaa_classroom_recommend -> dedicated Python cached_classroom_recommendations",
+    "scope": "Owner private or white group; gray denied before cache access",
+    "bounded_arguments": "Date, now/morning/afternoon/evening, limit 1-12 (default 8), optional three-digit current room to exclude",
+    "clock": "Actual server time converted to UTC+8; the user and model cannot supply now",
+    "ended_intervals": "Excluded; current-period usable time clipped to the actual clock",
+    "network": "Recommendation reads the cache and does not log into campus or fetch again",
+    "model": "Existing agent selects the cache tool, then a separate tools=[] model stage explains verified candidates",
+    "output": "Always retains code-generated candidates, current time, fetch time and availability window; rejects invented rooms/times or seat guarantees in explanation",
+    "fallbacks": "Explicit missing/expired cache, ended session/day, no eligible rooms; model failure retains verified candidates"
+  },
+  "tests": {
+    "node": {"passed": 378, "failed": 0, "skipped": 0, "local_log": "../test-output/campus-memory-node-full.txt"},
+    "python": {"passed": 111, "failed": 0, "skipped": 0, "local_log": "../test-output/campus-memory-python-full.txt"},
+    "shared_renderer_and_sender": {"passed": 5, "failed": 0, "skipped": 0},
+    "visual_check": "1800x4875 explicitly marked synthetic preview inspected; original orange family restored, tiers 1 and 2 clearly separated",
+    "online_model": "Both example questions selected cached recommendations and completed model explanation; 10 evening options and 8 current-time options",
+    "earlier_online_transient": "Initial model connection failure / facts-only fallback, followed by two successful requests; no repeated campus login",
+    "online_test_new_campus_fetches": 0,
+    "online_test_balance_queries": 0,
+    "real_qq_test_messages": 0,
+    "two_stage_qq_delivery": "Offline simulated transport only"
+  },
+  "deployment": {
+    "workspace": "D:\\Projects\\Alex Bot",
+    "managed_service_restarted": true,
+    "transport_after": "connected",
+    "paired_after": true,
+    "paused_after": false,
+    "white_groups": 1,
+    "gray_groups": 0,
+    "daily_attempts_before_restart": 41,
+    "daily_attempts_after_restart": 41,
+    "uncertain_deliveries": 0,
+    "pairing_quotas_or_idempotency_reset": false,
+    "github_updated": false
+  },
+  "not_claimed": ["Live QQ acknowledgement plus image receipt", "Guaranteed model provider availability", "Long-running or sleep/resume verification"]
+}

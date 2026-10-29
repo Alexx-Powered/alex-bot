@@ -129,19 +129,23 @@ DISTANCE_LABEL = {0: '原教室', 1: '相邻/同一区域', 2: '同层较远', 3
 
 
 def preference(room, slots, session):
-    start = RULES['sessions'][session][0]
-    previous_busy = start > 1 and slots[start-2] == 'B'
-    return (room not in SMALL, not previous_busy, int(room))
+    a, b = RULES['sessions'][session]
+    item = {'kind': 'full', 'room': room, 'start': a, 'end': b, 'session': session}
+    return (recommendation_tier(item, {room: slots}), room not in SMALL, int(room))
 
 
 def recommendation_tier(item, rooms):
     """Preference tiers, not a probability of finding an actual seat."""
+    session = item.get('session') or next(label for label, (a, b) in RULES['sessions'].items() if a <= item['start'] <= b)
+    afternoon = session == '下午'
     if item['kind'] == 'route':
-        return 5
+        return 4 if afternoon else 3
     if item['kind'] == 'partial':
-        return 6
-    previous_busy = item['start'] > 1 and rooms[item['room']][item['start']-2] == 'B'
-    return (1 if item['room'] in SMALL else 3) + (not previous_busy)
+        return 5 if afternoon else 4
+    slots = rooms[item['room']]
+    if afternoon and slots[4] == 'B' and full_free(slots, 6, 10):
+        return 1
+    return (1 if item['room'] in SMALL else 2) + int(afternoon)
 
 
 def compress_path(path, start):
@@ -215,8 +219,6 @@ def recommendation_reason(item, label):
                             '?': '第5节未识别清楚，按下午整段可用备选处理'}[item['period5']])
         elif label == '晚上':
             reasons.append('覆盖19:00开始的完整晚上，也覆盖你常用的第12—14节')
-            if item['period10'] == 'B':
-                reasons.append('第10节有课、18:15结束，19:00起可用')
     elif kind == 'evening':
         reasons.append('第12—14节连续空闲，覆盖你通常19:50—22:15的自习习惯，无需换教室')
         reasons.append('第11节有课，等19:45下课后再进入' if item['period11'] == 'B' else '第11节未识别清楚，从19:50开始使用')
@@ -278,9 +280,9 @@ def analyze(data):
                 keys.add(key)
 
         singles = [{'kind': 'full', **item} for item in ranked] + [{'kind': 'evening', **item} for item in alternatives]
-        # Apply the user's six-tier preference BEFORE limiting to five options.
+        # Rank before truncation; only afternoon considers period 5 occupancy.
         # Within a tier, retain complete evening coverage before 12-14 only.
-        singles.sort(key=lambda item: (recommendation_tier(item, rooms), item['kind'] != 'full', int(item['room'])))
+        singles.sort(key=lambda item: (recommendation_tier(item, rooms), item['room'] not in SMALL, item['kind'] != 'full', int(item['room'])))
         for item in singles:
             append(item)
         routes = []
