@@ -12,11 +12,12 @@ const codes=['OK','CAMPUS_NOT_CONFIGURED','CAMPUS_DISABLED','CAMPUS_CONFIG_UNAVA
   'CAMPUS_INVALID_DATE','CAMPUS_AUTH_FAILED','CAMPUS_INTERACTION_REQUIRED','CAMPUS_NETWORK_ERROR',
   'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED','CAMPUS_OWNER_ONLY'];
 export const campusArgs=z.object({date:z.string().regex(/^(?:\d{4}-\d{2}-\d{2})?$/).default('')}).strict();
+const regionList=z.array(z.string().min(1).max(32).regex(/^[\p{L}\p{N}_（）()· .-]+$/u)).max(12);
 export const recommendationArgs=campusArgs.extend({session:z.enum(['now','morning','afternoon','evening']).default('now'),
-  limit:z.number().int().min(1).max(12).default(8),exclude_room:z.string().max(64).regex(/^[\p{L}\p{N}_（）()· .-]*$/u).default(''),building:z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u).default('三号楼')}).strict();
+  limit:z.number().int().min(1).max(12).default(8),exclude_room:z.string().max(64).regex(/^[\p{L}\p{N}_（）()· .-]*$/u).default(''),building:z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u).default('三号楼'),regions:regionList.default([])}).strict();
 const recommendationSchema=z.object({schema_version:z.literal('buaa-recommendations.v1'),ok:z.boolean(),code:z.string().regex(/^(?:OK|CAMPUS_[A-Z_]+)$/),
   date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),now:z.string().datetime({offset:true}),fetched_at:z.union([z.literal(''),z.string().datetime({offset:true})]),
-  building:z.string().min(1).max(64).default('三号楼'),session:z.enum(['','上午','下午','晚上']),message:z.string().max(3000),candidates:z.array(z.object({room:z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u),building:z.string().min(1).max(64).default('三号楼'),
+  regions:regionList.default([]),missing_regions:regionList.default([]),building:z.string().min(1).max(64).default('三号楼'),session:z.enum(['','上午','下午','晚上']),message:z.string().max(3000),candidates:z.array(z.object({room:z.string().min(1).max(64).regex(/^[\p{L}\p{N}_（）()· .-]+$/u),building:z.string().min(1).max(64).default('三号楼'),region:z.string().max(32).default(''),
     small:z.boolean(),tier:z.number().int().min(1).max(6),start_period:z.number().int().min(1).max(14),end_period:z.number().int().min(1).max(14),
     usable_from:z.string().regex(/^\d{2}:\d{2}$/),usable_until:z.string().regex(/^\d{2}:\d{2}$/),available_now:z.boolean(),
     complete_remaining:z.boolean(),period5_busy:z.boolean(),full_afternoon:z.boolean(),just_released:z.boolean().default(false),release_pending:z.boolean().default(false)}).strict()).max(12)}).strict();
@@ -108,11 +109,11 @@ export class CampusService{
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     if(context?.progress&&await context.progress('campus-fetch')!==true)return {cancelled:true};
     if(!fullAccess(context))return {cancelled:true};
-    const {building,...queryArgs}=args||{};
-    const scoped=building&&building!=='三号楼';
+    const {building,regions,...queryArgs}=args||{};
+    const scoped=regions?.length||(building&&building!=='三号楼');
     const result=await this.run(queryArgs,scoped?'query':'report',{requestText});
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
-    if(scoped&&result.data.ok)return this.recommend({date:result.data.date,building},context,requestText);
+    if(scoped&&result.data.ok)return this.recommend({date:result.data.date,...(building?{building}:{}),...(regions?{regions}:{})},context,requestText);
     return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify(result.data),requiredAccess:'white'};
   }
   async recommend(args,context,requestText){

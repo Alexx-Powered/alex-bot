@@ -26,9 +26,13 @@ def render_compact(report, private_root, explanation='', *,demo=False):
     current=timestamp(report['now']);fetched=timestamp(report['fetched_at'])
     y=text(f'推荐时间 {current:%m-%d %H:%M}    数据采集 {fetched:%m-%d %H:%M}',45,180,size=22)
     y=text('按课表与当前时间推荐 · 空闲不保证到场有座',45,y,size=22,fill='#8b705d')+18
+    if report.get('regions'):y=text('区域：'+'、'.join(report['regions']),45,y,size=22)+8
+    if report.get('missing_regions'):y=text('接口暂无教室数据：'+'、'.join(report['missing_regions']),45,y,size=22,fill='#a85b26')+12
     for rank,item in enumerate(report['candidates'],1):
         start=y
-        title=f"{rank}. {item.get('building','三号楼')} {item['room']}"+(' · 小教室' if item['small'] else '')
+        region=item.get('region') or item.get('building','三号楼')
+        display=item['room'] if item['room'].startswith(region) else region+' '+item['room']
+        title=f"{rank}. {display}"+(' · 小教室' if item['small'] else '')
         count=1;line=''
         for char in title:
             if line and draw.textlength(line+char,font=fonts[30])>950:count+=1;line=''

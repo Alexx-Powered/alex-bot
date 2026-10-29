@@ -26,14 +26,14 @@ def process(packet,*,collector=None):
     artifact=None
     if data['ok'] and packet['mode']=='report':
         try:
-            from campus_recommendations import select_building,recommend
-            building=select_building(data,request_text=packet.get('request_text'))
-            if building=='三号楼':
+            from campus_recommendations import recommend
+            report=recommend(data,{},data['fetched_at'],packet.get('request_text'))
+            if report['regions']==['三号楼']:
                 from campus_report import render_report
                 artifact=render_report(data,private)
             else:
                 from campus_compact import render_compact
-                artifact=render_compact(recommend(data,dict(building=building),data['fetched_at']),private)
+                artifact=render_compact(report,private)
         except Exception:return {'kind':'campus','data':data,'artifact_id':None,'render_error':True}
     return {'kind':'campus','data':data,'artifact_id':artifact}
 

@@ -8,6 +8,7 @@ from langchain.tools import tool
 from pydantic import BaseModel, ConfigDict, Field
 from campus_report import SCRIPTS, observations
 from campus_classrooms import CampusError
+from campus_regions import resolve_regions,room_region,REGIONS
 
 TZ = timezone(timedelta(hours=8))
 SCHEMA = 'buaa-recommendations.v1'
@@ -20,19 +21,7 @@ class RecommendationArgs(BaseModel):
     limit: Annotated[int, Field(ge=1, le=12)] = 8
     exclude_room: Annotated[str, Field(max_length=64,pattern=r'^[\w（）()· .-]*$')] = ''
     building: Annotated[str, Field(min_length=1,max_length=64,pattern=r'^[\w（）()· .-]+$')] = '三号楼'
-
-
-def select_building(snapshot, requested='三号楼', request_text=None):
-    aliases={'3号楼':'三号楼','第三教学楼':'三号楼'}
-    if request_text is not None:
-        if '沙河' in request_text:return '沙河校区（当前仅支持学院路）'
-        if any(word in request_text for word in ('全部教学楼','所有教学楼','学院路全部','学院路所有')):return '全部'
-        names=set((snapshot or {}).get('buildings',[]))|{'三号楼','主楼','新主楼'}|set(aliases)
-        matches=[name for name in names if name in request_text]
-        if matches:return aliases.get(max(matches,key=len),max(matches,key=len))
-        if requested!='三号楼' and requested in request_text:return aliases.get(requested,requested)
-        return '三号楼'
-    return aliases.get(requested,requested)
+    regions: Annotated[list[Annotated[str,Field(min_length=1,max_length=32,pattern=r'^[\w（）()· .-]+$')]],Field(max_length=12)] = []
 
 
 def timestamp(value):
@@ -46,8 +35,9 @@ def recommend(snapshot, args, now, request_text=None):
     args = RecommendationArgs.model_validate(args)
     current = timestamp(now)
     day = args.date or current.date().isoformat()
-    building=select_building(snapshot,args.building,request_text)
+    selected,building=resolve_regions(snapshot,args.building,args.regions,request_text)
     result = dict(schema_version=SCHEMA, ok=False, code='CAMPUS_CACHE_EMPTY', date=day,building=building,
+                  regions=selected,missing_regions=[],
                   now=current.isoformat(), fetched_at='', session='', candidates=[],
                   message='没有这一天的教室缓存，请先发送“查空教室”并指定对应日期。')
 
@@ -66,19 +56,22 @@ def recommend(snapshot, args, now, request_text=None):
     if str(SCRIPTS) not in sys.path:
         sys.path.insert(0, str(SCRIPTS))
     plan = importlib.import_module('plan')
-    if building!='全部' and building not in snapshot.get('buildings',[]):
-        return fail('CAMPUS_BUILDING_NOT_FOUND','当前学院路数据未提供“'+building+'”。可用楼宇：'+'、'.join(snapshot.get('buildings',[])))
+    unknown=[r for r in selected if r not in REGIONS]
+    if unknown:return fail('CAMPUS_BUILDING_NOT_FOUND','不支持的区域：'+'、'.join(unknown)+'。请选择学院路已定义区域。')
+    present={room_region(row['building'],row['room']) for row in snapshot['rooms']}
+    result['missing_regions']=[r for r in selected if r not in present]
     rooms={};identities={}
     for row in snapshot['rooms']:
-        if building!='全部' and row['building']!=building:continue
+        region=room_region(row['building'],row['room'])
+        if region not in selected:continue
         room=row['room']
         if row['building']=='三号楼':
             room=plan.normalize_room(room)
             if room in plan.EXCLUDED:continue
         key=room if row['building']=='三号楼' else row['building']+'\0'+room
         rooms[key]=''.join('F' if p in row['free_periods'] else 'B' for p in range(1,15))
-        identities[key]=(row['building'],room)
-    if not rooms:return fail('CAMPUS_NO_CANDIDATES','所选区域没有可推荐的教室记录。')
+        identities[key]=(row['building'],room,region)
+    if not rooms:return fail('CAMPUS_NO_CANDIDATES','所选区域没有可推荐的教室记录：'+'、'.join(selected))
 
     def at(hhmm):
         return datetime.fromisoformat(day + 'T' + hhmm).replace(tzinfo=TZ)
@@ -104,7 +97,7 @@ def recommend(snapshot, args, now, request_text=None):
     a = remaining[0]
     candidates = []
     for room, slots in rooms.items():
-        room_building,display_room=identities[room]
+        room_building,display_room,region=identities[room]
         small=room_building=='三号楼' and room in plan.SMALL
         if display_room == args.exclude_room:
             continue
@@ -135,7 +128,7 @@ def recommend(snapshot, args, now, request_text=None):
             just_released = (args.session=='now' and available and previous_end is not None
                              and slots[start-2]=='B' and previous_end<=current)
             tier = plan.recommendation_tier(item, rooms) if room_building=='三号楼' else (5 if label=='下午' else 4) if kind=='partial' else 1 if label=='下午' and slots[4]=='B' and plan.full_free(slots,6,10) else (3 if label=='下午' else 2)
-            candidate = dict(room=display_room,building=room_building, small=small, tier=tier,
+            candidate = dict(room=display_room,building=room_building,region=region, small=small, tier=tier,
                              start_period=start, end_period=end,
                              usable_from=usable_from.strftime('%H:%M'), usable_until=closing.strftime('%H:%M'),
                              available_now=available, complete_remaining=complete or usual_evening,
@@ -167,13 +160,15 @@ def format_report(report, explanation=''):
         return report['message']
     now, fetched = timestamp(report['now']), timestamp(report['fetched_at'])
     lines = [f"北京时间{now:%m-%d %H:%M}；依据{fetched:%m-%d %H:%M}采集的{report['date']}{report['session']}缓存，空闲不保证有座。"]
+    if report.get('regions'):lines.append('查询区域：'+'、'.join(report['regions']))
+    if report.get('missing_regions'):lines.append('接口暂无教室数据：'+'、'.join(report['missing_regions']))
     for item in report['candidates']:
         room_type = ('小' if item['small'] else '普通') if item.get('building','三号楼')=='三号楼' else '容量未提供'
         status = '现在可用' if item['available_now'] else '稍后可用'
         partial = ('' if item['complete_remaining'] else '，局部') + ('，刚下课优先' if item.get('just_released') else '')
         if item.get('release_pending'):
             partial += '，即将下课优先，须等下课'
-        lines.append(f"{item.get('building','三号楼')}{item['room']}（{room_type}，{item['tier']}级）{item['usable_from']}—{item['usable_until']}，{status}{partial}")
+        lines.append(f"{item.get('region',item.get('building','三号楼'))} {item['room']}（{room_type}，{item['tier']}级）{item['usable_from']}—{item['usable_until']}，{status}{partial}")
     if explanation:
         lines.append(explanation)
     return '\n'.join(lines)
@@ -197,7 +192,7 @@ def verified_explanation(report, text):
 
 def build_recommendation_tool(snapshot, now, request_text=None):
     @tool(args_schema=RecommendationArgs, return_direct=True)
-    def cached_classroom_recommendations(date: str='', session: str='now', limit: int=8, exclude_room: str='', building: str='三号楼') -> dict:
+    def cached_classroom_recommendations(date: str='', session: str='now', limit: int=8, exclude_room: str='', building: str='三号楼',regions: list[str]=[]) -> dict:
         """按服务器当前北京时间筛选缓存中的三号楼教室；只读数据，不联网，不读取凭据。"""
-        return recommend(snapshot, dict(date=date, session=session, limit=limit, exclude_room=exclude_room,building=building), now,request_text)
+        return recommend(snapshot, dict(date=date, session=session, limit=limit, exclude_room=exclude_room,building=building,regions=regions), now,request_text)
     return cached_classroom_recommendations

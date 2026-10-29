@@ -94,5 +94,35 @@
       "live_qq_test_messages": 0
     },
     "github_updated": false
+  },
+  "independent_regions_followup": {
+    "date": "2026-10-29",
+    "regions": [
+      "三号楼",
+      "主楼",
+      "主M",
+      "主北",
+      "主南",
+      "新主楼A座",
+      "新主楼B座",
+      "新主楼C座",
+      "新主楼D座",
+      "新主楼E座",
+      "新主楼F座",
+      "新主楼G座"
+    ],
+    "main_alias": "主楼=老主楼/旧主楼 only; M/North/South classified from source room prefixes separately",
+    "combinations": "Bounded regions array, union with deduplication, compact letter combinations and ranges; default remains Building 3 when current message does not specify regions",
+    "source_evidence": "Existing cached campus response groups M/North/South under 主楼, A-G under 新主楼; deterministic room-prefix mapping verified",
+    "missing_data": "Report missing_regions and show in image; absence of records is not reported as no free classrooms",
+    "fresh_and_cached_queries": true,
+    "tests": {
+      "node_passed": 381,
+      "python_passed": 130,
+      "failed": 0,
+      "combination_preview_inspected": true,
+      "live_qq_test_messages": 0
+    },
+    "github_updated": false
   }
 }
