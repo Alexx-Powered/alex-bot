@@ -1,5 +1,7 @@
 # 亚历克斯 QQ Bot 开发交接
 
+GitHub同步授权（2026-10-29）：用户明确要求将迁移代码与交接文档更新到`Alexx-Powered/alex-bot`，仓库保持private。本次同步包含迁移提交`406aa5f`及其依赖的此前本地功能/修复提交。下文“本轮不更新GitHub”与验收JSON的`githubUpdated:false`记录的是迁移验收时点；后续仍仅在用户明确要求时推送。
+
 更新日期：2026-10-29。开发工作区：`D:\Projects\Alex Bot`。QQ业务已迁移到阿里云ECS；下文早先的“本机运行/云端未部署”属于历史记录，当前以本段和[ECS运行交接](codex-qq-plugin/ops/README.md)为准。
 
 本轮完成Linux Python/Chromium/中文字体适配、平台加密、受限SSH隧道、systemd服务与早安调度。云端普通用户`alexbot`运行，源码`/opt/alex-bot/current`，数据`/var/lib/alexbot`。本机19327现在是SSH转发；旧`AlexQQ-Morning-Service`已禁用，`AlexQQ-Cloud-Tunnel`登录自启。原配置页、Codex MCP、WorkBuddy入口保留，学校、QQ与DeepSeek凭据无需重填。
