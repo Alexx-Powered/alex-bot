@@ -35,67 +35,50 @@ class PriorityTests(unittest.TestCase):
         self.assertEqual(plan.recommendation_tier(dict(kind='full',room='201',start=11,end=14),rooms),2)
         self.assertEqual(plan.recommendation_tier(dict(kind='evening',room='105',start=12,end=14),rooms),1)
 
-    def test_afternoon_fifth_busy_and_entire_afternoon_free_is_first_for_any_size(self):
+    def test_afternoon_size_precedes_fifth_period_bonus(self):
         rooms={'105':'F'*14,'106':'F'*4+'B'+'F'*9,'201':'F'*4+'B'+'F'*9,'202':'F'*4+'?'+'F'*9}
         tiers=lambda room:plan.recommendation_tier(dict(kind='full',room=room,start=6,end=10),rooms)
-        self.assertEqual([tiers(r) for r in rooms],[2,1,1,3])
+        self.assertEqual([tiers(r) for r in rooms],[2,1,3,3])
         result=plan.analyze({'building':'三号楼','date':'2026-10-29','rows':[dict(room=r,slots=s) for r,s in rooms.items()]})
-        self.assertEqual([r['room'] for r in result['sessions']['下午']['recommendations'][:4]],['106','201','105','202'])
+        self.assertEqual([r['room'] for r in result['sessions']['下午']['recommendations'][:4]],['106','105','201','202'])
         self.assertEqual(plan.recommendation_tier(dict(kind='route',start=6,end=10),rooms),4)
         self.assertEqual(plan.recommendation_tier(dict(kind='partial',room='105',start=6,end=8),rooms),5)
 
 
 class RecommendationTests(unittest.TestCase):
-    def test_just_ended_busy_lesson_beats_continuously_free_small_room(self):
-        data=snapshot();set_busy(data,'201',8)
-        result=recommend(data,{},'2026-10-29T16:36:00+08:00')
-        first=result['candidates'][0]
-        self.assertEqual(first['room'],'201');self.assertTrue(first['just_released'])
-        self.assertTrue(first['available_now']);self.assertEqual(first['usable_from'],'16:36')
-        self.assertEqual(first['tier'],1);self.assertIn('刚下课优先',result['message'])
-        self.assertTrue(all(r['tier']>1 for r in result['candidates'][1:]))
+    def test_small_comfort_beats_released_ordinary_and_retains_levels(self):
+        data=snapshot();set_busy(data,'201',8);set_busy(data,'106',8)
+        report=recommend(data,dict(limit=12),'2026-10-29T16:36:00+08:00')
+        self.assertEqual(report['candidates'][0]['room'],'106')
+        self.assertEqual(report['candidates'][0]['tier'],1)
+        self.assertEqual(next(r for r in report['candidates'] if r['room']=='105')['tier'],2)
+        self.assertEqual(next(r for r in report['candidates'] if r['room']=='201')['tier'],3)
 
-    def test_release_requires_ended_previous_lesson_without_an_elapsed_time_window(self):
-        data=snapshot();set_busy(data,'201',8)
-        for now,expected in [('16:34:59',False),('16:35:00',True),('16:50:00',True),('16:50:01',True),('17:20:00',True)]:
-            result=recommend(data,dict(limit=12),'2026-10-29T'+now+'+08:00')
-            row=next((r for r in result['candidates'] if r['room']=='201'),None)
-            self.assertEqual(bool(row and row['just_released']),expected)
-        self.assertEqual(recommend(data,{},'2026-10-29T17:20:00+08:00')['candidates'][0]['room'],'201')
-        self.assertFalse(any(r['just_released'] for r in recommend(data,{},'2026-10-29T17:31:00+08:00')['candidates']))
+    def test_release_ten_minute_boundary_and_no_elapsed_window(self):
+        data=snapshot();set_busy(data,'106',8)
+        for clock,pending,released,tier in [('16:24:59',False,False,5),('16:25:00',True,False,1),('16:35:00',False,True,1),('17:20:00',False,True,1)]:
+            # Isolate the room so the top-N bound cannot hide a short-time option.
+            isolated={**data,'rooms':[r for r in data['rooms'] if r['room']=='106']}
+            row=recommend(isolated,{},'2026-10-29T'+clock+'+08:00')['candidates'][0]
+            self.assertEqual(row['release_pending'],pending)
+            self.assertEqual(row['just_released'],released)
+            self.assertEqual(row['tier'],tier)
+            if pending:self.assertFalse(row['available_now']);self.assertEqual(row['usable_from'],'16:35')
 
-    def test_lesson_ending_within_ten_minutes_is_top_but_must_wait(self):
-        data=snapshot();set_busy(data,'201',8)
-        for clock in ['16:25:00','16:34:59']:
-            report=recommend(data,{},'2026-10-29T'+clock+'+08:00')
-            first=report['candidates'][0]
-            self.assertEqual(first['room'],'201');self.assertEqual(first['tier'],1)
-            self.assertTrue(first['release_pending']);self.assertFalse(first['available_now'])
-            self.assertEqual(first['usable_from'],'16:35');self.assertIn('须等下课',report['message'])
-        before=recommend(data,{},'2026-10-29T16:24:59+08:00')
-        self.assertFalse(any(r['release_pending'] for r in before['candidates']))
-        ended=recommend(data,{},'2026-10-29T16:35:00+08:00')['candidates'][0]
-        self.assertTrue(ended['just_released']);self.assertFalse(ended['release_pending'])
+    def test_same_tier_released_then_pending_then_continuously_free(self):
+        data=snapshot();set_busy(data,'106',11);set_busy(data,'107',10)
+        rows=recommend(data,{},'2026-10-29T19:40:00+08:00')['candidates']
+        self.assertEqual([r['room'] for r in rows[:3]],['107','106','105'])
+        self.assertTrue(rows[0]['just_released']);self.assertTrue(rows[1]['release_pending'])
+        self.assertTrue(all(r['tier']==1 for r in rows[:3]))
 
-    def test_pending_release_crosses_noon_and_evening_session_boundaries(self):
-        for period,clock,expected_session,opening in [(5,'12:10','下午','12:15'),(10,'18:10','晚上','18:15')]:
-            data=snapshot();set_busy(data,'201',period)
-            result=recommend(data,{},'2026-10-29T'+clock+':00+08:00')
-            self.assertEqual(result['session'],expected_session)
-            self.assertEqual(result['candidates'][0]['room'],'201')
-            self.assertEqual(result['candidates'][0]['usable_from'],opening)
-            self.assertTrue(result['candidates'][0]['release_pending'])
-            self.assertFalse(result['candidates'][0]['available_now'])
-            self.assertTrue(result['candidates'][1]['available_now'])
-
-    def test_release_only_applies_to_now_and_ties_prefer_small_rooms(self):
-        data=snapshot();set_busy(data,'201',11);set_busy(data,'106',11)
-        current=recommend(data,{},'2026-10-29T19:46:00+08:00')
-        self.assertEqual([r['room'] for r in current['candidates'][:2]],['106','201'])
-        self.assertTrue(all(r['just_released'] for r in current['candidates'][:2]))
-        fixed=recommend(data,dict(session='evening'),'2026-10-29T19:46:00+08:00')
-        self.assertFalse(any(r['just_released'] for r in fixed['candidates']))
-        self.assertEqual(fixed['candidates'][0]['tier'],1)
+    def test_pending_release_crosses_noon_and_evening(self):
+        for period,clock,label in [(5,'12:10','下午'),(10,'18:10','晚上')]:
+            data=snapshot();set_busy(data,'106',period)
+            report=recommend(data,{},'2026-10-29T'+clock+':00+08:00')
+            self.assertEqual(report['session'],label)
+            self.assertEqual(report['candidates'][0]['room'],'106')
+            self.assertTrue(report['candidates'][0]['release_pending'])
 
     def test_many_evening_options_use_unique_real_rooms_and_exclude_current_and_blacklist(self):
         report=recommend(snapshot(),dict(session='evening',limit=12,exclude_room='105'),'2026-10-29T16:00:00+08:00')
@@ -118,7 +101,7 @@ class RecommendationTests(unittest.TestCase):
     def test_afternoon_cache_rank_has_new_first_tier(self):
         data=snapshot();set_busy(data,'201',5)
         report=recommend(data,dict(session='afternoon'),'2026-10-29T15:00:00+08:00')
-        self.assertEqual(report['candidates'][0]['room'],'201');self.assertEqual(report['candidates'][0]['tier'],1)
+        self.assertEqual(report['candidates'][0]['room'],'105');self.assertEqual(report['candidates'][0]['tier'],2)
         self.assertEqual(report['candidates'][1]['tier'],2)
 
     def test_past_session_day_finished_cache_missing_or_expired_do_not_make_up_options(self):

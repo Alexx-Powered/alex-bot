@@ -131,7 +131,7 @@ DISTANCE_LABEL = {0: '原教室', 1: '相邻/同一区域', 2: '同层较远', 3
 def preference(room, slots, session):
     a, b = RULES['sessions'][session]
     item = {'kind': 'full', 'room': room, 'start': a, 'end': b, 'session': session}
-    return (recommendation_tier(item, {room: slots}), room not in SMALL, int(room))
+    return (recommendation_tier(item, {room: slots}), room not in SMALL, session == '下午' and slots[4] != 'B', int(room))
 
 
 def recommendation_tier(item, rooms):
@@ -143,7 +143,7 @@ def recommendation_tier(item, rooms):
     if item['kind'] == 'partial':
         return 5 if afternoon else 4
     slots = rooms[item['room']]
-    if afternoon and slots[4] == 'B' and full_free(slots, 6, 10):
+    if afternoon and item['room'] in SMALL and slots[4] == 'B' and full_free(slots, 6, 10):
         return 1
     return (1 if item['room'] in SMALL else 2) + int(afternoon)
 
@@ -282,7 +282,7 @@ def analyze(data):
         singles = [{'kind': 'full', **item} for item in ranked] + [{'kind': 'evening', **item} for item in alternatives]
         # Rank before truncation; only afternoon considers period 5 occupancy.
         # Within a tier, retain complete evening coverage before 12-14 only.
-        singles.sort(key=lambda item: (recommendation_tier(item, rooms), item['room'] not in SMALL, item['kind'] != 'full', int(item['room'])))
+        singles.sort(key=lambda item: (recommendation_tier(item, rooms), item['room'] not in SMALL, item['kind'] != 'full', label == '下午' and rooms[item['room']][4] != 'B', int(item['room'])))
         for item in singles:
             append(item)
         routes = []

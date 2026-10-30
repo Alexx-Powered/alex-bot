@@ -127,26 +127,35 @@ def recommend(snapshot, args, now, request_text=None):
             available = opening <= current < closing
             just_released = (args.session=='now' and available and previous_end is not None
                              and slots[start-2]=='B' and previous_end<=current)
-            tier = plan.recommendation_tier(item, rooms) if room_building=='三号楼' else (5 if label=='下午' else 4) if kind=='partial' else 1 if label=='下午' and slots[4]=='B' and plan.full_free(slots,6,10) else (3 if label=='下午' else 2)
+            if release_pending and start == a+1 and end == b:
+                complete = True
+                kind = 'full'
+            preferred = just_released or release_pending
+            if kind == 'partial':
+                tier = 5 if label == '下午' else 4
+            elif label == '下午':
+                # Before 14:00 use period 5; afterwards use the current release.
+                afternoon_started = current >= at(plan.RULES['periods'][5][0])
+                promoted = preferred if afternoon_started and args.session == 'now' else (
+                    slots[4] == 'B' and plan.full_free(slots, 6, 10) if not afternoon_started else False)
+                tier = (1 if promoted else 2) if small else 3
+            else:
+                tier = 1 if small else 2
             candidate = dict(room=display_room,building=room_building,region=region, small=small, tier=tier,
                              start_period=start, end_period=end,
                              usable_from=usable_from.strftime('%H:%M'), usable_until=closing.strftime('%H:%M'),
                              available_now=available, complete_remaining=complete or usual_evening,
                              period5_busy=slots[4]=='B', full_afternoon=plan.full_free(slots,6,10),just_released=just_released,release_pending=release_pending)
-            # A "change now" request first needs a room that is usable now.
-            preferred = just_released or release_pending
-            score = (not preferred, not available if args.session=='now' else False,
-                     0 if preferred else tier,
-                     not small if preferred else not candidate['complete_remaining'],
-                     not candidate['complete_remaining'] if preferred else not small,
-                     -(closing-usable_from).total_seconds(), room_building,display_room)
+            release_rank = 0 if just_released else 1 if release_pending else 2
+            score = (tier, release_rank,
+                     label == '下午' and current < at(plan.RULES['periods'][5][0]) and slots[4] != 'B',
+                     not available if args.session == 'now' else False,
+                     -(closing-usable_from).total_seconds(),
+                     (usable_from-current).total_seconds(), room_building, display_room)
             choices.append((score, candidate))
         if choices:
             candidates.append(min(choices, key=lambda pair: pair[0]))
     candidates.sort(key=lambda pair: pair[0])
-    if any(candidate['just_released'] or candidate['release_pending'] for _,candidate in candidates):
-        for _,candidate in candidates:
-            candidate['tier'] = 1 if candidate['just_released'] or candidate['release_pending'] else candidate['tier']+1
     result['candidates'] = [candidate for _, candidate in candidates[:args.limit]]
     if not result['candidates']:
         return fail('CAMPUS_NO_CANDIDATES', f'缓存中没有{label}剩余时段内可推荐的{building}教室；未使用排除教室或已结束时段凑数。')

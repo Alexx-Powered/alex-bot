@@ -113,14 +113,14 @@ def render_board(result, reviewed, demo):
         d.text((rx+50,ry),label+'建议',font=bold[34],fill=accent)
         d.text((rx+570,ry+8),['第1—5节 / 08:00—12:15','第6—10节 / 14:00—18:15','常用第12—14节 / 19:50起'][idx],font=fonts[23],fill=muted)
         ry+=60
-        legend = '下午：第5节有课且整段空闲为1级，其余小教室、普通教室、换房、局部依次顺延' if label=='下午' else '小教室整段空闲为1级，普通教室2级；换房3级、局部4级，不看前节是否有课'
+        legend = '下午：小教室第5节有课且整段空闲为1级，其余小教室、普通教室、换房、局部依次顺延' if label=='下午' else '小教室整段空闲为1级，普通教室2级；换房3级、局部4级，不看前节是否有课'
         ry=text(legend,rx+28,ry,width=950,size=21,color=muted)
         ry+=18
         if not session['recommendations']:ry=text('没有已确认可行的方案。',rx+28,ry,width=950,size=27)
         for rank,item in enumerate(session['recommendations'][:5],1):
             level=plan.recommendation_tier(item,result['rooms'])
             accent,pale=[('#8f3b16','#edb17d'),('#a85b26','#fbe3ca'),('#98734e','#f6ecdf'),('#8a7864','#f3eee7'),('#847a71','#f4f1ee')][level-1]
-            labels = ['第5节有课 / 下午整段空闲','小教室整段空闲','普通教室整段空闲','换房衔接','局部可用'] if label=='下午' else ['小教室连续空闲','普通教室连续空闲','换房衔接','局部可用']
+            labels = ['小教室第5节有课 / 下午整段空闲','小教室整段空闲','普通教室整段空闲','换房衔接','局部可用'] if label=='下午' else ['小教室连续空闲','普通教室连续空闲','换房衔接','局部可用']
             tier=f'{level}级 · {labels[level-1]}'
             item_top=ry
             ry+=16
