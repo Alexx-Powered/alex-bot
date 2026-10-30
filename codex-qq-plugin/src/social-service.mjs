@@ -8,11 +8,16 @@ const hash=v=>createHash('sha256').update(v).digest('hex');
 const key=v=>typeof v==='string'&&/^[a-f0-9]{64}$/u.test(v);
 const control=/^\/记忆\s*(查看|关闭|开启|清空)$/u;
 const identify=/^\/识图(?:\s|$)/u;
+function memoryControl(text){
+  const raw=text.trim();
+  const natural=/^(?:清空|删除)(?:我(?:的)?|这里的)?(?:全部|所有)?(?:记忆|记录)[。！!]?$/u.test(raw)?'清空':/^(?:别再记我|不要再记录我|不要记录我的消息|关闭我的记忆)[。！!]?$/u.test(raw)?'关闭':/^(?:你(?:还)?记得我什么|看看我的记忆)[?？]?$/u.test(raw)?'查看':null;
+  return control.exec(raw)?.[1]||natural;
+}
 const allowed=c=>typeof c.isAllowed==='function'?c.isAllowed():typeof c.authorize==='function'?c.authorize('chat'):true;
 
 /** Transport orchestration only; memory, interpretation and decays live in Python tools. */
 export class SocialService{
-  #pending=0;#closed=false;#latest=new Map();#results=new Map();#jobs=new Map();#epochs=new Map();#batches=new Map();#insightsPending=0;
+  #pending=0;#closed=false;#latest=new Map();#results=new Map();#jobs=new Map();#epochs=new Map();#batches=new Map();#insightsPending=0;#controlOutcomes=new Map();
   constructor({home,configStore,agentConfigStore,memoryWorker,mediaWorker,insightWorker}={}){
     const workerPath=path.join(APP_ROOT,'python/social_worker.py');
     this.memory=memoryWorker||new PythonAgentWorker({home,workerPath,timeoutMs:10000});
@@ -20,7 +25,7 @@ export class SocialService{
     this.media=mediaWorker||new PythonAgentWorker({home,workerPath,timeoutMs:40000});
     Object.assign(this,{configStore,agentConfigStore});
   }
-  close(){this.#closed=true;this.#latest.clear();this.#results.clear();this.#batches.clear();this.memory.close();this.media.close();this.insight?.close();}
+  close(){this.#closed=true;this.#latest.clear();this.#results.clear();this.#batches.clear();this.#controlOutcomes.clear();this.memory.close();this.media.close();this.insight?.close();}
   #valid(c){return !this.#closed&&key(c.sessionKey)&&key(c.scopeKey)&&allowed(c);}
   async #run(args){return this.memory.run({type:'social',args},async()=>{throw Error('SOCIAL_RPC_DENIED');},v=>v.report);}
   #args(action,c,extra={}){return {action,namespace:c.sessionKey,scope:c.scopeKey,...extra};}
@@ -33,6 +38,7 @@ export class SocialService{
     if(image){this.#latest.set(c.scopeKey,image);while(this.#latest.size>64)this.#latest.delete(this.#latest.keys().next().value);}
     this.#pending++;
     try{
+      if(memoryControl(data.text)){await this.prepare(data.text,{...c,eventKey:data.eventKey});return;}
       const config=await this.configStore.read();if(!config.enabled||!this.#valid(c))return;
       const saved=await this.#run(this.#args('observe',c,{event:data.eventKey,text:data.text.slice(0,2000)}));
       if(!saved?.ok||saved.disabled||!this.#valid(c))return;
@@ -68,6 +74,7 @@ export class SocialService{
     if(this.#jobs.size>=12)return {ok:false,code:'MEDIA_BUSY'};
     const work=(async()=>{
       const ownerState=await this.#run(this.#args('recall',{...c,sessionKey:a.namespace}));
+      if(!ownerState?.ok)return {ok:false,code:'SOCIAL_UNAVAILABLE'};
       if(ownerState.disabled)return {ok:false,code:'MEDIA_CANCELLED'};
       const agent=await this.agentConfigStore.read();
       if(a.kind==='image'&&(!agent.enabled||!agent.apiKey))return {ok:false,code:'VISION_NOT_CONFIGURED'};
@@ -75,7 +82,8 @@ export class SocialService{
         asr:{enabled:config.asrEnabled,apiKey:config.apiKey}},async()=>{throw Error('MEDIA_RPC_DENIED');},v=>v.report);
       const latestOwner=await this.#run(this.#args('recall',{...c,sessionKey:a.namespace}));
       const activeConfig=await this.configStore.read();
-      if(!this.#valid(c)||latestOwner.disabled||!activeConfig.enabled||(a.epoch||0)!==(this.#epochs.get(a.namespace)||0))return {ok:false,code:'MEDIA_CANCELLED'};
+      if(!this.#valid(c)||!latestOwner?.ok||latestOwner.disabled||!activeConfig.enabled||(a.epoch||0)!==(this.#epochs.get(a.namespace)||0))return {ok:false,code:'MEDIA_CANCELLED'};
+      if(report.ok&&a.kind==='audio'&&!String(report.transcript||'').trim())return {ok:false,code:'AUDIO_EMPTY'};
       const result={...report,event:a.event,namespace:a.namespace,at:a.at,kind:a.kind};
       this.#results.set(a.event,result);while(this.#results.size>128)this.#results.delete(this.#results.keys().next().value);
       const white=c.scope==='c2c'||c.access==='white';
@@ -92,28 +100,35 @@ export class SocialService{
     })();
     this.#jobs.set(a.event,work);try{return await work;}finally{this.#jobs.delete(a.event);}
   }
-  async prepare(text,c){
-    if(!this.#valid(c))return {};
-    const config=await this.configStore.read();
-    const raw=text.trim();
-    const natural=/^(?:清空|删除)(?:我(?:的)?|这里的)?(?:全部|所有)?(?:记忆|记录)[。！!]?$/u.test(raw)?'清空':/^(?:别再记我|不要再记录我|不要记录我的消息|关闭我的记忆)[。！!]?$/u.test(raw)?'关闭':/^(?:你(?:还)?记得我什么|看看我的记忆)[?？]?$/u.test(raw)?'查看':null;
-    const m=control.exec(raw)||(natural?[raw,natural]:null);
-    if(m){
-      const action=({'关闭':'off','开启':'on','清空':'clear','查看':'recall'})[m[1]];
+  #manage(name,c){
+    const cacheKey=name!=='查看'&&key(c.eventKey)?c.sessionKey+':'+c.eventKey:null;
+    if(cacheKey&&this.#controlOutcomes.has(cacheKey))return this.#controlOutcomes.get(cacheKey);
+    const work=(async()=>{
+      const action=({'关闭':'off','开启':'on','清空':'clear','查看':'recall'})[name];
       const r=await this.#run(this.#args(action,c));
       if(!r.ok)return {reply:'记忆暂时没能更新，稍后再试~'};
       if(action!=='recall'){
         this.#batches.delete(c.sessionKey);
         this.#epochs.set(c.sessionKey,(this.#epochs.get(c.sessionKey)||0)+1);
-        this.#latest.delete(c.scopeKey);for(const [k,v] of this.#results)if(v.namespace===c.sessionKey)this.#results.delete(k);
+        if(this.#latest.get(c.scopeKey)?.namespace===c.sessionKey)this.#latest.delete(c.scopeKey);for(const [k,v] of this.#results)if(v.namespace===c.sessionKey)this.#results.delete(k);
         return {reply:action==='off'?'好，在这个对话里不再记录你，之前的记录也清掉了':action==='on'?'好，之后会记住你在这里说过的偏好~':'这里关于你的记忆已经清空了',reset:true};
       }
       const preferences=r.preferences||[];
       const mood=r.mood?.[0];return {reply:r.disabled?'这里关于你的记录已关闭':
         [preferences.length?preferences.map(p=>p.text).join('\n'):'暂时还没有记下你的稳定偏好~',...(r.habits||[]).map(h=>'聊天时'+h.label),mood?'最近你说过：'+mood.said:'',r.style?.effective_samples?'也在慢慢熟悉你的聊天习惯':''].filter(Boolean).join('\n'),social:r};
-    }
+
+    })().catch(()=>({reply:'记忆暂时没能更新，稍后再试~'}));
+    if(cacheKey){this.#controlOutcomes.set(cacheKey,work);while(this.#controlOutcomes.size>512)this.#controlOutcomes.delete(this.#controlOutcomes.keys().next().value);}
+    return work;
+  }
+  async prepare(text,c){
+    if(!this.#valid(c))return {};
+    const name=memoryControl(text);
+    if(name)return this.#manage(name,c);
+    const config=await this.configStore.read();
     if(!config.enabled)return identify.test(text)?{reply:'识图功能当前关闭了'}:{};
     const social=await this.#run(this.#args('recall',c));
+    if(!social?.ok)return {social:{ok:false,disabled:true,unavailable:true},...(identify.test(text)||c.media?.length?{reply:'这次识别暂时没能完成，稍后再试~'}:{})};
     if(social.disabled)return identify.test(text)?{reply:'你已关闭这里的记录，发送“/记忆 开启”后可以识图'}:{social};
     const current=copyIncomingMedia(c.media);
     const reference=identify.test(text)||((c.scope==='c2c'||c.access==='white')&&/这张图|刚才.{0,8}图|图里|看.{0,8}(?:图片|照片)/u.test(text));
@@ -127,7 +142,7 @@ export class SocialService{
     if(!selected)return identify.test(text)?{reply:'还没收到图片，先发一张，再发 /识图 就行~'}:{social};
     const force=identify.test(text);
     const result=await this.#understand(selected,c,config,force);
-    if(!result.ok)return {social,...(force||current.length?{reply:result.code==='ASR_NOT_CONFIGURED'?'这条语音没有平台转写，语音识别还没配置好':result.code==='MEDIA_EXPIRED'?'刚才那张图已过期，再发一次吧~':'这次没看清或听清，再发一次试试~'}:{})};
+    if(!result.ok)return {social,...(force||current.length?{reply:result.code==='AUDIO_EMPTY'?'这条语音里没听清内容，再说一遍吧~':result.code==='ASR_NOT_CONFIGURED'?'这条语音没有平台转写，语音识别还没配置好':result.code==='MEDIA_EXPIRED'?'刚才那张图已过期，再发一次吧~':'这次没看清或听清，再发一次试试~'}:{})};
     if(c.scope==='group'&&c.access==='gray'&&!force&&selected.kind==='image'&&!result.is_meme)return {social};
     if(force){
       const summary=[result.description,result.visible_text].filter(Boolean).join(' / ');

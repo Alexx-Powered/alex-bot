@@ -47,6 +47,7 @@ class MediaTests(unittest.TestCase):
         r=transcribe_audio(URL,{},fetch=lambda _:wav(),model_factory=lambda _:model)
         self.assertEqual(r['transcript'],'我喜欢小教室')
         self.assertEqual(model.messages[0].content[0]['type'],'input_audio')
+        self.assertEqual(transcribe_audio(URL,{},fetch=lambda _:wav(),model_factory=lambda _:Model('   '))['code'],'AUDIO_EMPTY')
     def test_known_json_format_marker_is_accepted_but_other_fields_are_not(self):
         facts=VisionFacts.model_validate({'type':'json_object','description':'红色方块','visible_text':'42','is_meme':False})
         self.assertNotIn('type',facts.model_dump())

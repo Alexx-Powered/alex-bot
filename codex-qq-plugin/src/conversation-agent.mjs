@@ -13,7 +13,10 @@ export class ConversationAgent{
   }
   async handle(text,context={}){
     let socialData={};
-    try{socialData=await this.socialService?.prepare(text,context)||{};}catch{}
+    try{socialData=await this.socialService?.prepare(text,context)||{};}catch{
+      if(/^\/(?:识图|记忆)(?:\s|$)/u.test(text)||context.media?.length)return {text:context.media?.some(a=>a.kind==='audio')?'这条语音暂时没听清，再发一次试试~':text.startsWith('/记忆')?'记忆暂时更新不了，稍后再试~':'这张图暂时没看清，再发一次试试~',requiredAccess:'chat'};
+      socialData={social:{ok:false,disabled:true,unavailable:true}};
+    }
     if(socialData.reply)return {text:socialData.reply,requiredAccess:'chat',...(socialData.reset?{memoryReset:true}:{})};
     if(socialData.text)text=socialData.text;
     const sessionKey=context.sessionKey||'private';

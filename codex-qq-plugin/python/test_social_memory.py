@@ -36,6 +36,8 @@ class SocialMemoryTests(unittest.TestCase):
         self.observe('我很开心');self.observe('我喜欢数学',2,user=key('other'))
         self.assertEqual(self.store.recall(key('other'),self.scope)['mood'],[])
         self.assertEqual(self.store.recall(self.user,key('other-group'))['mood'],[]) # namespace alone is not scope authority
+        self.assertFalse(self.store.control(self.user,key('other-group'),'clear')['ok'])
+        self.assertEqual(self.recall()['mood'][0]['label'],'开心')
     def test_duplicate_event_does_not_reinforce(self):
         self.observe('我很开心');self.observe('我很开心')
         self.assertEqual(len(self.recall()['mood']),1)

@@ -210,7 +210,8 @@ class SocialMemory:
         try:
             with c:
                 self._prune(c,now)
-                old=c.execute('SELECT enabled FROM social_profiles WHERE namespace=?',(namespace,)).fetchone()
+                old=c.execute('SELECT enabled,scope FROM social_profiles WHERE namespace=?',(namespace,)).fetchone()
+                if old and old[1]!=scope:return {'ok':False,'code':'INVALID_SCOPE'}
                 if not old and c.execute('SELECT COUNT(*) FROM social_profiles').fetchone()[0]>=MAX_SOCIAL_NAMESPACES:
                     return {'ok':False,'code':'SOCIAL_MEMORY_FULL'}
                 enabled = int(action=='on') if action!='clear' else (old[0] if old else 1)

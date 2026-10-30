@@ -11,6 +11,7 @@ import {SocialConfigStore} from '../src/social-config.mjs';
 import {incomingMedia} from '../src/incoming-media.mjs';
 import {BridgeCore} from '../src/core.mjs';
 import {QQAdapter} from '../src/qq-adapter.mjs';
+import {ConversationAgent} from '../src/conversation-agent.mjs';
 const key=v=>createHash('sha256').update(String(v)).digest('hex');
 const context=()=>({scope:'group',access:'white',sessionKey:key('a:u'),scopeKey:key('a'),isAllowed:()=>true});
 const cfg={enabled:true,autoWhiteImages:true,autoMemes:true,asrEnabled:false,apiKey:''};
@@ -117,4 +118,78 @@ test('private passive memory is independent of exhausted reply quota and still s
   await core.setPaused(true);
   await core.handleMessage({kind:'c2c',id:'2',senderId:'owner',text:'我很开心'});
   assert.equal(observed.length,1);
+});
+
+test('full offline pipeline keeps a silent image, answers /识图 through real LangChain, and isolates member erasure',async()=>{
+  const home=await fs.mkdtemp(path.join(os.tmpdir(),'social-e2e-'));
+  const sent=[],handlers=new Map();let finish,core,visionCalls=0;
+  const memory=new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python/social_worker.py')});
+  const model=new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'test/fixtures/social-chat-worker.py')});
+  const mediaWorker={close(){},async run(_p,_rpc,finish){visionCalls++;return finish({report:{ok:true,description:'猫抱着饭碗','visible_text':'饭是我的','is_meme':true}});}};
+  const configStore={read:async()=>({enabled:true,apiKey:'fixture-key',model:'deepseek-flash',baseURL:'https://api.deepseek.com'})};
+  const social=new SocialService({home,configStore:{read:async()=>cfg},agentConfigStore:configStore,memoryWorker:memory,mediaWorker});
+  const agent=new ConversationAgent({worker:model,socialService:social,configStore,toolbox:{handle:async()=>null},policyLoader:async()=>({enabled:true,topics:['群聊闲聊'],maxChars:600,instructions:'自然聊天'}),modelBudget:{acquire:async()=>({ok:true})}});
+  const bot={on:(name,fn)=>handlers.set(name,fn),start:()=>new Promise(r=>{finish=r;}),stop:()=>finish?.(),async sendText(target,text){sent.push({target,text});return {id:'fake-result'};}};
+  const adapter=new QQAdapter({createBot:()=>bot,onMessage:m=>core.handleMessage(m)});
+  core=new BridgeCore({loadState:async()=>({version:1,ownerId:'owner',paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,allowedGroups:[{id:'g',name:'g'}]}),saveState:async()=>{},send:r=>adapter.send(r),observeMessage:(d,c)=>social.observe(d,c),commandHandler:(t,c)=>agent.handle(t,c)});
+  const emit=async(senderId,id,content,attachments=[])=>handlers.get('message')({}, {kind:'group',rawEventType:'GROUP_MESSAGE_CREATE',groupOpenid:'g',senderId,messageId:id,timestamp:new Date().toISOString(),content,attachments,replyTarget:{scope:'group',targetId:'g',msgId:id}});
+  try{
+    await core.init();await adapter.connect({appId:'123',appSecret:'fixture'});await handlers.get('ready')({});
+    await emit('a','img','',[{content_type:'image/png',url:'https://multimedia.nt.qq.com.cn/download?fileid=fixture'}]);
+    assert.equal(sent.length,0);
+    await emit('b','see','/识图');assert.match(sent[0].text,/猫.*饭碗/u);assert.equal(sent[0].target.targetId,'g');
+    await emit('b','clear','/记忆 清空');
+    await emit('b','see-again','/识图');assert.match(sent.at(-1).text,/猫.*饭碗/u);assert.equal(visionCalls,1);
+    const recall=async sender=>memory.run({type:'social',args:{action:'recall',namespace:key('chat:group:g:'+sender),scope:key('chat-scope-group:g')}},async()=>{throw Error('NO_RPC');},r=>r.report);
+    assert.equal((await recall('a')).media[0].summary.includes('猫'),true);
+    assert.equal((await recall('b')).media.length,0);
+  }finally{social.close();model.close();await adapter.disconnect();await fs.rm(home,{recursive:true,force:true,maxRetries:6,retryDelay:80});}
+});
+
+test('empty audio transcription produces a clear reply rather than a silent empty chat request',async()=>{
+  const memoryWorker={close(){},async run(_p,_rpc,finish){return finish({report:{ok:true,observed:true,mood:[],style:{},media:[],preferences:[]}});}};
+  const mediaWorker={close(){},async run(_p,_rpc,finish){return finish({report:{ok:true,transcript:'   '}});}};
+  const service=new SocialService({configStore:{read:async()=>cfg},agentConfigStore:{read:async()=>({enabled:true,apiKey:'fixture'})},memoryWorker,mediaWorker});
+  try{const r=await service.prepare('[语音]',{...context(),media:[{kind:'audio',url:'https://qqbot.ugcimg.cn/a.wav'}]});assert.match(r.reply,/没听清内容/);}finally{service.close();}
+});
+
+test('unavailable social storage cannot turn missing media into a hallucinated model observation or reenable memory writes',async()=>{
+  const packets=[];
+  const agent=new ConversationAgent({socialService:{prepare:async()=>{throw Error('private error must not escape');}},worker:{run:async(p,_rpc,finish)=>{packets.push(p);return finish({kind:'chat',topic:'群聊闲聊',text:'鱼在~'});}},configStore:{read:async()=>({enabled:true,apiKey:'fixture-key'})},toolbox:{handle:async()=>null},policyLoader:async()=>({enabled:true,topics:['群聊闲聊'],maxChars:600}),modelBudget:{acquire:async()=>({ok:true})}});
+  assert.match((await agent.handle('/识图',context())).text,/没看清/);
+  assert.match((await agent.handle('[语音]',{...context(),media:[{kind:'audio'}]})).text,/没听清/);
+  assert.match((await agent.handle('/记忆 清空',context())).text,/更新不了/);
+  assert.equal(packets.length,0);
+  await agent.handle('我喜欢猫',context());
+  assert.equal(packets[0].context.social.disabled,true);assert.equal(packets[0].context.social.unavailable,true);
+});
+
+test('memory close takes effect without remaining reply quota or secret-config decryption',async()=>{
+  const home=await fs.mkdtemp(path.join(os.tmpdir(),'social-control-'));
+  const memory=new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python/social_worker.py')});
+  const social=new SocialService({home,configStore:{read:async()=>{throw Error('No secret decryption should be needed');}},agentConfigStore:{read:async()=>assert.fail('No model key needed')},memoryWorker:memory,mediaWorker:{close(){}}});
+  const now=Date.now(),day=new Date(now+8*3600000).toISOString().slice(0,10);
+  const core=new BridgeCore({loadState:async()=>({version:1,ownerId:'owner',paused:false,pauseReason:null,attempts:[{at:now,day}],deliveries:[],incoming:[],lastDeliveryCode:null}),saveState:async()=>{},send:async()=>assert.fail('No quota for reply'),commandHandler:async()=>assert.fail('Control should not require the reply queue'),observeMessage:(d,c)=>social.observe(d,c),limits:{dailyAttempts:200,minuteAttempts:1,reservedNotifications:10},now:()=>now});
+  try{
+    await core.init();await core.handleMessage({kind:'c2c',id:'close',senderId:'owner',text:'/记忆 关闭'});
+    const result=await memory.run({type:'social',args:{action:'recall',namespace:key('chat:c2c:owner'),scope:key('chat-scope-c2c:owner')}},async()=>{throw Error('NO_RPC');},r=>r.report);
+    assert.equal(result.disabled,true);
+  }finally{social.close();await fs.rm(home,{recursive:true,force:true,maxRetries:6,retryDelay:80});}
+});
+
+test('observer and interactive handling of one memory command mutate storage only once',async()=>{
+  let controls=0;
+  const memoryWorker={close(){},async run(p,_rpc,finish){if(p.args.action==='off')controls++;return finish({report:{ok:true,disabled:true}});}};
+  const social=new SocialService({configStore:{read:async()=>cfg},agentConfigStore:{read:async()=>assert.fail()},memoryWorker,mediaWorker:{close(){}}});
+  const c={...context(),eventKey:key('one-control')};
+  try{
+    await social.observe({text:'/记忆 关闭',eventKey:c.eventKey,media:[]},c);
+    const reply=await social.prepare('/记忆 关闭',c);
+    assert.match(reply.reply,/不再记录/);assert.equal(controls,1);
+  }finally{social.close();}
+});
+
+test('a failed natural-language memory control reports failure without delegating a false success to the model',async()=>{
+  const social=new SocialService({configStore:{read:async()=>assert.fail('No config needed')},memoryWorker:{close(){},async run(){throw Error('private storage failure');}},mediaWorker:{close(){}}});
+  try{assert.match((await social.prepare('不要再记录我',context())).reply,/没能更新/);}finally{social.close();}
 });

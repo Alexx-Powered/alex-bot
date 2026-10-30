@@ -111,6 +111,7 @@ def transcribe_audio(url,config,fetch=download,model_factory=default_asr):
     answer=model_factory(config).invoke([HumanMessage(content=[{'type':'input_audio','input_audio':{
         'data':'data:audio/wav;base64,'+base64.b64encode(raw).decode()}}])])
     if not isinstance(answer.content,str) or len(answer.content)>2000:raise ValueError('AUDIO_RESULT_INVALID')
+    if not answer.content.strip():return {'ok':False,'code':'AUDIO_EMPTY'}
     return {'ok':True,'transcript':answer.content.strip(),'seconds':round(seconds,2)}
 
 

@@ -228,9 +228,10 @@ export class BridgeCore {
     return access!==null&&(!(requiredAccess==='white'||proactiveGroup)||access==='white');
   }
 
-  #bindRequest(context, incomingKey, target, groupId) {
+  #bindRequest(context, incomingKey, target, groupId, eventKey) {
     let acknowledged = false;
     Object.defineProperties(context, {
+      eventKey: { enumerable:false, value:eventKey||incomingKey },
       authorize: { enumerable:false, value:required => this.canDeliver({groupId,requiredAccess:required}) },
       progress: { enumerable:false, value:async stage => {
         if(!['campus-fetch','campus-fetch-current'].includes(stage)||acknowledged||!this.canDeliver({groupId,requiredAccess:'white'}))return false;
@@ -609,7 +610,7 @@ export class BridgeCore {
         if (budgetCode) return result(false, budgetCode);
         let response;
         const context=this.#bindRequest({scope:'c2c',sessionKey:hash('chat:c2c:'+senderId),
-          scopeKey:hash('chat-scope-c2c:'+senderId),userKey:hash('chat-user:'+senderId)},incomingKey,replyTarget);
+          scopeKey:hash('chat-scope-c2c:'+senderId),userKey:hash('chat-user:'+senderId)},incomingKey,replyTarget,undefined,hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id));
         if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
         try { response = await this.#commandHandler(command, context); }
         catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
@@ -623,8 +624,8 @@ export class BridgeCore {
     if(typeof this.observeMessage!=='function')return;
     const isAllowed=()=>this.sendingEnabled()&&(message.kind==='group'?this.groupAccess(message.groupId)!==null:this.#state.ownerId===message.senderId);
     if(!isAllowed())return;
-    const data={text:message.text,media:message.media||[],eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
-    try{Promise.resolve(this.observeMessage(data,{...context,isAllowed})).catch(()=>{});}catch{}
+    const data={text:message.kind==='group'?groupCommand(message.text,message.mentioned).command:message.text,media:message.media||[],eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
+    try{Promise.resolve(this.observeMessage(data,{...context,eventKey:data.eventKey,isAllowed})).catch(()=>{});}catch{}
   }
 
   async #handleGroupMessage(message, groupContext) {
@@ -677,7 +678,7 @@ export class BridgeCore {
       const context=groupContext&&groupContext.access===access?groupContext:{ scope: 'group', access,
         sessionKey: hash('chat:group:'+groupId+':'+senderId), scopeKey: hash('chat-scope-group:'+groupId),
         userKey: hash('chat-user:'+senderId), currentSpeaker: 'member-'+hash('group-sender:'+groupId+':'+senderId).slice(0,12), groupContext: [] };
-      this.#bindRequest(context,incomingKey,target,groupId);
+      this.#bindRequest(context,incomingKey,target,groupId,hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id));
       if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
       try { response = await this.#commandHandler(command, context); }
       catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }

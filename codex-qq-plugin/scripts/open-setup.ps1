@@ -1,5 +1,5 @@
-param([ValidateSet('/','/social')][string]$Page = '/')
-﻿$ErrorActionPreference = 'Stop'
+﻿param([ValidateSet('/','/social')][string]$Page = '/')
+$ErrorActionPreference = 'Stop'
 $qqPluginRoot = Split-Path -Parent $PSScriptRoot
 $qqDataRoot = if ($env:QQ_BRIDGE_HOME) { [IO.Path]::GetFullPath($env:QQ_BRIDGE_HOME) } else { $qqPluginRoot }
 $qqTokenPath = Join-Path $qqDataRoot '.private\admin-token'

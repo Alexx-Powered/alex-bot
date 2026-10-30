@@ -9,7 +9,8 @@
 | QQ官方SDK、配对、白/灰名单、前缀、限额与图片发送 | ECS `alexbot.service` |
 | DeepSeek聊天/余额、LangChain换算、生活费与运动规则 | ECS Node → Python worker |
 | 学院路全部教室JSON、全天图、即时推荐与记忆 | ECS独立校园worker、Chromium与中文字体 |
-| 普通聊天长期偏好记忆 | Python LangChain + `.private/chat-memory/chat-memory.sqlite3`，按私聊/群及成员隔离；24条/分区、180天有效 |
+| 普通聊天偏好、成员沟通习惯、媒体摘要与衰减情绪 | Python LangChain + `.private/chat-memory/chat-memory.sqlite3`，按私聊/群及成员隔离；具体限额见根目录HANDOVER |
+| 图片理解与可选语音识别 | 独立Python媒体worker；DeepSeek Flash视觉；QQ自带转写优先，百炼付费ASR缺省关闭；`/social`加密配置 |
 | 天气、CAMS、雷达和增强早安图片 | ECS；异常仍明确缺数据，不补造数值 |
 | 北京时间07:30白名单群早报与三号楼图 | `alexbot-morning.service`；保留每日claim，避免重复补发 |
 | 本机设置页、Codex MCP、WorkBuddy发送 | 本机127.0.0.1:19327 → 受限SSH → ECS回环端口 |
@@ -23,7 +24,7 @@ ECS：`cn-beijing / i-2ze8xb72xeng0xzu02bb / 182.92.164.251`，Ubuntu22.04，普
 
 | 内容 | 保存方式 |
 |---|---|
-| QQ AppID/AppSecret、DeepSeek Key、学校学号/密码、LangSmith Key | ECS `.private/credentials.json`、`agent-config.json`、`campus-config.json`、`monitoring-config.json`，AES-256-GCM；目录0700、文件0600 |
+| QQ AppID/AppSecret、DeepSeek Key、学校学号/密码、LangSmith Key、可选百炼ASR Key | ECS `.private/credentials.json`、`agent-config.json`、`campus-config.json`、`monitoring-config.json`、`social-config.json`（保存新设置后创建），AES-256-GCM；目录0700、文件0600 |
 | 校园Cookie/storage state | `.private/campus-session.json`，AES-256-GCM；Linux不保留明文持久浏览器profile |
 | 加密主密钥 | `/etc/alexbot/master.key`，root0600、目录0700；systemd LoadCredential提供临时只读副本，不放命令行、Git或普通环境变量 |
 | 管理/集成运行令牌 | `.private/admin-token` / `integration-token`，随机值、0600；本机副本在当前用户ACL保护的`.private`。这是权限保护文件，**不是加密文件** |
@@ -34,7 +35,7 @@ ECS：`cn-beijing / i-2ze8xb72xeng0xzu02bb / 182.92.164.251`，Ubuntu22.04，普
 
 `.private`、密钥、依赖和测试输出不进入Git。群配置、额度和记忆是权限保护的运行数据，备份包再整体加密。普通Python agent不继承主密钥/凭据环境变量；学校凭据只交给独立采集worker，不进入模型提示词。运行中必然短暂使用明文；拥有root或服务用户执行权限的程序仍在信任边界内，本方案不是KMS或抵御主机管理员的加密。
 
-普通聊天长期记忆只保存校验后的自述片段，不是完整聊天档案；SQLite文件0600、目录0700，字段未额外加密。`backup.mjs`通过SQLite一致性快照纳入整体加密备份。用户可询问“你记得我什么”、按词忘记或清空本对话自己的记忆；不从群背景提取他人资料，不跨群或跨成员回忆。聊天风格与记忆调研见`../docs/chat-research-20261029.md`。
+普通聊天记忆保存校验后的自述、表达统计、有重复证据的沟通习惯、有限媒体摘要及会衰减的情绪线索；授权群未唤醒时也按成员观察，不保存完整聊天原文或媒体文件。SQLite文件0600、目录0700，字段未额外加密。`backup.mjs`通过SQLite一致性快照纳入整体加密备份。用户可询问“你记得我什么”、按词忘记，或用`/记忆 查看/关闭/开启/清空`管理自己当前对话分区；不跨群或跨成员回忆。情绪推断可能误解，不作为人物事实；具体衰减及保留限额见根目录HANDOVER。聊天风格与记忆调研见`../docs/chat-research-20261029.md`。
 
 LangSmith保持自动tracing关闭，手动上传白名单性能数据，不包含聊天/prompt/记忆/工具参数或凭据。Key留Node加密配置，不继承给Python，监控失败不阻塞回复。生产连接QQ前完成无模型请求的Python/provider预热；模型HTTP空闲连接复用60秒。诊断数据、配置和验证步骤见`../docs/latency-monitoring-20261029.md`。
 
@@ -89,9 +90,9 @@ Windows Node398项通过；Linux Node393项通过、5项Windows专用测试跳�
 
 用户在切换后的本人QQ确认全天图、当前推荐图和普通聊天三项正常。切换前后计数54不变，验收后58、无不确定投递；当日早安claim保留，没有因迁移重发。跨夜08:00触发和整机重启尚未实际验收。
 
-## 待启用的多模态与成员记忆（2026-10-30）
+## 已启用的多模态与成员记忆（2026-10-30）
 
-当前候选及上线授权状态以根目录HANDOVER最新记录为准；生产切换曾被自动审批要求明确确认，不要据候选文件存在而认定已上线。
+用户明确要求备份旧版后上线，已切换到`linux-377ed7b5ad2e`；生产PID、启动时刻、源码清单与本机SSH隧道均已核验。Windows Node451/Python242通过；Linux Node446通过、5平台跳过，Python242通过。详细回滚材料、实际进程与待完成的QQ媒体验收以根目录HANDOVER最新记录为准；后续维护先读实际状态，不单凭文件存在认定版本。
 
 新配置入口`/social`，用`open-setup.ps1 -Page /social`进入；付费语音缺省关闭，Qwen3-ASR-Flash北京区。图片复用DeepSeek Flash。Key在Node平台加密存储，传Python仅走私有stdin管道；不写argv、模型提示词或日志。原媒体不存盘，SQLite保存有界摘要、沟通习惯与衰减的情绪线索，仍纳入原一致性加密备份。白/灰名单和暂停继续在Node鉴权。
 
