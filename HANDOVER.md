@@ -1,4 +1,4 @@
-## 2026-10-30 DeepSeek 与滑动变祖器实时状态（已上线，QQ图文展示待确认）
+## 2026-10-30 DeepSeek 与滑动变祖器实时状态（已上线，本人QQ验收通过）
 
 当前生产为`linux-9a3bb6dba221`：主服务实际监听PID63437，2026-10-30 21:03:30 CST启动；早报PID63456。本机19327仍为SSH PID7236（09:21:44启动），没有另开本地Bot。源码SHA256清单、实际argv、源码早于服务启动和端口归属已核验；connected、paired、未暂停，切换前后发送计数29不变，无不确定投递。运行中的聊天规则文件哈希未变；07:30白名单早报和既有claim保留。下文其他“当前版本”属于各自历史维护记录，以本节为最新生产。
 
@@ -8,7 +8,7 @@
 - 用户允许图片从作者仓库等来源获取，最终没有依赖网页截图或视频解码。按原站阶段划分及四舍五入后的0–30档匹配[作者素材仓库](https://github.com/Abyss-Seeker/liang-intensity-calibrator)的固定提交`27df48e3fa2f0b7b841fdf61e69b9c6db43c4713`，配合同次实时数值生成1080×1410状态图。31张原始关键帧转WebP，保存源文件及缓存SHA256；缓存只含静态素材，路径`.private/public-status-frames`，目录0700/文件0600，不进Git或密钥备份。`ops/prewarm-public-status.py`可重建。图片注明数据链接和素材出处。
 - 新增独立`public_status_worker.py`，只接两个工具名与空参数，不传模型Key、校园凭据、URL、路径、QQ目标。Node验证固定来源、时效、文字、随机artifact ID、PNG解码与大小，读取后删除生成文件，再复核名单。失败明确说本次无法获取，不用旧结果替代。实时图文不进入长期个人记忆。
 - 发送按[腾讯官方单聊/群聊文档](https://github.com/tencent-connect/bot-docs/blob/main/docs/develop/api-v2/server-inter/message/send-receive/send.md)：先上传且`srv_send_msg=false`，再一次发送`msg_type=7`、`content`与`media.file_info`，不是图片后再补一条文字。`richMedia`是Node内部新增可选布尔值，默认false；既有天气/校园纯图行为兼容。原来的名单、暂停、限额、幂等与失败不重发规则继续生效。实际发送含URL仍受QQ后台“消息URL配置”约束；两处数据来源域名若被拒绝，需按平台配置处理，不绕过或自动重发。
-- 验证：本地完整Node461、Python261通过；最终Linux完整Node456通过/5项平台专用跳过、Python261通过。含真实Node→Python→LangChain协议、灰名单拒绝、权限撤回、固定指令无Key、单消息图文、真实腾讯SDK序列化及旧纯图兼容。云端真实公开来源验证DeepSeek约4秒、滑动变祖器约6秒；7条真实模型合成路由全部符合预期，含两条普通聊天反例。不发QQ、不读真实聊天来做合成验收。上线后已请用户在本人QQ发送两条固定命令，腾讯客户端是否图文同条显示尚待本人确认。
+- 验证：本地完整Node461、Python261通过；最终Linux完整Node456通过/5项平台专用跳过、Python261通过。含真实Node→Python→LangChain协议、灰名单拒绝、权限撤回、固定指令无Key、单消息图文、真实腾讯SDK序列化及旧纯图兼容。云端真实公开来源验证DeepSeek约4秒、滑动变祖器约6秒；7条真实模型合成路由全部符合预期，含两条普通聊天反例。不发QQ、不读真实聊天来做合成验收。上线后用户在本人QQ实测两条固定命令，明确确认“两项都正常，图文在同一条消息”，文字、来源链接和图片同条显示验收通过；保留当前版本。
 - 上线前加密快照`/var/backups/alexbot/alexbot-20261030T130018635Z.json`，18文件，本机恢复副本已验证可恢复且未写明文；旧源码另存`/var/backups/alexbot/source-linux-a26f058f2340-before-public-status-20261030.tar.gz`，旧release保留。工作区无关logo/界面/素材修改保留；本轮只本地Git记录，不更新GitHub。
 
 ## 历史：2026-10-30 上轮多模态最终验收（已完成，口吻保留）
