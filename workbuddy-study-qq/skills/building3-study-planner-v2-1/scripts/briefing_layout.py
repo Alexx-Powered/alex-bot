@@ -6,7 +6,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import plan
 
-def render_board(result, reviewed, demo):
+def render_board(result, reviewed, demo, *, _reference_extra=0):
     font=Path(os.environ.get('QQ_FONT_REGULAR') or ('C:/Windows/Fonts/msyh.ttc' if os.name=='nt' else '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'))
     if not font.exists():raise ValueError('CHINESE_FONT_MISSING')
     fonts={n:ImageFont.truetype(str(font),n) for n in (21,23,25,27,30,34,42,62,150)}
@@ -98,7 +98,7 @@ def render_board(result, reviewed, demo):
         for col,n in enumerate((i+1,i+8)):
             start,end=plan.RULES['periods'][n-1]
             text(f'{n:02d}   {start}—{end}',lx+28+col*325,ly,width=310,size=23,color=muted)
-        ly+=38
+        ly+=38+_reference_extra//6+int(i<_reference_extra%6) if i<6 else 38
     ly+=18
     ly=text('晚间习惯：19:50 起\n同等级优先整晚空闲。',lx+28,ly,width=626,size=23)
     ly+=23;card_finish(lx,ref_top,lw,ly)
@@ -151,6 +151,9 @@ def render_board(result, reviewed, demo):
         if session['shortfall']:
             ry=text(f"仅 {len(session['recommendations'])} 条可用方案。",rx+28,ry,width=950,size=23,color='#a15e32')
         ry+=10;card_finish(rx,ct,rw,ry);ry+=25
+    # Only the six gaps between the seven time-reference rows grow.
+    if not _reference_extra and ry-25>ly:
+        return render_board(result,reviewed,demo,_reference_extra=ry-25-ly)
     bottom=max(ly,ry)+20
     d.line((60,bottom,1740,bottom),fill='#dfd6cb',width=2)
     bottom=text('绿色为空闲 · 白色为有课 · 深橙色优先',60,bottom+21,width=1680,size=25)
