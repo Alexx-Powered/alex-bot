@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from langchain_core.messages import AIMessage
 from test_agent_worker import ScriptedModel,packet,call
@@ -57,6 +58,34 @@ class ConversationTests(unittest.TestCase):
         self.runner.chat_model_factory=lambda _:self.fail('memory receipt cannot be rewritten')
         result=self.run_chat(call('chat_memory',{'action':'clear'}),'清空我的记忆')
         self.assertTrue(result['memory_reset'])
+
+    def test_successful_recall_uses_grounded_no_tool_voice_without_mutating_memory(self):
+        self.store.update('a'*64,'以后叫我阿岚','remember','name','以后叫我阿岚')
+        self.store.update('a'*64,'我喜欢简短一点的回复','remember','preference','我喜欢简短一点的回复')
+        before=self.store.recall('a'*64)
+        composer=ScriptedModel(responses=[AIMessage(content='阿岚呀，哪能忘~')])
+        self.runner.chat_model_factory=lambda _:composer
+        result=self.run_chat(call('chat_memory',{'action':'recall','text':'称呼'}),'你还记得该怎么叫我吗')
+        self.assertEqual(result['text'],'阿岚呀，哪能忘~')
+        self.assertEqual(self.store.recall('a'*64),before)
+        self.assertIn('verified_memory_recall',str(composer.seen[0]))
+        self.assertIn('以后叫我阿岚',str(composer.seen[0]))
+        self.assertEqual(composer.seen[0][-1].content,'你还记得该怎么叫我吗')
+        self.assertFalse(composer.bound)
+
+    def test_empty_or_failed_recall_cannot_be_rewritten_into_a_fake_memory(self):
+        self.runner.chat_model_factory=lambda _:self.fail('No verified facts for composer')
+        empty=self.run_chat(call('chat_memory',{'action':'recall'}),'你记得我的称呼吗')
+        self.assertIn('还没有',empty['text'])
+        with patch.object(self.store,'recall',return_value={'ok':False,'code':'CHAT_MEMORY_UNAVAILABLE'}):
+            failed=self.run_chat(call('chat_memory',{'action':'recall'}),'你记得我的称呼吗')
+        self.assertIn('没能读到',failed['text'])
+
+    def test_recall_voice_failure_preserves_verified_fallback(self):
+        self.store.update('a'*64,'以后叫我阿岚','remember','name','以后叫我阿岚')
+        self.runner.chat_model_factory=lambda _:ScriptedModel(responses=[RuntimeError('private provider failure')])
+        result=self.run_chat(call('chat_memory',{'action':'recall'}),'你记得我什么')
+        self.assertIn('阿岚',result['text']);self.assertNotIn('private',result['text'])
 
     def test_memory_survives_runner_restart_and_never_leaks_into_other_scope(self):
         result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'好，就叫你小鱼。','memory_kind':'name','memory_text':'我叫测试小鱼'}))
