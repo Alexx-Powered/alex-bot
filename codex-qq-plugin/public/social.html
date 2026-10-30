@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>大肥鱼 · 理解与记忆</title><link rel="stylesheet" href="/style.css"></head><body><main><header><h1>大肥鱼 · 理解与记忆</h1><p>图片、语音与成员记忆</p></header><section>
+<form id="socialConfig">
+<label><input id="socialEnabled" type="checkbox">启用多模态与静默记忆</label>
+<label><input id="socialWhite" type="checkbox">白名单群与本人私聊自动理解图片</label>
+<label><input id="socialMemes" type="checkbox">自动理解表情包（静态图需要低清识别判断是否为表情包）</label>
+<label><input id="socialASR" type="checkbox">启用付费语音转写 · Qwen3-ASR-Flash 北京区</label>
+<label>百炼 API Key<input id="socialKey" type="password" autocomplete="off" maxlength="512" placeholder="留空保留已保存的 Key"></label>
+<p>有 QQ 平台转写时优先复用；没有时才调用付费语音模型。图片复用已有 DeepSeek Key。Key 加密保存，页面不回显。</p>
+<p>成员记忆按群和成员隔离。未唤醒时静默更新，不主动插话。稳定偏好、沟通习惯、媒体摘要分别保存；明确表达的近期心情随时间淡去，不把表情包当成发图者的真实心情。</p>
+<p>群友可直接发 <code>/识图</code> 理解最新一张图片；<code>/记忆 查看</code>、<code>/记忆 关闭</code>、<code>/记忆 开启</code>、<code>/记忆 清空</code> 管理自己在当前对话的记录。关闭会清除已有记录，恢复前不再自动记录。</p>
+<p>媒体接口每日上限：200次图片分析、30次付费短语音（每条最多120秒）；最多60次分批文字语境分析；不自动重试。静默识别结果只作聊天背景，无法改变白/灰名单、工具或发送权限。</p>
+<button type="submit">加密保存设置</button></form><p id="socialStatus" role="status"></p><a href="/">返回机器人设置</a></section></main><script src="/social.js"></script></body></html>

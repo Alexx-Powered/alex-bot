@@ -1,3 +1,4 @@
+import {incomingMedia} from './incoming-media.mjs';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 
 const NOOP_LOGGER = Object.freeze({ info() {}, warn() {}, error() {}, debug() {} });
@@ -242,8 +243,10 @@ export class QQAdapter {
     // The core independently enforces the group whitelist and addressing rules.
     if (isGroup && (!['GROUP_AT_MESSAGE_CREATE', 'GROUP_MESSAGE_CREATE'].includes(message.rawEventType) || !isId(message.groupOpenid))) return null;
     if (!isId(message.senderId) || !isMessageId(message.messageId)) return null;
-    if (typeof message.content !== 'string' || !message.content.trim()) return null;
-    let text = message.content;
+    const media=incomingMedia(message.attachments);
+    if (typeof message.content !== 'string' && message.content !== undefined) return null;
+    let text = message.content || '';
+    if (!text.trim() && !media.length) return null;
     if (mention?.mentioned) {
       // Current group events may already omit the bot mention. Remove just one
       // exact leading self marker, using this connection's AppID or the
@@ -258,7 +261,10 @@ export class QQAdapter {
         if (leading.startsWith(prefix) && (!remaining || /^\s/u.test(remaining))) { text = remaining.trimStart(); break; }
       }
     }
-    if (!text.trim()) return null;
+    if (!text.trim()) {
+      if (!media.length) return null;
+      text=media.some(a=>a.kind==='audio')?'[语音]':'[图片]';
+    }
     const scope = isGroup ? 'group' : 'c2c';
     const targetId = isGroup ? message.groupOpenid : message.senderId;
     const target = message.replyTarget;
@@ -295,6 +301,7 @@ export class QQAdapter {
       id: message.messageId,
       senderId: message.senderId,
       text,
+      ...(media.length?{media}:{}),
       replyTarget: { scope, targetId, msgId: message.messageId },
     };
   }

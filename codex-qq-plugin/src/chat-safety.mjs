@@ -45,7 +45,7 @@ export function sanitizeContextText(raw, { maxChars = 240 } = {}) {
   return [...redact(text).replace(URL, '[链接]').replace(/\s+/gu, ' ').trim()].slice(0, cap(Number.isFinite(maxChars) ? maxChars : 240, 320)).join('');
 }
 
-export function checkChatInput(raw) {
+export function checkChatInput(raw, { media = false } = {}) {
   if (typeof raw !== 'string') return { ok: false, reason: 'CHAT_INPUT_INVALID', reply: INPUT_REPLY };
   const text = clean(raw, true).trim();
   if (!text) return { ok: false, reason: 'CHAT_INPUT_EMPTY' };
@@ -54,7 +54,8 @@ export function checkChatInput(raw) {
   if (CREDENTIAL.test(text)) return reject('CHAT_INPUT_SENSITIVE');
   if (INJECTION.test(text.replace(/\s+/gu, ' '))) return reject('CHAT_INPUT_INJECTION');
   if (/```|~~~|[A-Za-z0-9_+/.=-]{80,}/u.test(text)) return reject('CHAT_INPUT_COMPLEX');
-  if (/(?:https?|ftp|file|javascript|data):|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|cn|io)\b|附件|上传的|\battachments?\b|(?:看|分析|读取|总结|处理|打开).{0,12}(?:文件|文档|PDF|图片|照片|视频|音频|链接|网址)|\b(?:read|summarize|analyze|open)\s+(?:(?:this|the|a)\s+)?(?:file|pdf|image|video|audio)\b|\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|mp4|mp3)\b/iu.test(text)) return reject('CHAT_INPUT_ATTACHMENT');
+  if (media && /(?:https?|ftp|file|javascript|data):|\bwww\./iu.test(text)) return reject('CHAT_INPUT_ATTACHMENT');
+  if (!media && /(?:https?|ftp|file|javascript|data):|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|cn|io)\b|附件|上传的|\battachments?\b|(?:看|分析|读取|总结|处理|打开).{0,12}(?:文件|文档|PDF|图片|照片|视频|音频|链接|网址)|\b(?:read|summarize|analyze|open)\s+(?:(?:this|the|a)\s+)?(?:file|pdf|image|video|audio)\b|\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|mp4|mp3)\b/iu.test(text)) return reject('CHAT_INPUT_ATTACHMENT');
   const calculation=/古月币|HU\$|马里|马时|生活费|全马|半马|工资/iu.test(text)&&!/代码|程序|编程|部署|论文|长文|千字|\d{3,}字|python|script|shell/iu.test(text);
   if (technicalTask(text)||(COMPLEX.test(text)&&!calculation)) return reject('CHAT_INPUT_COMPLEX');
   if (SENSITIVE.test(text)) return reject('CHAT_INPUT_SENSITIVE');

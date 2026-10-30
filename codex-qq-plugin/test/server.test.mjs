@@ -35,7 +35,7 @@ test('study image endpoint authenticates, limits images, stays owner-only and de
 async function fixture(weatherCommands) {
   const store=memoryStore(), sent=[];
   let receive;
-  const app=await createBridgeServer({port:0,store,...(weatherCommands?{weatherCommands,morningReport:{plan:()=>({city:'beijing'}),create:()=>weatherCommands.briefing({cities:['beijing'],renderImage:true})}}:{}),adapterFactory:({onMessage})=>{
+  const app=await createBridgeServer({port:0,store,campusService:{status:async()=>({enabled:false}),handle:async()=>null,close(){},run:async()=>({image:{buffer:Buffer.alloc(32),mimeType:'image/png'}})},...(weatherCommands?{weatherCommands,morningReport:{plan:()=>({city:'beijing'}),create:()=>weatherCommands.briefing({cities:['beijing'],renderImage:true})}}:{}),adapterFactory:({onMessage})=>{
     receive=onMessage; let state='disconnected';
     return {status:()=>({state,code:null}),async connect(){state='connected'},async disconnect(){state='disconnected'},
       async send(data){if(state!=='connected')throw Object.assign(new Error('NOT_CONNECTED'),{code:'NOT_CONNECTED'});sent.push(data);return {id:'test'}}};
@@ -190,15 +190,18 @@ test('weather preview is read-only; daily report deduplicates and respects pause
     const pairing=await(await f.request('/api/pair/start',{})).json();
     await f.receive({kind:'c2c',id:'weather-pair',senderId:'owner',text:'/pair '+pairing.pairingCode});
     await f.request('/api/pair/confirm',{});
+    const binding=await f.app.core.startGroupPairing({name:'morning-test'});
+    await f.receive({kind:'group',groupId:'morning-group',id:'bind-morning',senderId:'member',text:'/group-bind '+binding.groupPairingCode,replyTarget:{scope:'group',targetId:'morning-group',msgId:'bind-morning'}});
+    await f.app.core.confirmGroupPairing({groupKey:f.app.core.status().pendingGroup.groupKey});
     assert.equal((await(await f.request('/api/weather/briefing',{mode:'daily'})).json()).code,'SENT');
-    assert.equal((await(await f.request('/api/weather/briefing',{mode:'daily'})).json()).code,'DUPLICATE');
-    assert.equal(f.sent.length,1);assert.equal(f.sent[0].ownerId,'owner');
+    assert.equal((await(await f.request('/api/weather/briefing',{mode:'daily'})).json()).code,'MORNING_PARTIAL');
+    assert.equal(f.sent.length,2);assert.equal(f.sent[0].groupId,'morning-group');
     assert.equal(f.sent[0].text,'');assert.deepEqual(f.sent[0].image,image);
     assert.equal((await(await f.request('/api/notify',{text:'',image:{buffer:'untrusted',mimeType:'image/png'},idempotencyKey:'untrusted-image'})).json()).code,'INVALID_INPUT');
-    date='2000-01-01';assert.equal((await f.request('/api/weather/briefing',{mode:'daily'})).status,500);assert.equal(f.sent.length,1);
+    date='2000-01-01';assert.equal((await f.request('/api/weather/briefing',{mode:'daily'})).status,500);assert.equal(f.sent.length,2);
     await f.request('/api/pause',{paused:true});const before=fetched;
     assert.equal((await(await f.request('/api/weather/briefing',{mode:'test'})).json()).code,'PAUSED');
-    assert.equal(fetched,before);assert.equal(f.sent.length,1);
+    assert.equal(fetched,before);assert.equal(f.sent.length,2);
   } finally {await f.app.close();}
 });
 
@@ -213,6 +216,9 @@ test('daily weather is restricted to Beijing before fetching or consuming the da
     const pairing=await(await f.request('/api/pair/start',{})).json();
     await f.receive({kind:'c2c',id:'daily-city-pair',senderId:'owner',text:'/pair '+pairing.pairingCode});
     await f.request('/api/pair/confirm',{});
+    const binding=await f.app.core.startGroupPairing({name:'morning-test'});
+    await f.receive({kind:'group',groupId:'morning-group',id:'bind-morning',senderId:'member',text:'/group-bind '+binding.groupPairingCode,replyTarget:{scope:'group',targetId:'morning-group',msgId:'bind-morning'}});
+    await f.app.core.confirmGroupPairing({groupKey:f.app.core.status().pendingGroup.groupKey});
     const before=structuredClone(f.store.state);
     for (const cities of [['上海'],['beijing','上海'],[],null,'beijing',['qweather-101010100']]) {
       const response=await f.request('/api/weather/briefing',{mode:'daily',cities});
@@ -223,12 +229,12 @@ test('daily weather is restricted to Beijing before fetching or consuming the da
     assert.equal(calls.length,0);assert.equal(f.sent.length,0);assert.deepEqual(f.store.state,before);
     assert.equal((await(await f.request('/api/weather/briefing',{})).json()).code,'SENT');
     for(const cities of [['beijing'],['北京'],['北京市']]) {
-      assert.equal((await(await f.request('/api/weather/briefing',{mode:'daily',cities})).json()).code,'DUPLICATE');
+      assert.equal((await(await f.request('/api/weather/briefing',{mode:'daily',cities})).json()).code,'MORNING_PARTIAL');
     }
     assert.ok(calls.every(call=>call.cities.length===1&&call.cities[0]==='beijing'));
-    assert.equal(f.sent.length,1);
+    assert.equal(f.sent.length,2);
     assert.equal((await(await f.request('/api/weather/briefing',{mode:'test',cities:['上海']})).json()).code,'SENT');
-    assert.deepEqual(calls.at(-1).cities,['上海']);assert.equal(f.sent.length,2);
+    assert.deepEqual(calls.at(-1).cities,['上海']);assert.equal(f.sent.length,3);
   } finally {await f.app.close();}
 });
 

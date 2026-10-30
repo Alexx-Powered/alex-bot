@@ -7,11 +7,15 @@ import {isGray,fullAccess,basicAccess,RESTRICTED_REPLY} from './access-policy.mj
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
-  constructor({toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget}){
+  constructor({toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget,socialService}){
     if(!modelBudget||typeof modelBudget.acquire!=='function')throw new TypeError('MODEL_BUDGET_REQUIRED');
-    Object.assign(this,{toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader,modelBudget});
+    Object.assign(this,{toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader,modelBudget,socialService});
   }
   async handle(text,context={}){
+    let socialData={};
+    try{socialData=await this.socialService?.prepare(text,context)||{};}catch{}
+    if(socialData.reply)return {text:socialData.reply,requiredAccess:'chat',...(socialData.reset?{memoryReset:true}:{})};
+    if(socialData.text)text=socialData.text;
     const sessionKey=context.sessionKey||'private';
     const gray=isGray(context);
     const decorate=(value,requiredAccess='white',sensitive=false)=>value&&context.scope==='group'?{...value,requiredAccess,...(sensitive?{sensitive:true}:{})}:value;
@@ -32,7 +36,7 @@ export class ConversationAgent{
     if(!config.enabled||!config.apiKey)return null;
     try{policy=await this.policyLoader(this.policyFile);}catch{return {text:'聊天规则文件格式有误，请在本机检查 config/chat-policy.md。'};}
     policy={...policy,maxChars:Math.min(600,policy.maxChars)};
-    const input=checkChatInput(text);
+    const input=checkChatInput(text,{media:Boolean(socialData.media)});
     if(!input.ok)return policy.enabled&&input.reply?{text:boundChatReply(input.reply,policy.maxChars)}:null;
     const requestText=sanitizeContextText(text,{maxChars:320});if(!requestText)return null;
     const key=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
@@ -56,6 +60,8 @@ export class ConversationAgent{
       });
     }
     const packetContext=groupContext?{scope:'group',...(context.access?{access:context.access}:{}),groupContext,currentSpeaker:/^member-[a-f0-9]{1,64}$/.test(context.currentSpeaker||'')?context.currentSpeaker:'member-'+userKey.slice(0,12)}:{scope:'c2c'};
+    if(socialData.social)packetContext.social=socialData.social;
+    if(socialData.media)packetContext.media=socialData.media;
     try{
       let result=await this.worker.run({type:'request',text:requestText,sessionKey,context:packetContext,config,policy,now:new Date().toISOString()},async(name,args)=>{
         if(name==='local_weather_briefing')throw new Error('TOOL_DENIED');

@@ -11,7 +11,7 @@
 | 学院路全部教室JSON、全天图、即时推荐与记忆 | ECS独立校园worker、Chromium与中文字体 |
 | 普通聊天长期偏好记忆 | Python LangChain + `.private/chat-memory/chat-memory.sqlite3`，按私聊/群及成员隔离；24条/分区、180天有效 |
 | 天气、CAMS、雷达和增强早安图片 | ECS；异常仍明确缺数据，不补造数值 |
-| 北京时间08:00早安 | `alexbot-morning.service`；保留每日claim，避免重复补发 |
+| 北京时间07:30白名单群早报与三号楼图 | `alexbot-morning.service`；保留每日claim，避免重复补发 |
 | 本机设置页、Codex MCP、WorkBuddy发送 | 本机127.0.0.1:19327 → 受限SSH → ECS回环端口 |
 | 本地响应耗时与可选LangSmith | Node只记录数值和固定阶段；第07节管理，`.private/monitoring-config.json`加密Key，`.private/telemetry/recent.json`最多50条 |
 
@@ -88,3 +88,11 @@ Windows Node398项通过；Linux Node393项通过、5项Windows专用测试跳�
 云端真实验证三份加密配置、学校158间教室JSON、全天/即时图、DeepSeek聊天/余额、固定换算、天气、48小时CAMS、雷达和早安运动图；已检查中文和橙色版式。正式systemd权限下校园查询及加密session重用已验证。
 
 用户在切换后的本人QQ确认全天图、当前推荐图和普通聊天三项正常。切换前后计数54不变，验收后58、无不确定投递；当日早安claim保留，没有因迁移重发。跨夜08:00触发和整机重启尚未实际验收。
+
+## 待启用的多模态与成员记忆（2026-10-30）
+
+当前候选及上线授权状态以根目录HANDOVER最新记录为准；生产切换曾被自动审批要求明确确认，不要据候选文件存在而认定已上线。
+
+新配置入口`/social`，用`open-setup.ps1 -Page /social`进入；付费语音缺省关闭，Qwen3-ASR-Flash北京区。图片复用DeepSeek Flash。Key在Node平台加密存储，传Python仅走私有stdin管道；不写argv、模型提示词或日志。原媒体不存盘，SQLite保存有界摘要、沟通习惯与衰减的情绪线索，仍纳入原一致性加密备份。白/灰名单和暂停继续在Node鉴权。
+
+用`ops/evaluate-social.mjs`可在systemd LoadCredential环境做真实模型合成样本评测（不发QQ、不读取群友内容）。需要先跑测试再评测，不以HTTP在线替代QQ媒体验收；语音无Key时优先使用SDK自带转写，没有则明确不可用。来源接口、模型输出结构和QQ附件域名都可能变化，失败不编造观察结果。

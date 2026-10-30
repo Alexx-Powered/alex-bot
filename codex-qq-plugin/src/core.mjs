@@ -1,3 +1,4 @@
+import {copyIncomingMedia} from './incoming-media.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sanitizeContextText } from './chat-safety.mjs';
 import {recordTiming} from './telemetry.mjs';
@@ -21,7 +22,7 @@ const MAX_PENDING_INCOMING = 4;
 const GROUP_PREFIX = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+(\S[\s\S]*)$/u;
 function groupCommand(text, mentioned) {
   const raw = text.trim(), prefixed = GROUP_PREFIX.exec(raw);
-  return { command: prefixed ? prefixed[1] : raw, addressed: Boolean(prefixed) || mentioned === true };
+  return { command: prefixed ? prefixed[1] : raw, addressed: Boolean(prefixed) || mentioned === true || /^\/(?:识图|记忆)(?:\s|$)/u.test(raw) };
 }
 const ownerControlCommands = new Set(['/pause', '/status']);
 const contextControl = text => text.startsWith('/') || /\/(?:pair|group-bind|pause|resume|status|notify|help|ping)\b/i.test(text) || ['帮助','菜单'].includes(text);
@@ -174,7 +175,7 @@ export class BridgeCore {
   #pendingIncoming = 0;
   #groupRestrictions = new Map();
 
-  constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, limits = {} }) {
+  constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, observeMessage = null, limits = {} }) {
     if (![loadState, saveState, send, now].every((fn) => typeof fn === 'function')) {
       throw new TypeError('INVALID_CORE_DEPENDENCIES');
     }
@@ -183,6 +184,7 @@ export class BridgeCore {
     this.#send = send;
     this.#now = now;
     this.#commandHandler = commandHandler;
+    this.observeMessage = observeMessage;
     this.#limits = sendingLimits(limits);
   }
 
@@ -513,8 +515,8 @@ export class BridgeCore {
     // Capture only normalized scalar fields: a queued caller cannot replace its
     // identity/target while another request is waiting for a model or provider.
     if (message && typeof message === 'object') {
-      const { kind, groupId, id, senderId, text, replyTarget, mentioned } = message;
-      message = { kind, groupId, id, senderId, text, ...(mentioned === true ? { mentioned: true } : {}), ...(replyTarget ? { replyTarget: { ...replyTarget } } : {}) };
+      const { kind, groupId, id, senderId, text, replyTarget, mentioned, media } = message;
+      message = { kind, groupId, id, senderId, text, media:copyIncomingMedia(media), ...(mentioned === true ? { mentioned: true } : {}), ...(replyTarget ? { replyTarget: { ...replyTarget } } : {}) };
     }
     if (!this.#ready) return result(false, 'NOT_READY');
     if (!message || !['c2c','group'].includes(message.kind)) return result(false, 'SCOPE_DENIED');
@@ -544,14 +546,16 @@ export class BridgeCore {
         if (!contextControl(command)) this.#rememberGroup(groupId, {
           key: hash(`context:member:${groupId}:${id}`), speaker: groupContext.currentSpeaker, role: 'member', text: command,
         });
+        this.#observe(message,groupContext);
         // Ordinary allowed-group chatter never joins the expensive serial queue.
         if (!addressed || !command) return result(true, 'IGNORED');
-        if (command.startsWith('/') && !['/ping', '/help'].includes(command)) return result(true, 'IGNORED');
+        if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
       } else if (!this.#groupPairing) return result(false, 'GROUP_DENIED');
     } else if (this.#ready && this.#state.ownerId && message?.kind === 'c2c') {
       if (message.senderId !== this.#state.ownerId) return result(false, 'SENDER_DENIED');
       countedIncoming = !ownerControlCommands.has(message.text.trim());
       if (countedIncoming && (this.#state.paused || this.#pauseRequested)) return result(false, 'PAUSED');
+      if(countedIncoming)this.#observe(message,{scope:'c2c',sessionKey:hash('chat:c2c:'+message.senderId),scopeKey:hash('chat-scope-c2c:'+message.senderId),userKey:hash('chat-user:'+message.senderId)});
     }
     if (countedIncoming && this.#pendingIncoming >= MAX_PENDING_INCOMING) return result(false, 'BUSY');
     if (countedIncoming) this.#pendingIncoming++;
@@ -606,12 +610,21 @@ export class BridgeCore {
         let response;
         const context=this.#bindRequest({scope:'c2c',sessionKey:hash('chat:c2c:'+senderId),
           scopeKey:hash('chat-scope-c2c:'+senderId),userKey:hash('chat-user:'+senderId)},incomingKey,replyTarget);
+        if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
         try { response = await this.#commandHandler(command, context); }
         catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
         if (response) return this.#notify({ text: response.text, image: response.image, idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       return result(true, 'IGNORED');
     }); } finally { if (countedIncoming) this.#pendingIncoming--; }
+  }
+
+  #observe(message,context) {
+    if(typeof this.observeMessage!=='function')return;
+    const isAllowed=()=>this.sendingEnabled()&&(message.kind==='group'?this.groupAccess(message.groupId)!==null:this.#state.ownerId===message.senderId);
+    if(!isAllowed())return;
+    const data={text:message.text,media:message.media||[],eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
+    try{Promise.resolve(this.observeMessage(data,{...context,isAllowed})).catch(()=>{});}catch{}
   }
 
   async #handleGroupMessage(message, groupContext) {
@@ -641,7 +654,7 @@ export class BridgeCore {
     if (!addressed || !command) return result(true, 'IGNORED');
     // No group participant, including the owner, may invoke private management
     // or inspect owner status through group commands. /help is a fixed menu.
-    if (command.startsWith('/') && !['/ping', '/help'].includes(command)) return result(true, 'IGNORED');
+    if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
     const incomingKey = hash(`incoming:group:${groupId}:${id}`);
     if (this.#state.incoming.includes(incomingKey)) return result(false, 'DUPLICATE');
     const next = structuredClone(this.#state);
@@ -665,6 +678,7 @@ export class BridgeCore {
         sessionKey: hash('chat:group:'+groupId+':'+senderId), scopeKey: hash('chat-scope-group:'+groupId),
         userKey: hash('chat-user:'+senderId), currentSpeaker: 'member-'+hash('group-sender:'+groupId+':'+senderId).slice(0,12), groupContext: [] };
       this.#bindRequest(context,incomingKey,target,groupId);
+      if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
       try { response = await this.#commandHandler(command, context); }
       catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
       if(response?.memoryReset===true)this.#groupContexts.delete(groupId);
