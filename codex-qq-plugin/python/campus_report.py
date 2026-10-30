@@ -31,7 +31,7 @@ def render_report(data,private_root,*,demo=False):
     strip=Image.new('RGB',(1800,110),'#f6f3ed');draw=ImageDraw.Draw(strip)
     font=ImageFont.truetype(font_path(),23)
     draw.text((60,12),'数据：北航学院路空教室接口  /  获取时间：'+data['fetched_at'][:19].replace('T',' '),font=font,fill='#71685e')
-    draw.text((60,56),'接口标空闲则为空闲，其余课节为有课；图片仅展示三号楼，JSON包含学院路全部教学楼。',font=font,fill='#71685e')
+    draw.text((60,56),'绿色为空闲 · 白色为有课',font=font,fill='#71685e')
     if board.height+strip.height>16000:raise CampusError('CAMPUS_RENDER_FAILED')
     image=Image.new('RGB',(1800,board.height+110),'#f6f3ed');image.paste(board,(0,0));image.paste(strip,(0,board.height))
     output=Path(private_root)/'campus-output';output.mkdir(parents=True,exist_ok=True)
@@ -88,7 +88,7 @@ def render_region_day(data,private_root,regions,*,demo=False):
                 draw.rounded_rectangle((x+335+p*32,ry,x+363+p*32,ry+34),radius=5,fill=color,outline='#e4ddd4')
     bottom=top+count*50+24
     draw.text((50,bottom),'来源：北航学院路空教室接口 / 获取时间：'+data['fetched_at'][:19].replace('T',' '),font=fonts[23],fill='#8b705d')
-    draw.text((50,bottom+38),'全天课节完整展示，不按当前时间删减；空闲不保证到场有座。',font=fonts[23],fill='#8b705d')
+    draw.text((50,bottom+38),'绿色为空闲 · 白色为有课',font=fonts[23],fill='#8b705d')
     output=Path(private_root)/'campus-output';output.mkdir(parents=True,exist_ok=True)
     artifact=uuid.uuid4().hex;target=output/(artifact+'.png')
     image.crop((0,0,1800,bottom+100)).save(target,optimize=True)

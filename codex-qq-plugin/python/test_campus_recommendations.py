@@ -88,6 +88,19 @@ class RecommendationTests(unittest.TestCase):
         self.assertFalse(report['candidates'][0]['available_now'])
         self.assertIn('稍后可用',report['message']);self.assertIn('09:00',report['message'])
 
+    def test_afternoon_entry_is_previous_lesson_end_not_1400(self):
+        data=snapshot();set_busy(data,'106',5)
+        for clock,available,opening in [('11:00:00',False,'12:15'),('12:15:00',True,'12:15'),('13:00:00',True,'13:00'),('14:20:00',True,'14:20')]:
+            report=recommend(data,dict(session='afternoon',limit=12),'2026-10-29T'+clock+'+08:00')
+            row=next(r for r in report['candidates'] if r['room']=='106')
+            self.assertEqual(row['available_now'],available)
+            self.assertEqual(row['usable_from'],opening)
+        # Another occupied lesson still prevents early entry.
+        data=snapshot();set_busy(data,'106',6)
+        data['rooms']=[r for r in data['rooms'] if r['room']=='106']
+        row=next(r for r in recommend(data,dict(session='afternoon',limit=12),'2026-10-29T13:00:00+08:00')['candidates'] if r['room']=='106')
+        self.assertFalse(row['available_now']);self.assertEqual(row['usable_from'],'14:45')
+
     def test_change_now_uses_beijing_clock_and_clips_elapsed_periods(self):
         data=snapshot();set_busy(data,'105',13)
         report=recommend(data,dict(session='now'),'2026-10-29T13:01:00Z')

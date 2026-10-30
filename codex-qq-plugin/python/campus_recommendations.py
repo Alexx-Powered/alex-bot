@@ -117,8 +117,8 @@ def recommend(snapshot, args, now, request_text=None):
             previous_end = at(plan.RULES['periods'][start-2][1]) if start>1 else None
             # A scheduled lesson has ended: the break itself is usable when
             # the next lesson is free. Do not wait for its scheduled start.
-            if previous_end is not None and previous_end <= current < opening:
-                opening = previous_end
+            if previous_end is not None:
+                opening = min(opening, previous_end)
             release_pending = (args.session=='now' and previous_end is not None and slots[start-2]=='B'
                                and current < previous_end <= current+timedelta(minutes=10))
             if release_pending:
@@ -168,7 +168,7 @@ def format_report(report, explanation=''):
     if not report['ok']:
         return report['message']
     now, fetched = timestamp(report['now']), timestamp(report['fetched_at'])
-    lines = [f"北京时间{now:%m-%d %H:%M}；依据{fetched:%m-%d %H:%M}采集的{report['date']}{report['session']}缓存，空闲不保证有座。"]
+    lines = [f"北京时间{now:%m-%d %H:%M}；依据{fetched:%m-%d %H:%M}采集的{report['date']}{report['session']}数据。"]
     if report.get('regions'):lines.append('查询区域：'+'、'.join(report['regions']))
     if report.get('missing_regions'):lines.append('接口暂无教室数据：'+'、'.join(report['missing_regions']))
     for item in report['candidates']:

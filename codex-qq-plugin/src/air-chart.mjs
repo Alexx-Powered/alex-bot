@@ -45,8 +45,8 @@ export function renderAirChart(data) {
   const chart=new Chart(ctx,{
     type:'line',data:{labels:model.labels,datasets:[{label:`${model.city.name} PM2.5 预报`,data:model.values,borderColor:'#126b75',backgroundColor:'rgba(18,107,117,0.10)',fill:true,borderWidth:3,pointRadius:0,tension:0.15,spanGaps:false}]},
     options:{responsive:false,animation:false,devicePixelRatio:1,layout:{padding:{top:24,right:32,bottom:24,left:24}},
-      font:{family:font},plugins:{legend:{display:false},title:{display:true,text:titleLines(ctx,`${model.city.name} PM2.5 模型预报（非实测）`),font:{family:font,size:27,weight:'bold'},color:'#18353c',padding:{bottom:12}},
-      subtitle:{display:true,text:['CAMS Global / ECMWF · https://open-meteo.com/','北京时间 UTC+8 · 约45km网格 / 3小时数据插值 · 非AQI；缺失处断线'],font:{family:font,size:15},color:'#536b73',padding:{bottom:22}}},
+      font:{family:font},plugins:{legend:{display:false},title:{display:true,text:titleLines(ctx,`${model.city.name} PM2.5 预报`),font:{family:font,size:27,weight:'bold'},color:'#18353c',padding:{bottom:12}},
+      subtitle:{display:true,text:['CAMS Global / ECMWF · https://open-meteo.com/','北京时间 · 缺失处断线'],font:{family:font,size:15},color:'#536b73',padding:{bottom:22}}},
       scales:{x:{grid:{display:false},ticks:{font:{family:font,size:12},maxTicksLimit:9,maxRotation:0},title:{display:true,text:'预报有效时间（北京时间）',font:{family:font,size:14}}},y:{beginAtZero:true,ticks:{font:{family:font,size:13}},title:{display:true,text:'PM2.5（μg/m³）',font:{family:font,size:14}},grid:{color:'#dde7e9'}}}},plugins:[background]});
   try { return {buffer:canvas.toBuffer('image/png'),mimeType:'image/png'}; }
   finally { chart.destroy(); }

@@ -21,15 +21,15 @@ export async function renderMorningChart({inputs,analysis,plan}){
   ctx.fillStyle='#f1f5fa';ctx.fillRect(0,0,1200,height);ctx.drawImage(await loadImage(base.buffer),0,0);
   ctx.fillStyle='#f1f5fa';ctx.fillRect(35,18,650,48);line(ctx,'亚历克斯 · 早安日报',48,49,24,'#38627a');
   if(inputs.weather.some(item=>item?.simulated===true)){
-    ctx.fillStyle='#fff0dd';ctx.fillRect(40,125,620,44);line(ctx,'本地模拟预览 · 非真实天气',48,154,24,'#a65b00');
+    ctx.fillStyle='#fff0dd';ctx.fillRect(40,125,620,44);line(ctx,'模拟预览',48,154,24,'#a65b00');
   }
   let y=1810;
   line(ctx,'04  今日运动建议',48,y+35,32);
-  line(ctx,`${plan.calendar.holiday?plan.calendar.holidayName+'假期 · 天津':'日常 · 北京'}  |  本地天气适宜度，非官方运动指数`,48,y+76,23,'#596b82');
+  line(ctx,`${plan.calendar.holiday?plan.calendar.holidayName+'假期 · 天津':'日常 · 北京'}  |  运动天气评分`,48,y+76,23,'#596b82');
   y+=108;
   ctx.fillStyle='#ffffff';ctx.fillRect(48,y,1104,130);
   const best=analysis.recommendation;
-  line(ctx,best?`优先时段  ${String(best.start).slice(11,16)||best.start}–${String(best.end).slice(11,16)||best.end}`:'暂无可靠的户外运动推荐时段',68,y+40,30,best?colors[best.level]||colors.suitable:colors.unknown);
+  line(ctx,best?`优先时段  ${String(best.start).slice(11,16)||best.start}–${String(best.end).slice(11,16)||best.end}`:'暂无合适的户外运动时段',68,y+40,30,best?colors[best.level]||colors.suitable:colors.unknown);
   wrap(ctx,best?best.advice:analysis.summary,68,y+79,1064,23,2);y+=155;
   for(const row of rows){
     ctx.fillStyle='#ffffff';ctx.fillRect(48,y,1104,154);
@@ -38,7 +38,7 @@ export async function renderMorningChart({inputs,analysis,plan}){
     const end=String(row.end).includes('T')?row.end.slice(11,16):row.end;
     line(ctx,`${start}–${end}   ${labels[row.level]||'待评估'}${row.score===null||row.score===undefined?'':` · ${Math.round(row.score)}/100`}`,68,y+33,27,colors[row.level]||colors.unknown);
     if(row.level==='expired'){
-      line(ctx,'该时段已结束，不再评估；请参考后续时段。',68,y+82,24,colors.expired);y+=170;continue;
+      line(ctx,'时段已结束',68,y+82,24,colors.expired);y+=170;continue;
     }
     const c=row.conditions||{};
     line(ctx,`温度 ${range(c.temperatureC,'°C')}  湿度 ${range(c.humidityPct,'%')}  PM2.5峰值 ${shown(c.pm25Max,' μg/m³')}`,68,y+69,23);
@@ -47,6 +47,6 @@ export async function renderMorningChart({inputs,analysis,plan}){
   }
   const notes=[...(plan.notes||[]),...(analysis.notes||[]).filter(note=>note.includes('未确认')||note.includes('单位不符'))];
   wrap(ctx,notes.slice(0,3).join('；'),48,y+25,1104,21,3);
-  line(ctx,'按小时模型保守评估，非医学结论；太阳辐照不是UV，PM2.5单项不是综合AQI。',48,height-45,21,'#596b82');
+  line(ctx,'天气与空气质量预报 · 北京时间',48,height-45,21,'#596b82');
   return {buffer:canvas.toBuffer('image/png'),mimeType:'image/png'};
 }

@@ -42,7 +42,7 @@ def render_board(result, reviewed, demo):
     y=245
     unknown=sum(s.count('?') for s in result['rooms'].values())
     y=text(f"{len(result['rooms'])} 间纳入规划    /    {unknown} 节待确认    /    优先小教室",60,y,size=25)
-    if demo:y=text('模拟数据 · 功能与版式测试，不代表真实教室空闲',60,y,size=23,color='#a15e32')
+    if demo:y=text('模拟预览',60,y,size=23,color='#a15e32')
     if not reviewed:y=text('待核对预览 · 尚未发送',60,y,size=23,color='#a15e32')
     y+=30;top=y
     # Left column: every included room, all 14 periods, never a recommendation-only subset.
@@ -114,7 +114,6 @@ def render_board(result, reviewed, demo):
         d.text((rx+570,ry+8),['第1—5节 / 08:00—12:15','第6—10节 / 14:00—18:15','常用第12—14节 / 19:50起'][idx],font=fonts[23],fill=muted)
         ry+=60
         legend = '下午：小教室第5节有课且整段空闲为1级，其余小教室、普通教室、换房、局部依次顺延' if label=='下午' else '小教室整段空闲为1级，普通教室2级；换房3级、局部4级，不看前节是否有课'
-        ry=text(legend,rx+28,ry,width=950,size=21,color=muted)
         ry+=18
         if not session['recommendations']:ry=text('没有已确认可行的方案。',rx+28,ry,width=950,size=27)
         for rank,item in enumerate(session['recommendations'][:5],1):
@@ -130,22 +129,29 @@ def render_board(result, reviewed, demo):
             if item['kind']=='route':
                 title=' → '.join(s['room'] for s in item['segments'])+' · 换房'
             else:
-                title=item['room']+(' · 小教室' if item['room'] in plan.SMALL else ' · 大教室')
-            if item['kind']=='partial':title+=' · 局部可用，非整段'
+                title=item['room']+(' · 小教室' if item['room'] in plan.SMALL else ' · 普通教室')
+            if item['kind']=='partial':title+=' · 短时可用'
             d.rounded_rectangle((rx+27,ry+2,rx+67,ry+41),radius=10,fill=pale)
             d.text((rx+38,ry+2),str(rank),font=fonts[25],fill=accent)
             ry=text(title,rx+86,ry,width=895,size=30,color=ink,strong=True)
             ry=text(plan.render_route(item) if item['kind']=='route' else plan.window_text(item['start'],item['end']),rx+28,ry+4,width=950,size=25,color=accent)
-            ry=text('推荐原因：'+item['reason'],rx+28,ry+6,width=950,size=23,color=muted)
+            note = ''
+            if label == '下午' and item['kind'] == 'full':
+                note = '12:15后可进入' if item['period5'] in ('B','F') else '第5节状态待确认'
+            elif item['kind'] == 'evening':
+                note = '19:45后可进入' if item['period11'] == 'B' else '19:50起可用'
+            elif item['kind'] in ('route','partial'):
+                note = f"换房{item['moves']}次" if item['kind'] == 'route' else '到时需离开或换教室'
+            if note:ry=text(note,rx+28,ry+6,width=950,size=23,color=muted)
             ry+=20
             d.rectangle((rx+16,item_top,rx+21,ry-8),fill=accent)
             d.line((rx+28,ry-3,rx+rw-28,ry-3),fill='#ebe3d9',width=1)
             ry+=12
         if session['shortfall']:
-            ry=text(f"仅 {len(session['recommendations'])} 条真实方案，距 5 条还差 {session['shortfall']} 条；不重复凑数。",rx+28,ry,width=950,size=23,color='#a15e32')
+            ry=text(f"仅 {len(session['recommendations'])} 条可用方案。",rx+28,ry,width=950,size=23,color='#a15e32')
         ry+=10;card_finish(rx,ct,rw,ry);ry+=25
     bottom=max(ly,ry)+20
     d.line((60,bottom,1740,bottom),fill='#dfd6cb',width=2)
-    bottom=text('课表空闲 ≠ 实际有座    ·    未知课节不视为空闲    ·    等级表示偏好，不代表实际有座',60,bottom+21,width=1680,size=25)
-    bottom=text('亚历克斯  ×  WORKBUDDY     /     固定 Python 规划与绘图',60,bottom+8,width=1680,size=23,color=muted)
+    bottom=text('绿色为空闲 · 白色为有课 · 深橙色优先',60,bottom+21,width=1680,size=25)
+    bottom=text('亚历克斯',60,bottom+8,width=1680,size=23,color=muted)
     return im.crop((0,0,1800,bottom+32))

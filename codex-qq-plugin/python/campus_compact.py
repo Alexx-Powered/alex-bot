@@ -26,7 +26,6 @@ def render_compact(report, private_root, explanation='', *,demo=False):
     text(report['date']+' / '+report['session']+' / 简略版'+(' / 示例数据' if demo else ''),45,97,size=26,fill='white')
     current=timestamp(report['now']);fetched=timestamp(report['fetched_at'])
     y=text(f'推荐时间 {current:%m-%d %H:%M}    数据采集 {fetched:%m-%d %H:%M}',45,180,size=22)
-    y=text('按课表与当前时间推荐 · 空闲不保证到场有座',45,y,size=22,fill='#8b705d')+18
     if report.get('regions'):y=text('区域：'+'、'.join(report['regions']),45,y,size=22)+8
     if report.get('missing_regions'):y=text('接口暂无教室数据：'+'、'.join(report['missing_regions']),45,y,size=22,fill='#a85b26')+12
     for rank,item in enumerate(report['candidates'],1):
@@ -54,8 +53,8 @@ def render_compact(report, private_root, explanation='', *,demo=False):
     if explanation:
         y=text('选择建议',45,y+10,size=30)
         y=text(explanation,45,y,size=26)+16
-    y=text('来源：北航学院路空教室接口 · 基于所示采集时间的缓存',45,y+15,size=22,fill='#8b705d')
-    y=text('亚历克斯 / 固定 Python 计算与绘图',45,y,size=22,fill='#8b705d')+25
+    y=text('来源：北航学院路空教室接口',45,y+15,size=22,fill='#8b705d')
+    y=text('亚历克斯',45,y,size=22,fill='#8b705d')+25
     output=Path(private_root)/'campus-output';output.mkdir(parents=True,exist_ok=True)
     artifact=uuid.uuid4().hex
     target=output/(artifact+'.png');image.crop((0,0,1080,y)).save(target,optimize=True)

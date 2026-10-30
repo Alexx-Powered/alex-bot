@@ -255,7 +255,7 @@ export function renderWeatherChart(input) {
       datasets: weatherSeries.map(series => ({ label: series.name, data: series.temperatureC, borderColor: temperatureGradient,
         borderDash: series.lineDash,
         borderWidth: 4.5, pointRadius: 0, tension: 0.2, spanGaps: false })) }, options, plugins: [extremaPlugin()] });
-  } else placeholder(ctx, 420, '温度数据暂不可用', '保留缺失，不以 0°C 代替');
+  } else placeholder(ctx, 420, '温度数据暂不可用', '稍后刷新重试');
   weatherSeries.forEach((series, i) => {
     const total = series.precipitationMm.every(value => value !== null) ? series.precipitationMm.reduce((a, b) => a + b, 0) : null;
     const missing = series.temperatureC.filter(value => value === null).length;
@@ -272,10 +272,10 @@ export function renderWeatherChart(input) {
     drawChart(ctx, { y: 803, height: 229, type: 'line', data: { labels, datasets: [{ label: `${airSeries.name} PM2.5`, data: airSeries.values,
       borderColor: pm25Gradient, fill: false, borderWidth: 4.5, pointRadius: 0,
       tension: 0.15, spanGaps: false }] }, options, plugins: [pm25Background()] });
-  } else placeholder(ctx, 905, `${airSeries.name} PM2.5 暂无有效数据`, '没有生成浓度曲线，不以零值代替');
+  } else placeholder(ctx, 905, `${airSeries.name} PM2.5 暂无有效数据`, '稍后刷新重试');
   const missingAir = airSeries.values.filter(value => value === null).length;
-  fitText(ctx, '色阶按 HJ 633—2026 PM2.5 分界 · 非综合 AQI / 非实测', 68, 1072, 1064, 22);
-  const airNote = `CAMS 约 45 km / 3 小时插值。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : '不据此判断雾。'}`;
+  fitText(ctx, 'PM2.5 浓度色阶', 68, 1072, 1064, 22);
+  const airNote = `CAMS 约 45 km / 3 小时插值。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
   fitText(ctx, airNote, 68, 1105, 1064, 22);
 
   panel(ctx, 1160, 440, '03  逐小时降水概率', '当天 00–23 时段 · %');
@@ -291,14 +291,14 @@ export function renderWeatherChart(input) {
       datasets: weatherSeries.map(series => ({ label: series.name, data: series.precipitationProbabilityPct,
         backgroundColor: series.color, borderRadius: 2, categoryPercentage: 0.8, barPercentage: 0.86 })) },
       options, plugins: [missingProbabilityPlugin()] });
-  } else placeholder(ctx, 1372, '逐小时降水概率暂不可用', '缺失不表示 0%，不能据此判断全天无雨');
+  } else placeholder(ctx, 1372, '逐小时降水概率暂不可用', '稍后刷新重试');
   const peaks = weatherSeries.map(series => {
     const values = series.precipitationProbabilityPct.filter(value => value !== null);
     return `${series.name} ${values.length ? number(Math.max(...values)) + '%' : '缺数据'}${values.length > 0 && values.length < 24 ? '（部分）' : ''}`;
   }).join(' / ');
-  fitText(ctx, `最高小时概率：${peaks}（不是全天概率）`, 68, 1545, 1064, 23);
+  fitText(ctx, `最高小时概率：${peaks}`, 68, 1545, 1064, 23);
   if (weatherSeries.some(series => series.precipitationProbabilityPct.includes(null))) {
-    fitText(ctx, '× 表示该小时数据缺失，不是 0%。', 68, 1578, 1064, 21);
+    fitText(ctx, '× 数据缺失', 68, 1578, 1064, 21);
   }
 
   const acquisition = [...weatherSeries.map(series => ({ name: shortLabel(ctx, series.name, 150, 22), value: series.fetchedAt })),
