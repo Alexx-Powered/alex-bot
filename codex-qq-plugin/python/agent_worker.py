@@ -450,7 +450,7 @@ class Runner:
         if full:
             @tool(args_schema=StrictArgs,return_direct=True)
             def deepseek_service_status() -> str:
-                """实时查询DeepSeek官方服务状态并返回文字及状态图。用户问DeepSeek/ds是否正常、挂了/崩了没、恢复没、API或网页是否故障时使用；不是账户余额，不查询个人网络，不用OpenAI状态代替。无参数，不接收Key、URL或收件人。"""
+                """实时查询DeepSeek官方服务状态并返回文字及状态图。DeepSeek也叫大肥鱼、ds、深度求索；用户问大肥鱼还活着吗、是否正常、挂了/崩了没、恢复没、API或网页是否故障时使用。不是账户余额，不查询个人网络，不用OpenAI状态代替；普通招呼和玩笑不查。无参数，不接收Key、URL或收件人。"""
                 return remote('deepseek_service_status',{})
             @tool(args_schema=StrictArgs,return_direct=True)
             def liang_status() -> str:
@@ -699,7 +699,7 @@ class Runner:
                     f"本轮可用的短期工具上下文（不含数值）：{json.dumps(self.tool_results.summary(session_key,packet.get('context',{})),ensure_ascii=False)}。"
                     "只有换算语境中马里才是自定义距离；国家马里的天气或首都问题仍按实际意图处理，不要换单位。"
                     "OpenAI/Codex/ChatGPT服务是否正常、特定模型不能用、具体故障追问，都先调用openai_service_status；历史只用于解析指代，本次重新查。按用户实际意图选服务和关键词，示例中的型号不能成为默认话题；不知道用户指哪个服务先问，不把其他厂商故障解释成OpenAI故障。官方没有具体型号信息就明确说无法由状态页确认，不编造权限或停用原因。"
-                    "DeepSeek/ds运行是否正常、是否挂了、恢复了吗等服务状态问题调用deepseek_service_status；问余额仍调用deepseek_account_balance。滑动变祖器/滑动变阻器网站的梁系评分、浓度、形态或实时状态问题调用liang_status，工具同次返回文字和实时图片及来源；不能用reply_chat猜测，也不执行投票或操作网站。仅仅吐槽DeepSeek回复差且没有要求查状态时仍可普通聊天。两个查询只开放本人和白名单群；灰名单调用restricted_access。"
+                    "DeepSeek也叫大肥鱼、ds、深度求索。询问大肥鱼还活着吗、是不是挂了、是否正常、恢复了吗等服务可用性时调用deepseek_service_status，不能只用reply_chat表示自己还在；问余额仍调用deepseek_account_balance。仅仅叫大肥鱼、问好、开玩笑或吐槽回复差且没有要求查服务状态时，仍可普通聊天。滑动变祖器/滑动变阻器网站的梁系评分、浓度、形态或实时状态问题调用liang_status，工具同次返回文字和实时图片及来源；不能用reply_chat猜测，也不执行投票或操作网站。两个查询只开放本人和白名单群；灰名单调用restricted_access。"
                     "本人或白名单群主动问DeepSeek API账户余额时调用deepseek_account_balance，不编造余额、不把Key作为工具参数；灰名单不提供此工具。余额是管理员已配置的API账户，不等于古月币生活费或提问人的QQ钱包。笼统问还有多少余额、账户还剩多少时，没有其他明确资金语境则指已配置DeepSeek API账户；若前文明确在聊古月币、生活费或其他钱包，则先澄清，不能编造或冒充其他钱包余额。"
                     f"聊天开关={policy['enabled']}；允许话题={json.dumps(policy['topics'], ensure_ascii=False)}；"
                     "只有内容在允许话题语义范围内且提供了reply_chat时才能使用它；不能随意选topic绕过限制。"

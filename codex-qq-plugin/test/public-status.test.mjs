@@ -15,11 +15,22 @@ test('fixed status commands separate balance, ordinary complaints and electronic
   for(const text of ['查DeepSeek余额','DeepSeek说话好僵硬','变阻器阻值怎么算','https://example.invalid/status'])assert.equal(parseStatusCommand(text),null);
 });
 
+test('DeepSeek nickname health questions work with one retained wake prefix but ordinary fish chat stays chat',()=>{
+  for(const text of ['大肥鱼还活着吗','大肥鱼 大肥鱼还活着吗','大肥鱼 大肥鱼还活着吗？','梁祖 大肥鱼还活着吗',
+    '大肥鱼还健在吗','大肥鱼是不是挂了','大肥鱼恢复了吗','大肥鱼 现在还能用吗','查大肥鱼状态','DeepSeek还活着吗','ds还活着没']){
+    assert.equal(parseStatusCommand(text),'deepseek_service_status',text);
+  }
+  for(const text of ['大肥鱼你好','大肥鱼 你好','大肥鱼 大肥鱼真可爱','我家大肥鱼还活着吗','大肥鱼刚才说他还活着吗','大肥鱼还剩多少余额']){
+    assert.equal(parseStatusCommand(text),null,text);
+  }
+});
+
 test('only whitelisted status tools, no keys/URLs/recipients; gray denied before process',async()=>{
   let count=0;const service=new PublicStatusService({home:APP_ROOT,worker:{run:async()=>{count++;throw Error('unexpected');},close(){}}});
   await assert.rejects(service.execute('run_command',{}, {scope:'c2c'}));
   await assert.rejects(service.execute('liang_status',{url:'http://127.0.0.1'}, {scope:'c2c'}));
   assert.match((await service.execute('liang_status',{}, {scope:'group',access:'gray'})).text,/灰名单/);
+  assert.match((await service.handle('大肥鱼还活着吗',{scope:'group',access:'gray'})).text,/灰名单/);
   assert.equal(count,0);
 });
 
@@ -52,7 +63,7 @@ test('fixed status requests work with model config disabled and no budget or mod
   const reply={text:'DeepSeek 正常\n来源：https://status.deepseek.com/',richMedia:true,image:{buffer:Buffer.alloc(12),mimeType:'image/png'},requiredAccess:'white'};
   const statusTools={handle:async text=>parseStatusCommand(text)?reply:null};
   const agent=new ConversationAgent({statusTools,toolbox:{handle:async()=>assert.fail()},configStore:{read:async()=>assert.fail('no Key read')},modelBudget:{acquire:async()=>assert.fail('no model call')}});
-  assert.equal(await agent.handle('查DeepSeek状态',{scope:'c2c'}),reply);
+  for(const text of ['查DeepSeek状态','大肥鱼还活着吗','大肥鱼 大肥鱼还活着吗'])assert.equal(await agent.handle(text,{scope:'c2c'}),reply);
 });
 
 test('natural language uses a real Node → Python → LangChain → Node tool call',async()=>{

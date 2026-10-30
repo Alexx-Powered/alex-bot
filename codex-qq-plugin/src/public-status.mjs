@@ -14,8 +14,13 @@ const resultSchema=z.object({service:z.enum(['deepseek','liang']),source:z.enum(
 
 export function parseStatusCommand(text){
   if(typeof text!=='string')return null;
-  const value=text.trim().replace(/[？?。！!]+$/u,'').trim();
-  if(/^(?:\/(?:ds状态|deepseek状态)|(?:查(?:询)?(?:一下)?\s*)?(?:deepseek|深度求索|ds)\s*(?:服务|运行)?状态)$/iu.test(value))return 'deepseek_service_status';
+  const value=text.trim().replace(/[？?。！!~～]+$/u,'').trim();
+  // Core removes one group wake prefix; private chat may retain it. Match
+  // both forms without changing group admission or ordinary chat wake rules.
+  for(const query of new Set([value,value.replace(/^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+/u,'')])){
+    if(/^(?:\/(?:ds状态|deepseek状态)|(?:查(?:询)?(?:一下)?\s*)?(?:deepseek|深度求索|ds|大肥鱼)\s*(?:服务|运行)?状态)$/iu.test(query))return 'deepseek_service_status';
+    if(/^(?:deepseek|深度求索|ds|大肥鱼)\s*(?:(?:现在|今天|目前)\s*)?(?:还\s*(?:活着|健在)(?:吗|么|没(?:有)?)|(?:还\s*)?(?:正常|能用)(?:吗|么|不)|(?:是不是|是否|又)?\s*(?:挂了|崩了|炸了|死了)(?:吗|么|没(?:有)?)?|恢复了(?:吗|么|没(?:有)?))$/iu.test(query))return 'deepseek_service_status';
+  }
   if(/^(?:\/梁状态|(?:查(?:询)?(?:一下)?\s*)?滑动变[阻祖]器\s*(?:实时)?状态)$/u.test(value))return 'liang_status';
   return null;
 }

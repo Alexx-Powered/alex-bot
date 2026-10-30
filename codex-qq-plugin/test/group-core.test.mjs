@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { BridgeCore, CORE_LIMITS } from '../src/core.mjs';
 import { WeatherCommands } from '../src/weather-commands.mjs';
+import {parseStatusCommand} from '../src/public-status.mjs';
 
 const OWNER = 'owner-private-openid';
 const GROUP = 'group-openid-001';
@@ -76,6 +77,17 @@ test('rich-media caption flag reaches transport once in both private and whiteli
   assert.equal((await f.core.handleMessage(group('大肥鱼 查滑动变祖器状态','status-group'))).code,'SENT');
   assert.equal(f.sent.length,2);
   for(const request of f.sent){assert.equal(request.richMedia,true);assert.equal(request.text,text);assert.deepEqual(request.image,image);}
+});
+
+test('group double fish wake and official mention route nickname liveness to DeepSeek status',async()=>{
+  const routed=[];
+  const f=fixture({handler:async text=>{const name=parseStatusCommand(text);routed.push(name);return {text:'DeepSeek状态',image,richMedia:true,requiredAccess:'white'};}});
+  await pairOwner(f);await allowGroup(f);
+  assert.equal((await f.core.handleMessage(group('大肥鱼 大肥鱼还活着吗','fish-alias-health'))).code,'SENT');
+  assert.equal((await f.core.handleMessage({...group('大肥鱼还活着吗','fish-at-health'),mentioned:true})).code,'SENT');
+  assert.deepEqual(routed,['deepseek_service_status','deepseek_service_status']);
+  assert.equal(f.sent.length,2);
+  assert.ok(f.sent.every(request=>request.richMedia===true));
 });
 
 test('unknown groups neither query nor reply, including owner sender and private pairing commands', async () => {
