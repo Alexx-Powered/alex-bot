@@ -6,7 +6,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import plan
 
-def render_board(result, reviewed, demo):
+def render_board(result, reviewed, demo, *, _row_extra=0):
     font=Path(os.environ.get('QQ_FONT_REGULAR') or ('C:/Windows/Fonts/msyh.ttc' if os.name=='nt' else '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'))
     if not font.exists():raise ValueError('CHINESE_FONT_MISSING')
     fonts={n:ImageFont.truetype(str(font),n) for n in (21,23,25,27,30,34,42,62,150)}
@@ -67,21 +67,23 @@ def render_board(result, reviewed, demo):
     ly=text('晚间常用起点：第12节 19:50',lx+113,ly,width=530,size=21,color='#9c5235')
     ly+=14
     last_group=None
-    for room in sorted(result['rooms'],key=lambda r:(r not in plan.SMALL,int(r))):
+    room_count=len(result['rooms'])
+    for index,room in enumerate(sorted(result['rooms'],key=lambda r:(r not in plan.SMALL,int(r)))):
+        extra=_row_extra//room_count+int(index<_row_extra%room_count)
         group='小教室优先' if room in plan.SMALL else '其他教室'
         if group!=last_group:
             d.rectangle((lx+20,ly,lx+lw-20,ly+38),fill='#f3eee6')
             d.text((lx+27,ly+3),group,font=bold[21],fill=muted)
             ly+=50;last_group=group
-        d.text((lx+27,ly+5),room,font=bold[27],fill=ink)
+        d.text((lx+27,ly+5+extra//2),room,font=bold[27],fill=ink)
         for n,state in enumerate(result['rooms'][room],1):
             fill,fg={'F':('#c8eadb','#14654e'),'B':('#ffffff','#80796f'),'?':('#f8e7af','#805e13')}[state]
             xx=tile_x(n)
-            d.rounded_rectangle((xx,ly,xx+30,ly+55),radius=6,fill=fill,outline='#ddd8d0' if state=='B' else fill)
+            d.rounded_rectangle((xx,ly,xx+30,ly+55+extra),radius=6,fill=fill,outline='#ddd8d0' if state=='B' else fill)
             value='?' if state=='?' else str(n)
             face=bold[21] if state=='F' else fonts[21]
-            d.text((xx+(30-d.textlength(value,font=face))/2,ly+13),value,font=face,fill=fg)
-        ly+=78
+            d.text((xx+(30-d.textlength(value,font=face))/2,ly+13+extra//2),value,font=face,fill=fg)
+        ly+=78+extra
     ly+=18
     ly=text('已按规则排除：204、205、211、213、303、304、310、311。',lx+28,ly,width=626,size=23,color=muted)
     if result['missing_small_rooms']:
@@ -151,6 +153,10 @@ def render_board(result, reviewed, demo):
         if session['shortfall']:
             ry=text(f"仅 {len(session['recommendations'])} 条可用方案。",rx+28,ry,width=950,size=23,color='#a15e32')
         ry+=10;card_finish(rx,ct,rw,ry);ry+=25
+    # Measure both columns first, then distribute the height difference among
+    # room rows. Text stays at its original font size; no bitmap stretching.
+    if not _row_extra and room_count and ry-25>ly:
+        return render_board(result,reviewed,demo,_row_extra=ry-25-ly)
     bottom=max(ly,ry)+20
     d.line((60,bottom,1740,bottom),fill='#dfd6cb',width=2)
     bottom=text('绿色为空闲 · 白色为有课 · 深橙色优先',60,bottom+21,width=1680,size=25)
