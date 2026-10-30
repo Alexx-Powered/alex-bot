@@ -135,6 +135,7 @@ def render_board(result, reviewed, demo):
             d.text((rx+38,ry+2),str(rank),font=fonts[25],fill=accent)
             ry=text(title,rx+86,ry,width=895,size=30,color=ink,strong=True)
             ry=text(plan.render_route(item) if item['kind']=='route' else plan.window_text(item['start'],item['end']),rx+28,ry+4,width=950,size=25,color=accent)
+            ry=text('推荐原因：'+item['reason'],rx+28,ry+6,width=950,size=23,color=muted)
             note = ''
             if label == '下午' and item['kind'] == 'full':
                 note = '12:15后可进入' if item['period5'] in ('B','F') else '第5节状态待确认'
