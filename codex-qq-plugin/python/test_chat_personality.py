@@ -30,10 +30,26 @@ class ConversationTests(unittest.TestCase):
         return self.runner.run(packet(text=text,sessionKey=key,policy=POLICY,context=context or {'scope':'c2c'}))
 
     def test_voice_precedes_tool_routing_and_direct_chat_needs_one_model_call(self):
-        result=self.run_chat(AIMessage(content='被这堆代码折磨够呛吧。'),'写代码写得我好烦')
+        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'被这堆代码折磨够呛吧。'}),'写代码写得我好烦')
         self.assertEqual(result['kind'],'chat');self.assertEqual(len(self.model.seen),1)
         self.assertTrue(self.model.seen[-1][0].content.startswith('你是亚历克斯'))
         self.assertFalse(getattr(self.model.seen[-1][-1],'tool_calls',[]))
+
+    def test_model_must_choose_a_tool_with_plan_fields_but_old_invocations_still_work(self):
+        captured=[];original=ScriptedModel.bind_tools
+        def bind(model,tools,**kwargs):
+            chat=next(t for t in tools if getattr(t,'name',None)=='reply_chat')
+            captured.append((kwargs.get('tool_choice'),chat.args_schema.model_fields['topic_relation'].is_required(),chat.args_schema.model_fields['reply_tone'].is_required()))
+            return original(model,tools,**kwargs)
+        with patch.object(ScriptedModel,'bind_tools',bind):
+            result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'行，接着聊'}),'你好')
+        self.assertEqual(result['text'],'行，接着聊')
+        self.assertEqual(captured,[('required',True,True)])
+
+    def test_free_text_cannot_silently_bypass_the_topic_and_tone_decision(self):
+        result=self.run_chat(AIMessage(content='绕过结构的回复'),'今天好累')
+        self.assertEqual(result['code'],'MODEL_TOOL_ROUTING_FAILED')
+        self.assertNotIn('绕过结构',result['text'])
 
     def test_direct_chat_cannot_fake_live_business_results(self):
         result=self.run_chat(AIMessage(content='三号楼101现在空闲。'),'现在去哪个教室')
@@ -45,16 +61,56 @@ class ConversationTests(unittest.TestCase):
         self.assertNotIn('\n\n',result['text'])
         self.assertNotIn('@',result['text']);self.assertNotIn('https',result['text'])
 
-    def test_plain_chat_composer_has_no_tools_or_business_prompt_and_preserves_fallback(self):
-        composer=ScriptedModel(responses=[AIMessage(content='来嘛~\n\n \n饭给你留着 🐟')])
-        self.runner=worker.build_runner(model_factory=lambda _:self.model,chat_model_factory=lambda _:composer)
-        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'我只能聊天，不能升级服务器。'}),'我要投奔大肥鱼')
-        self.assertIn('来嘛~\n',result['text']);self.assertNotIn('权限',composer.seen[0][0].content)
-        self.assertNotIn('\n\n',result['text'])
-        self.assertNotIn('deepseek_account_balance',str(composer.seen[0]));self.assertEqual(len(composer.seen),1)
-        composer.responses.append(RuntimeError('provider private exception'))
-        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'鱼先陪你缓缓~'}),'今天好累')
-        self.assertEqual(result['text'],'鱼先陪你缓缓~')
+    def test_plain_chat_sends_the_validated_reply_without_a_second_rewrite(self):
+        self.runner.chat_model_factory=lambda _:self.fail('Ordinary chat must not be rewritten')
+        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'continue','reply_tone':'plain','text':'这也标太多了吧\n\n下次再慢慢逛'}),'这些地方我都收藏了')
+        self.assertEqual(result['text'],'这也标太多了吧\n下次再慢慢逛')
+        self.assertEqual(len(self.model.seen),1)
+        # Existing callers that omit the new optional plan fields remain valid.
+        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'今天够累的'}),'今天好累')
+        self.assertEqual(result['text'],'今天够累的')
+
+    def test_new_topic_reply_cannot_see_old_thread_or_old_media(self):
+        self.store.update('a'*64,'以后叫我小河','remember','name','以后叫我小河')
+        self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'河北地图好多星标'}),'这趟河北旅行挺开心')
+        composer=ScriptedModel(responses=[AIMessage(content='实验又卡住了啊')])
+        self.runner.chat_model_factory=lambda _:composer
+        ctx={'scope':'c2c','social':{'ok':True,'media':[{'kind':'image','summary':'河北地图'}]},'media':{'kind':'image','description':'新的实验电路照片'}}
+        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'new','reply_tone':'serious','text':'河北那张图先放放'}),'换个事，今天实验没弄通',context=ctx)
+        self.assertEqual(result['text'],'实验又卡住了啊')
+        self.assertNotIn('河北',str(composer.seen[0]))
+        self.assertIn('新的实验电路照片',str(composer.seen[0]))
+        self.assertIn('小河',str(composer.seen[0]))
+        self.assertFalse(composer.bound)
+
+    def test_new_topic_generation_failure_does_not_send_an_old_topic_draft(self):
+        self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'河北地图好多星标'}),'河北这张图')
+        self.runner.chat_model_factory=lambda _:ScriptedModel(responses=[RuntimeError('private provider detail')])
+        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'new','reply_tone':'serious','text':'还是河北那件事'}),'换个事，明天考试了')
+        self.assertEqual(result['code'],'MODEL_PROVIDER_UNAVAILABLE')
+        self.assertNotIn('河北',result['text']);self.assertNotIn('private',result['text'])
+
+    def test_topic_switch_discards_old_short_thread_but_keeps_durable_preferences(self):
+        self.store.update('a'*64,'以后叫我小河','remember','name','以后叫我小河')
+        self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'new','reply_tone':'plain','text':'标记真不少'}),'河北这张收藏图标满了')
+        self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'new','reply_tone':'serious','text':'明天就考了啊'}),'换个事，明天就考试了，有点烦')
+        self.assertEqual(self.runner.sessions['a'*64].turns,[('换个事，明天就考试了，有点烦','明天就考了啊')])
+        self.assertEqual(self.store.recall('a'*64)['memories'][0]['text'],'以后叫我小河')
+        self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'continue','reply_tone':'serious','text':'是有点赶'}),'还没复习完')
+        content=[m.content for m in self.model.seen[-1]]
+        self.assertIn('换个事，明天就考试了，有点烦',content)
+        self.assertNotIn('河北这张收藏图标满了',content)
+
+    def test_historical_media_is_separate_from_this_turn_attachment(self):
+        context={'scope':'c2c','social':{'ok':True,'media':[{'kind':'meme','summary':'旧的猫表情包','at':1}]},'media':{'kind':'image','description':'新的电路照片','is_meme':False}}
+        self.run_chat(call('reply_chat',{'topic':'群聊闲聊','topic_relation':'new','reply_tone':'plain','text':'这是刚拍的电路照片啊'}),'看看刚拍的图',context=context)
+        import json
+        packets=[json.loads(m.content) for m in self.model.seen[-1] if isinstance(m.content,str) and m.content.startswith('{')]
+        social=next(p for p in packets if 'untrusted_social_context' in p)
+        self.assertNotIn('media',social['untrusted_social_context'])
+        self.assertEqual(social['historical_media_only_for_related_recollection'][0]['summary'],'旧的猫表情包')
+        media=next(p for p in packets if 'untrusted_media_observation' in p)
+        self.assertEqual(media['untrusted_media_observation']['description'],'新的电路照片')
 
     def test_memory_control_receipt_never_goes_to_chat_composer(self):
         self.runner.chat_model_factory=lambda _:self.fail('memory receipt cannot be rewritten')

@@ -10,7 +10,7 @@ current={}
 def factory(_):
     media=current.get('context',{}).get('media',{})
     text='这猫抱着饭碗不撒手，跟鱼抢饭是吧~' if '猫' in media.get('description','') else '鱼还没看见图~'
-    return ScriptedModel(responses=[call('reply_chat',{'topic':'群聊闲聊','text':text})])
+    return ScriptedModel(responses=[call('reply_chat',{'topic':'群聊闲聊','topic_relation':'continue','reply_tone':'playful','text':text})])
 runner=build_runner(model_factory=factory,memory_store=ChatMemoryStore(Path.cwd()/'.private/chat-memory'))
 while True:
     p=read_packet(sys.stdin.buffer)
