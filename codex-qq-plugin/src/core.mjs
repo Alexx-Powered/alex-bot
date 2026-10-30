@@ -614,7 +614,7 @@ export class BridgeCore {
         if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
         try { response = await this.#commandHandler(command, context); }
         catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
-        if (response) return this.#notify({ text: response.text, image: response.image, idempotencyKey: `reply:${incomingKey}` }, replyTarget);
+        if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       return result(true, 'IGNORED');
     }); } finally { if (countedIncoming) this.#pendingIncoming--; }
@@ -683,7 +683,7 @@ export class BridgeCore {
       try { response = await this.#commandHandler(command, context); }
       catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
       if(response?.memoryReset===true)this.#groupContexts.delete(groupId);
-      if (response) return this.#notify({ text: response.text, image: response.image,requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
+      if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}),requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     }
     return result(true, 'IGNORED');
   }
@@ -774,6 +774,7 @@ export class BridgeCore {
       return result(false, 'INVALID_INPUT');
     }
     if (image !== undefined && (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 || !['image/png','image/jpeg'].includes(image.mimeType))) return result(false, 'INVALID_INPUT');
+    if (input?.richMedia!==undefined && (typeof input.richMedia!=='boolean'||(input.richMedia&&(!image||!text.trim())))) return result(false, 'INVALID_INPUT');
     const key = hash(`outgoing:${idempotencyKey}`);
     const existing = this.#state.deliveries.find((entry) => entry.key === key);
     if (existing) return result(false, 'DUPLICATE', { deliveryState: existing.state });
@@ -799,7 +800,7 @@ export class BridgeCore {
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
     let failure = null;
     try {
-      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat') } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
+      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat') } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
       if (response?.ok === false) throw response;
     } catch (error) { failure = classifyError(error); }
     const finished = structuredClone(this.#state);

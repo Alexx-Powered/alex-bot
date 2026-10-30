@@ -326,10 +326,11 @@ export class QQAdapter {
     return target;
   }
 
-  async send({ ownerId, text, replyTarget, image, groupId, proactiveGroup = false, requiredAccess = 'chat' } = {}) {
+  async send({ ownerId, text, replyTarget, image, groupId, proactiveGroup = false, requiredAccess = 'chat', richMedia = false } = {}) {
     if (!isId(ownerId)) throw new QQAdapterError('QQ_OWNER_INVALID');
     if (typeof text !== 'string' || text.length > MAX_TEXT_LENGTH ||
         (image === undefined && !text.trim())) throw new QQAdapterError('QQ_TEXT_INVALID');
+    if(typeof richMedia!=='boolean'||(richMedia&&(image===undefined||!text.trim())))throw new QQAdapterError('QQ_TEXT_INVALID');
     if (!this.#bot || this.#current.state !== 'connected') throw new QQAdapterError('QQ_NOT_CONNECTED');
     // Only BridgeCore's explicit local broadcast method sets proactiveGroup;
     // public notifications and Python/chat tool results cannot supply it.
@@ -371,9 +372,9 @@ export class QQAdapter {
         if (authorizedTarget.msgId) this.#target(ownerId, authorizedTarget, groupId);
         if (this.#canSend({groupId,proactiveGroup,requiredAccess}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
         messageAttempted = true;
-        // Image replies are image-only even if a caller supplied a caption.
-        // SDK 1.0.5 send() and sendRaw() preserve an omitted content field.
-        await bot.send({ target: wireTarget, msgType: 7, media: { file_info: upload.file_info } });
+        // Opt-in rich media carries content + media in ONE message. Legacy
+        // weather/classroom image-only callers keep their preceding behavior.
+        await bot.send({ target: wireTarget, msgType: 7, ...(richMedia?{content:text}:{}), media: { file_info: upload.file_info } });
       } else {
         messageAttempted = true;
         await bot.sendText(wireTarget, text);

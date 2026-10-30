@@ -7,9 +7,9 @@ import {isGray,fullAccess,basicAccess,RESTRICTED_REPLY} from './access-policy.mj
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
-  constructor({toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget,socialService}){
+  constructor({toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget,socialService}){
     if(!modelBudget||typeof modelBudget.acquire!=='function')throw new TypeError('MODEL_BUDGET_REQUIRED');
-    Object.assign(this,{toolbox,conversionTools,campusTools,worker,configStore,policyFile,policyLoader,modelBudget,socialService});
+    Object.assign(this,{toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader,modelBudget,socialService});
   }
   async handle(text,context={}){
     let socialData={};
@@ -23,6 +23,7 @@ export class ConversationAgent{
     const gray=isGray(context);
     const decorate=(value,requiredAccess='white',sensitive=false)=>value&&context.scope==='group'?{...value,requiredAccess,...(sensitive?{sensitive:true}:{})}:value;
     const denied=()=>decorate({text:RESTRICTED_REPLY},'chat');
+    const status=await this.statusTools?.handle(text,context);if(status)return status;
     const campus=await this.campusTools?.handle(text,context);if(campus)return campus.cancelled?null:gray?denied():decorate(campus);
     if(isBalanceQuery(text)){
       if(!fullAccess(context))return gray?denied():{text:'账户余额仅支持本人私聊或白名单群主动查询。'};
@@ -68,6 +69,10 @@ export class ConversationAgent{
     try{
       let result=await this.worker.run({type:'request',text:requestText,sessionKey,context:packetContext,config,policy,now:new Date().toISOString()},async(name,args)=>{
         if(name==='local_weather_briefing')throw new Error('TOOL_DENIED');
+        if(name==='deepseek_service_status'||name==='liang_status'){
+          if(!this.statusTools||!fullAccess(context))return denied();
+          return this.statusTools.execute(name,args,context);
+        }
         if(name==='buaa_classroom_query'){
           if(!this.campusTools||!fullAccess(context))return denied();
           return this.campusTools.execute(args,context,requestText);

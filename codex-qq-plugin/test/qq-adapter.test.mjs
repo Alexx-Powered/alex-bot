@@ -245,6 +245,20 @@ test('JPEG proactive images omit a supplied caption and still address only the f
   await f.adapter.disconnect();
 });
 
+test('opt-in rich media sends caption and uploaded image in one C2C or group message',async()=>{
+  for(const group of [false,true]){
+    const f=fixture();const bot=await f.connect();
+    const message=group?inbound({kind:'group',rawEventType:'GROUP_AT_MESSAGE_CREATE',groupOpenid:'GROUP',replyTarget:{scope:'group',targetId:'GROUP',msgId:'msg-1'}}):inbound();
+    await bot.emit('message',{},message);
+    const text='滑动变祖器：梁圣\n来源：https://liang.itsuyo.top/';
+    await f.adapter.send({ownerId:'OWNER_OPENID',text,richMedia:true,image:{buffer:PNG,mimeType:'image/png'},replyTarget:f.messages[0].replyTarget,...(group?{groupId:'GROUP'}:{})});
+    assert.equal(bot.uploadCalls.length,1);assert.equal(bot.uploadCalls[0].body.srv_send_msg,false);
+    assert.equal(bot.mediaCalls.length,1);assert.equal(bot.calls.length,0);
+    assert.equal(bot.mediaCalls[0].content,text);assert.equal(bot.mediaCalls[0].msgType,7);
+    await f.adapter.disconnect();
+  }
+});
+
 test('URL, paths, base64 strings, wrong MIME and invalid magic are rejected before upload', async () => {
   const f = fixture(); const bot = await f.connect();
   for (const image of [
@@ -407,4 +421,22 @@ test('installed SDK sends empty-text images with no content field and one reques
   assert.equal(Object.hasOwn(requests[1].body, 'content'), false);
   assert.equal(JSON.stringify(requests[1].body).includes('"content"'), false);
   await adapter.disconnect();
+});
+
+test('installed Tencent SDK serializes rich media content together with file_info in one messages request',async()=>{
+  const sdk=new QQBot({appId:'offline',appSecret:'offline',logger:{info(){},warn(){},error(){},debug(){}}});
+  sdk.tokenManager.getAccessToken=async()=>'offline-token';
+  const requests=[];sdk.apiClient.request=async(_token,method,url,body)=>{
+    requests.push({method,url,body});return url.endsWith('/files')?{file_info:'offline-file'}:{id:'offline-message'};
+  };
+  let bot;const adapter=new QQAdapter({createBot:options=>{
+    bot=new FakeQQBot(options);bot.api=sdk.api;bot.send=sdk.send.bind(sdk);return bot;
+  }});
+  try{
+    await adapter.connect({appId:'offline',appSecret:'offline'});await bot.emit('ready');
+    const caption='实时状态\n来源：https://liang.itsuyo.top/';
+    await adapter.send({ownerId:'OWNER_OPENID',text:caption,richMedia:true,image:{buffer:PNG,mimeType:'image/png'}});
+    assert.equal(requests.length,2);assert.equal(requests[0].body.srv_send_msg,false);
+    assert.deepEqual(requests[1].body,{msg_type:7,content:caption,media:{file_info:'offline-file'},msg_seq:1});
+  }finally{await adapter.disconnect();}
 });

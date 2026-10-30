@@ -69,6 +69,15 @@ test('group pairing requires ready, paired owner and enabled sending', async () 
   assert.equal(f.sent.length, 0);
 });
 
+test('rich-media caption flag reaches transport once in both private and whitelisted group replies',async()=>{
+  const text='实时状态\n来源：https://liang.itsuyo.top/';
+  const f=fixture({handler:async()=>({text,image,richMedia:true,requiredAccess:'white'})});await pairOwner(f);await allowGroup(f);
+  assert.equal((await f.core.handleMessage(c2c('查滑动变祖器状态','status-private'))).code,'SENT');
+  assert.equal((await f.core.handleMessage(group('大肥鱼 查滑动变祖器状态','status-group'))).code,'SENT');
+  assert.equal(f.sent.length,2);
+  for(const request of f.sent){assert.equal(request.richMedia,true);assert.equal(request.text,text);assert.deepEqual(request.image,image);}
+});
+
 test('unknown groups neither query nor reply, including owner sender and private pairing commands', async () => {
   const f = fixture(); await pairOwner(f);
   const before = f.state();

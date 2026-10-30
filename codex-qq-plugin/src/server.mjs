@@ -20,6 +20,7 @@ import {ModelRequestBudget} from './chat-safety.mjs';
 import {ConversionToolbox} from './conversion-tools.mjs';
 import {CampusConfigStore} from './campus-config.mjs';
 import {CampusService} from './campus-service.mjs';
+import {PublicStatusService} from './public-status.mjs';
 import {isEntrypoint} from './entrypoint.mjs';
 import {MonitoringConfigStore} from './monitoring-config.mjs';
 import {Telemetry,measureSpan} from './telemetry.mjs';
@@ -52,13 +53,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
   let configured = Boolean(await store.readCredentials());
-  const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000}});
+  const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000,liang_status:75000}});
   if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   const campus = campusService || new CampusService({home,configStore:campusConfigStore});
+  const statusTools = new PublicStatusService({home});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,worker});
   const social=socialService||(prewarm?new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
-  const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
+  const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core;
   const adapter = adapterFactory({
@@ -324,6 +326,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       worker.close();
       social?.close();
       campus.close();
+      statusTools.close();
       await adapter.disconnect();
       server.closeIdleConnections();
       if (server.listening) await new Promise(resolve => server.close(resolve));

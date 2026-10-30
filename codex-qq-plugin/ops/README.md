@@ -97,3 +97,15 @@ Windows Node398项通过；Linux Node393项通过、5项Windows专用测试跳�
 新配置入口`/social`，用`open-setup.ps1 -Page /social`进入；付费语音缺省关闭，Qwen3-ASR-Flash北京区。图片复用DeepSeek Flash。Key在Node平台加密存储，传Python仅走私有stdin管道；不写argv、模型提示词或日志。原媒体不存盘，SQLite保存有界摘要、沟通习惯与衰减的情绪线索，仍纳入原一致性加密备份。白/灰名单和暂停继续在Node鉴权。
 
 用`ops/evaluate-social.mjs`可在systemd LoadCredential环境做真实模型合成样本评测（不发QQ、不读取群友内容）。需要先跑测试再评测，不以HTTP在线替代QQ媒体验收；语音无Key时优先使用SDK自带转写，没有则明确不可用。来源接口、模型输出结构和QQ附件域名都可能变化，失败不编造观察结果。
+
+## 当前生产：公开服务状态与滑动变祖器（2026-10-30）
+
+最新生产`linux-9a3bb6dba221`，主服务PID63437，21:03:30 CST启动，早报PID63456；源码清单、实际端口/argv及源码早于启动已核验。本机仍为SSH PID7236。上面的多模态版本号为历史验收记录；聊天规则文件哈希、07:30规则、名单和发送限额保持。本地Node461/Python261、Linux Node456通过/5项平台专用跳过及Python261通过；真实公开数据图文及7条模型合成意图路由通过。QQ客户端图文同条显示已请本人实测，尚待确认。
+
+`查DeepSeek状态`与`查滑动变祖器状态`（也支持“变阻器”）无Key直接调用受限Python LangChain工具；自然语言由既有agent选择。本人与白名单开放，灰名单拒绝。前者使用DeepSeek官方状态，后者只读原站API实时评分，按固定作者提交的0–30档素材生成图片，附来源。新独立worker不接触模型/校园密钥，也没有任何QQ收件人或通用命令接口。
+
+Linux需系统`/usr/bin/curl`（ECS已安装），只读固定HTTPS接口；仅在该域名DNS实际返回的至多两条公网IPv4间有限切换，保留TLS验证。只读取API前部当前数值，避免下载历史事件流。静态素材目录`.private/public-status-frames`按SHA256校验，可在运行账户工作目录执行`python <源码>/codex-qq-plugin/ops/prewarm-public-status.py`重新获取；素材不是运行密钥，不进Git或密钥备份。每次状态重新查，不以缓存数值作实时回复。
+
+仅新增内部可选`richMedia=true`，让腾讯`msg_type=7`同次携带`content`与`media.file_info`；默认兼容原纯图。两处来源链接仍受QQ后台消息URL配置约束。失败不自动重发，沿用原暂停及幂等规则。详见根目录HANDOVER的新记录。
+
+本次加密备份`alexbot-20261030T130018635Z.json`在云端和本机受保护恢复目录均保留，本机已内存验证18文件可恢复。旧release及`source-linux-a26f058f2340-before-public-status-20261030.tar.gz`保留可回退。不更新GitHub，无关本地界面/素材改动未纳入本次部署。
