@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {checkChatInput} from '../src/chat-safety.mjs';
+import {checkChatInput,naturalChatReply} from '../src/chat-safety.mjs';
+
+test('chat replies remove empty paragraphs and keep useful line breaks and punctuation',()=>{
+  assert.equal(naturalChatReply('\r\n 好家伙，又卡住了\r\n\r\n  \r\n先看看最后那个报错~\r\n'),'好家伙，又卡住了\n先看看最后那个报错~');
+  assert.equal(naturalChatReply('1. 先保存\n\n2. 再检查'),'1. 先保存\n2. 再检查');
+});
 
 test('technical topics and ordinary work frustrations do not become coding tasks',()=>{
   for(const input of [

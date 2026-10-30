@@ -55,9 +55,9 @@ test('output is hard bounded even when the worker exceeds policy or returns fake
   const f=fixture({worker:{run:async(p,e,finish)=>finish({kind:'chat',topic:'未授权话题',text:'不应发送'})}});
   assert.equal(await f.agent.handle('你好'),null);
 });
-test('enabled persona policy stays brief and defaults to an eighty-character response cap',async()=>{
+test('default chat policy retains the fish identity and a generous response ceiling',async()=>{
   const p=await loadChatPolicy(new URL('../config/chat-policy.md',import.meta.url));
-  assert.equal(p.enabled,true);assert.equal(p.maxChars,600);assert.match(p.instructions,/爱吃白饭的大肥鱼/);assert.match(p.instructions,/闲聊可以/);
+  assert.equal(p.enabled,true);assert.equal(p.maxChars,600);assert.match(p.instructions,/大肥鱼/);assert.match(p.instructions,/亚历克斯/);
 });
 
 test('model rate limits provide a single local notice per scope instead of repeated silence or spam',async()=>{

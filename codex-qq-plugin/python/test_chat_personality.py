@@ -40,15 +40,17 @@ class ConversationTests(unittest.TestCase):
         self.assertNotEqual(result['kind'],'chat')
 
     def test_casual_line_breaks_and_playful_punctuation_survive_without_mentions_or_links(self):
-        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'饭给你留着~\n慢慢说 🐟 <@!123> https://example.test'}),'我要投奔大肥鱼')
+        result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'饭给你留着~\n\n  \n慢慢说 🐟 <@!123> https://example.test'}),'我要投奔大肥鱼')
         self.assertIn('~\n',result['text']);self.assertIn('🐟',result['text'])
+        self.assertNotIn('\n\n',result['text'])
         self.assertNotIn('@',result['text']);self.assertNotIn('https',result['text'])
 
     def test_plain_chat_composer_has_no_tools_or_business_prompt_and_preserves_fallback(self):
-        composer=ScriptedModel(responses=[AIMessage(content='来嘛~\n饭给你留着 🐟')])
+        composer=ScriptedModel(responses=[AIMessage(content='来嘛~\n\n \n饭给你留着 🐟')])
         self.runner=worker.build_runner(model_factory=lambda _:self.model,chat_model_factory=lambda _:composer)
         result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'我只能聊天，不能升级服务器。'}),'我要投奔大肥鱼')
         self.assertIn('来嘛~\n',result['text']);self.assertNotIn('权限',composer.seen[0][0].content)
+        self.assertNotIn('\n\n',result['text'])
         self.assertNotIn('deepseek_account_balance',str(composer.seen[0]));self.assertEqual(len(composer.seen),1)
         composer.responses.append(RuntimeError('provider private exception'))
         result=self.run_chat(call('reply_chat',{'topic':'群聊闲聊','text':'鱼先陪你缓缓~'}),'今天好累')

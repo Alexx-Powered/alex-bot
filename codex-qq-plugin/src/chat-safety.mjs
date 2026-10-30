@@ -163,6 +163,7 @@ export class ModelRequestBudget {
 export function naturalChatReply(raw,maxChars=600){
   if(typeof raw!=='string')return '';
   let text=redact(clean(raw,true)).replace(URL,'').replace(/```[\s\S]*?(?:```|$)/gu,'').trim();
+  text=text.split('\n').map(line=>line.trim()).filter(Boolean).join('\n');
   if(/已(?:经)?(?:为你|帮你)?(?:执行|修改(?:了)?配置|转账|删除(?:了)?文件)/u.test(text))text=SAFE_REPLY;
   const maximum=cap(maxChars,600);return [...text].slice(0,maximum).join('');
 }
