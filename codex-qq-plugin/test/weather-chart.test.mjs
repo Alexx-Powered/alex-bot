@@ -1,23 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadImage } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { prepareWeatherChart, renderWeatherChart } from '../src/weather-chart.mjs';
 
 const NOW = Date.parse('2026-10-28T10:00:00Z');
 const HOUR = 3_600_000;
+const START = Date.parse('2026-10-28T00:00:00+08:00');
 const SHANGHAI = { id: 'geonames-1796236', name: '上海', latitude: 31.2304, longitude: 121.4737 };
 const SHENZHEN = { id: 'geonames-1795565', name: '深圳', latitude: 22.5431, longitude: 114.0579 };
 const CHAOYANG = { id: 'geonames-2038154', name: '辽宁省朝阳市', latitude: 41.5739, longitude: 120.4506 };
 const LONG_PLACE = { id: 'geonames-1529565', name: '新疆维吾尔自治区伊犁哈萨克自治州察布查尔锡伯自治县', latitude: 43.8381, longitude: 81.1497 };
 function forecast(city = 'beijing') {
   return { city: { id: city }, date: '2026-10-28', timezone: 'Asia/Shanghai', fetchedAt: new Date(NOW).toISOString(),
-    hourly: Array.from({ length: 24 }, (_, i) => ({ time: `2026-10-28T${String(i).padStart(2, '0')}:00:00+08:00`,
+    hourly: Array.from({ length: 48 }, (_, i) => ({ time: new Date(START + i * HOUR).toISOString(),
       temperatureC: 10 + Math.sin(i / 4) * 5, humidityPct: 60, precipitationMm: i === 12 ? 2 : 0, precipitationProbabilityPct: i >= 10 && i <= 14 ? 65 : 0 })) };
 }
 function airForecast(city = 'beijing') {
   const base = { beijing: 45, tianjin: 30, guangzhou: 16 }[city] ?? 20;
   return { city: { id: city }, timezone: 'Asia/Shanghai', fetchedAt: new Date(NOW).toISOString(),
-    hourly: Array.from({ length: 48 }, (_, i) => ({ time: new Date(NOW + i * HOUR).toISOString(), pm25: base + i })) };
+    hourly: Array.from({ length: 48 }, (_, i) => ({ time: new Date(START + i * HOUR).toISOString(), pm25: base + i })) };
 }
 
 test('two-city normalization preserves hourly weather, daily boundaries and separate Beijing air', () => {
@@ -27,12 +28,45 @@ test('two-city normalization preserves hourly weather, daily boundaries and sepa
   assert.equal(result.weatherSeries.length, 2);
   assert.equal(result.weatherSeries[0].temperatureC[0], 10);
   assert.equal(result.weatherSeries[1].temperatureC[0], 13);
-  assert.deepEqual(result.hours, Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')));
+  assert.deepEqual(result.hours, Array.from({ length: 48 }, (_, i) => String(i % 24).padStart(2, '0')));
   assert.equal(result.airSeries.values.length, 48);
-  assert.equal(result.airSeries.start, NOW);
+  assert.equal(result.airSeries.start, START);
   assert.equal(result.airSeries.values[47], 92);
   assert.equal(result.airSeries.id, 'beijing');
   assert.equal(result.airSeries.name, '北京');
+});
+
+test('all panels stay on the same two calendar days at morning, evening and month/year boundaries', () => {
+  for (const date of ['2026-10-31', '2026-12-31']) {
+    const start = Date.parse(`${date}T00:00:00+08:00`);
+    for (const hour of [0, 7.5, 18, 23.99]) {
+      const weather = forecast(), air = airForecast();
+      weather.date = date;
+      weather.hourly.forEach((row, i) => { row.time = new Date(start + i * HOUR).toISOString(); });
+      air.hourly.forEach((row, i) => { row.time = new Date(start + i * HOUR).toISOString(); });
+      const model = prepareWeatherChart({ weather: [weather], air, now: start + Math.floor(hour * HOUR) });
+      assert.equal(model.date, date); assert.equal(model.start, start); assert.equal(model.airSeries.start, start);
+      assert.equal(model.end, start + 48 * HOUR);
+      assert.equal(model.weatherSeries[0].temperatureC.length, 48);
+      assert.equal(model.weatherSeries[0].temperatureC[47], weather.hourly[47].temperatureC);
+      assert.equal(model.airSeries.values[0], 45); assert.equal(model.airSeries.values[47], 92);
+    }
+  }
+});
+
+test('real chart draws the midnight separator at the same x position in all three panels', async () => {
+  const image = await loadImage(renderWeatherChart({ date: '2026-10-28', weather: [forecast()], air: airForecast(), now: NOW }).buffer);
+  const canvas = createCanvas(image.width, image.height), ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+  const separators = [299 + 100, 803 + 100, 1250 + 100].map(y => {
+    const pixels = ctx.getImageData(550, y, 160, 1).data;
+    return Array.from({ length: 160 }, (_, x) => x).filter(x => {
+      const offset = x * 4;
+      return pixels[offset] === 128 && pixels[offset + 1] === 149 && pixels[offset + 2] === 176;
+    }).map(x => 550 + x);
+  });
+  assert.ok(separators.every(xs => xs.length >= 1 && xs.length <= 3));
+  assert.deepEqual(separators[0], separators[1]); assert.deepEqual(separators[1], separators[2]);
 });
 
 test('missing, invalid and absent hours remain null while genuine zero probability is retained', () => {

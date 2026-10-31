@@ -69,6 +69,7 @@ test('arbitrary resolved places reach weather, CAMS and charts with the same ide
     weatherChart:input=>{inputs.push(input);return image;},chart:input=>{assert.deepEqual(input.city,place);return image;}});
   assert.deepEqual(await service.handle('发天气上海'),{text:'',image});
   assert.equal(requests.length,2); requests.forEach(args=>{assert.equal(args.city,place.id);assert.deepEqual(args.place,place);});
+  assert.equal(requests[0].days,2); assert.equal(requests[1].window,'calendar');
   assert.deepEqual(inputs[0].places,[place]); assert.deepEqual(inputs[0].cities,[place.id]);
   assert.deepEqual(await service.handle('发雾霾上海'),{text:'',image});
 });

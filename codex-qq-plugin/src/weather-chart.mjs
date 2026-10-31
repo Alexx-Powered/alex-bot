@@ -9,6 +9,7 @@ Chart.register(...registerables);
 
 const FONT = CHINESE_FONT;
 const WIDTH = 1200, HEIGHT = 1800;
+const FORECAST_HOURS = 48;
 const COLORS = { ink: '#17263c', muted: '#596b82', faint: '#e6edf5' };
 const SERIES_COLORS = ['#2563eb', '#db721e'];
 const finite = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
@@ -42,20 +43,21 @@ export function prepareWeatherChart({ date, cities = ['beijing'], places, weathe
   const weatherSeries = cities.map((city, i) => {
     const result = weather[i];
     if (result !== null && result !== undefined && (result.city?.id !== city || result.date !== date || result.timezone !== 'Asia/Shanghai')) fail('WEATHER_CHART_CITY_MISMATCH');
-    const values = valuesByHour(result?.hourly ?? [], midnight, 24, {
+    const values = valuesByHour(result?.hourly ?? [], midnight, FORECAST_HOURS, {
       temperatureC: [-90, 65], humidityPct: [0, 100], precipitationMm: [0, 1000], precipitationProbabilityPct: [0, 100],
     });
     return { id: city, name: places[i].name, color: SERIES_COLORS[i], lineDash: i === 1 ? [12, 7] : [], ...values, fetchedAt: result?.fetchedAt ?? null };
   });
-  const airStart = Math.floor(now / HOUR_MS) * HOUR_MS;
+  const airStart = midnight;
   // Dual-city reports display one explicitly identified city's PM2.5 forecast.
   const airCity = cities.includes('beijing') ? 'beijing' : cities[0];
   const airPlace = places[cities.indexOf(airCity)];
   if (air !== null && (air?.city?.id !== airCity || air?.timezone !== 'Asia/Shanghai')) fail('WEATHER_CHART_AIR_CITY_MISMATCH');
   const airValues = valuesByHour(air?.hourly ?? [], airStart, 48, { pm25: [0, 5000] }).pm25;
-  return { date, now, cities: [...cities], places, weatherSeries,
+  return { date, nextDate: localDate(midnight + 24 * HOUR_MS), start: midnight, end: midnight + FORECAST_HOURS * HOUR_MS,
+    now, cities: [...cities], places, weatherSeries,
     airSeries: { id: airCity, name: airPlace.name, enabled: true, values: airValues, start: airStart, fetchedAt: air?.fetchedAt ?? null },
-    hours: Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')) };
+    hours: Array.from({ length: FORECAST_HOURS }, (_, i) => String(i % 24).padStart(2, '0')) };
 }
 
 function write(ctx, text, x, y, size = 24, color = COLORS.ink, weight = 'normal', align = 'left') {
@@ -161,16 +163,34 @@ function precipitationLegend(ctx, series) {
   });
 }
 
-function standardOptions({ yMin, yMax, maxTicks = 6, paddingTop = 18 } = {}) {
+function standardOptions({ yMin, yMax } = {}) {
   return { responsive: false, animation: false, devicePixelRatio: 1,
-    layout: { padding: { left: 4, right: 16, top: paddingTop, bottom: 4 } },
+    layout: { padding: { left: 4, right: 26, top: 38, bottom: 4 } },
     plugins: { legend: { display: false }, tooltip: { enabled: false } },
     scales: {
-      x: { grid: { display: false }, border: { color: '#dbe5ee' }, ticks: { color: COLORS.muted, font: { family: FONT, size: 21 }, maxRotation: 0, autoSkip: true, maxTicksLimit: maxTicks, padding: 9 } },
+      x: { type: 'linear', min: 0, max: FORECAST_HOURS, offset: false,
+        grid: { display: false }, border: { color: '#dbe5ee' },
+        ticks: { stepSize: 6, callback: value => value === FORECAST_HOURS ? '24:00' : `${String(value % 24).padStart(2, '0')}:00`,
+          color: COLORS.muted, font: { family: FONT, size: 20 }, maxRotation: 0, autoSkip: false, padding: 9 } },
       y: { ...(yMin === undefined ? {} : { min: yMin }), ...(yMax === undefined ? {} : { max: yMax }),
+        afterFit: scale => { scale.width = 74; },
         grid: { color: COLORS.faint }, border: { display: false }, ticks: { color: COLORS.muted, font: { family: FONT, size: 22 }, maxTicksLimit: 5, padding: 9 } },
     },
   };
+}
+const hourlyPoints = (values, offset = 0) => values.map((value, hour) => ({ x: hour + offset, y: value }));
+function calendarBoundary(model) {
+  return { id: 'weatherCalendarBoundary', afterDraw(chart) {
+    const { ctx: c, chartArea: area, scales: { x } } = chart;
+    if (!area || !x) return;
+    const middle = x.getPixelForValue(24);
+    c.save(); c.strokeStyle = '#8095b0'; c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(middle, 5); c.lineTo(middle, area.bottom); c.stroke();
+    const label = (date, prefix) => `${prefix} · ${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`;
+    write(c, label(model.date, '今天'), x.getPixelForValue(12), 23, 21, COLORS.muted, 'bold', 'center');
+    write(c, label(model.nextDate, '明天'), x.getPixelForValue(36), 23, 21, COLORS.muted, 'bold', 'center');
+    c.restore();
+  } };
 }
 function drawChart(ctx, { x = 64, y, width = 1072, height = 280, type, data, options, plugins = [] }) {
   const plot = createCanvas(width, height);
@@ -182,7 +202,7 @@ function extremaPlugin() {
   return { id: 'weatherExtrema', afterDatasetsDraw(chart) {
     const placed = [];
     chart.data.datasets.forEach((dataset, datasetIndex) => {
-      const valid = dataset.data.map((value, index) => ({ value, index })).filter(point => point.value !== null);
+      const valid = dataset.data.map((point, index) => ({ value: point.y, index })).filter(point => point.value !== null);
       if (!valid.length) return;
       const low = valid.reduce((a, b) => a.value <= b.value ? a : b);
       const high = valid.reduce((a, b) => a.value >= b.value ? a : b);
@@ -200,7 +220,7 @@ function extremaPlugin() {
         const rawY = element.y + (direction < 0 ? -32 : 10);
         const candidates = [0, -34, 34, -68, 68].flatMap(dy => [0, -boxWidth - 12, boxWidth + 12].map(dx => ({
           x: Math.max(chart.chartArea.left, Math.min(rawX + dx, chart.width - boxWidth - 4)),
-          y: Math.max(0, Math.min(rawY + dy, chart.chartArea.bottom - 28)), w: boxWidth, h: 27,
+          y: Math.max(32, Math.min(rawY + dy, chart.chartArea.bottom - 28)), w: boxWidth, h: 27,
         })));
         const position = candidates.find(a => placed.every(b => a.x + a.w + 4 <= b.x || b.x + b.w + 4 <= a.x || a.y + a.h + 4 <= b.y || b.y + b.h + 4 <= a.y)) ?? candidates[0];
         placed.push(position);
@@ -219,8 +239,8 @@ function extremaPlugin() {
 function missingProbabilityPlugin() {
   return { id: 'missingProbability', afterDatasetsDraw(chart) {
     chart.data.datasets.forEach((dataset, datasetIndex) => {
-      dataset.data.forEach((value, index) => {
-        if (value !== null) return;
+      dataset.data.forEach((point, index) => {
+        if (point.y !== null) return;
         const element = chart.getDatasetMeta(datasetIndex).data[index];
         const x = element?.x;
         if (!Number.isFinite(x)) return;
@@ -239,62 +259,61 @@ export function renderWeatherChart(input) {
   const canvas = createCanvas(WIDTH, HEIGHT), ctx = canvas.getContext('2d');
   ctx.fillStyle = '#f1f5fa'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
   write(ctx, '亚历克斯 · 天气', 48, 49, 24, '#38627a', 'bold');
-  fitText(ctx, `${model.places.map(place => place.name).join(' / ')}天气`, 48, 107, 850, 44, COLORS.ink, 'bold');
-  write(ctx, model.date, 1152, 102, 32, COLORS.ink, 'bold', 'right');
-  write(ctx, '温度 · 颗粒物 · 降水', 48, 154, 23, COLORS.muted);
+  fitText(ctx, `${model.places.map(place => place.name).join(' / ')}天气`, 48, 107, 760, 44, COLORS.ink, 'bold');
+  write(ctx, `${model.date.slice(5).replace('-', '.')}–${model.nextDate.slice(5).replace('-', '.')}`, 1152, 102, 32, COLORS.ink, 'bold', 'right');
+  write(ctx, '今天 00:00 → 明天 24:00 · 48 小时', 48, 154, 23, COLORS.muted);
   write(ctx, '模型预报 · 北京时间 UTC+8', 1152, 154, 23, COLORS.muted, 'normal', 'right');
 
-  panel(ctx, 190, 460, '01  温度', '全天 00:00–23:00 · °C');
+  panel(ctx, 190, 460, '01  温度', '今明两天 · °C');
   temperatureLegend(ctx, weatherSeries);
   const temperatures = weatherSeries.flatMap(series => series.temperatureC).filter(value => value !== null);
   if (temperatures.length) {
     const minimum = Math.min(...temperatures), maximum = Math.max(...temperatures);
     const margin = Math.max(3, (maximum - minimum) * 0.28);
-    const options = standardOptions({ yMin: Math.floor(minimum - margin), yMax: Math.ceil(maximum + margin), maxTicks: 9, paddingTop: 24 });
-    drawChart(ctx, { y: 299, height: 254, type: 'line', data: { labels: model.hours,
-      datasets: weatherSeries.map(series => ({ label: series.name, data: series.temperatureC, borderColor: temperatureGradient,
+    const options = standardOptions({ yMin: Math.floor(minimum - margin), yMax: Math.ceil(maximum + margin) });
+    drawChart(ctx, { y: 299, height: 254, type: 'line', data: {
+      datasets: weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.temperatureC), borderColor: temperatureGradient,
         borderDash: series.lineDash,
-        borderWidth: 4.5, pointRadius: 0, tension: 0.2, spanGaps: false })) }, options, plugins: [extremaPlugin()] });
+        borderWidth: 4.5, pointRadius: 0, tension: 0.2, spanGaps: false })) }, options, plugins: [extremaPlugin(), calendarBoundary(model)] });
   } else placeholder(ctx, 420, '温度数据暂不可用', '稍后刷新重试');
   weatherSeries.forEach((series, i) => {
-    const total = series.precipitationMm.every(value => value !== null) ? series.precipitationMm.reduce((a, b) => a + b, 0) : null;
+    const dayTotal = day => {
+      const values = series.precipitationMm.slice(day * 24, (day + 1) * 24);
+      return values.every(value => value !== null) ? `${number(values.reduce((a, b) => a + b, 0))} mm` : '缺数据';
+    };
     const missing = series.temperatureC.filter(value => value === null).length;
-    const line = `${series.name}  湿度 ${rangeLabel(series.humidityPct, '%')}   ·   全日降水 ${total === null ? '缺数据' : number(total) + ' mm'}（雨雪合计）${missing ? `   ·   温度缺 ${missing} 小时` : ''}`;
+    const line = `${series.name}  湿度 ${rangeLabel(series.humidityPct, '%')}   ·   降水 今天 ${dayTotal(0)} / 明天 ${dayTotal(1)}${missing ? `   ·   温度缺 ${missing} 小时` : ''}`;
     fitText(ctx, line, 68, 592 + i * 33, 1064, 23, COLORS.muted);
   });
 
-  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, '未来 48 小时 · μg/m³');
+  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, '今明两天 · μg/m³');
   airLegend(ctx);
   const validAir = airSeries.values.filter(value => value !== null);
   if (validAir.length) {
-    const labels = Array.from({ length: 48 }, (_, i) => localTime(airSeries.start + i * HOUR_MS).slice(5).replace('T', ' '));
-    const options = standardOptions({ yMin: 0, yMax: Math.max(20, Math.ceil(Math.max(...validAir) / 20) * 20), maxTicks: 5 });
-    drawChart(ctx, { y: 803, height: 229, type: 'line', data: { labels, datasets: [{ label: `${airSeries.name} PM2.5`, data: airSeries.values,
+    const options = standardOptions({ yMin: 0, yMax: Math.max(20, Math.ceil(Math.max(...validAir) / 20) * 20) });
+    drawChart(ctx, { y: 803, height: 229, type: 'line', data: { datasets: [{ label: `${airSeries.name} PM2.5`, data: hourlyPoints(airSeries.values),
       borderColor: pm25Gradient, fill: false, borderWidth: 4.5, pointRadius: 0,
-      tension: 0.15, spanGaps: false }] }, options, plugins: [pm25Background()] });
+      tension: 0.15, spanGaps: false }] }, options, plugins: [pm25Background(), calendarBoundary(model)] });
   } else placeholder(ctx, 905, `${airSeries.name} PM2.5 暂无有效数据`, '稍后刷新重试');
   const missingAir = airSeries.values.filter(value => value === null).length;
   fitText(ctx, 'PM2.5 浓度色阶', 68, 1072, 1064, 22);
   const airNote = `CAMS 约 45 km / 3 小时插值。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
   fitText(ctx, airNote, 68, 1105, 1064, 22);
 
-  panel(ctx, 1160, 440, '03  逐小时降水概率', '当天 00–23 时段 · %');
+  panel(ctx, 1160, 440, '03  逐小时降水概率', '今明两天 · %');
   precipitationLegend(ctx, weatherSeries);
   const probability = weatherSeries.flatMap(series => series.precipitationProbabilityPct).filter(value => value !== null);
   if (probability.length) {
-    const options = standardOptions({ yMin: 0, yMax: 100, maxTicks: 12 });
-    options.scales.x.ticks.autoSkip = false;
-    options.scales.x.ticks.font.size = 20;
-    options.scales.x.ticks.callback = function (value, index) { return model.hours[index]; };
+    const options = standardOptions({ yMin: 0, yMax: 100 });
     options.scales.y.ticks.stepSize = 25;
-    drawChart(ctx, { y: 1250, height: 258, type: 'bar', data: { labels: model.hours,
-      datasets: weatherSeries.map(series => ({ label: series.name, data: series.precipitationProbabilityPct,
+    drawChart(ctx, { y: 1250, height: 258, type: 'bar', data: {
+      datasets: weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.precipitationProbabilityPct, 0.5),
         backgroundColor: series.color, borderRadius: 2, categoryPercentage: 0.8, barPercentage: 0.86 })) },
-      options, plugins: [missingProbabilityPlugin()] });
+      options, plugins: [missingProbabilityPlugin(), calendarBoundary(model)] });
   } else placeholder(ctx, 1372, '逐小时降水概率暂不可用', '稍后刷新重试');
   const peaks = weatherSeries.map(series => {
     const values = series.precipitationProbabilityPct.filter(value => value !== null);
-    return `${series.name} ${values.length ? number(Math.max(...values)) + '%' : '缺数据'}${values.length > 0 && values.length < 24 ? '（部分）' : ''}`;
+    return `${series.name} ${values.length ? number(Math.max(...values)) + '%' : '缺数据'}${values.length > 0 && values.length < FORECAST_HOURS ? '（部分）' : ''}`;
   }).join(' / ');
   fitText(ctx, `最高小时概率：${peaks}`, 68, 1545, 1064, 23);
   if (weatherSeries.some(series => series.precipitationProbabilityPct.includes(null))) {

@@ -139,16 +139,17 @@ export function assessRain(hourly) {
 }
 const shown = (value, suffix = '') => value === null ? '缺数据' : `${Math.round(value * 10) / 10}${suffix}`;
 
-export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today', exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch } = {}) {
+export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('WEATHER_CITY_UNSUPPORTED');
   if (resolvedPlace !== undefined && city !== undefined && city !== place.id) throw new ForecastDataError('WEATHER_CITY_MISMATCH');
   if (!['today', 'tomorrow'].includes(day)) throw new ForecastDataError('WEATHER_DAY_UNSUPPORTED');
+  if (![1, 2].includes(days)) throw new ForecastDataError('WEATHER_DAYS_UNSUPPORTED');
   const now = forecastNow(nowInput);
   const date = localDate(now + (day === 'tomorrow' ? 24 * HOUR_MS : 0));
   const midnight = Date.parse(date + 'T00:00:00+08:00');
-  const nextMidnight = midnight + 24 * HOUR_MS;
+  const nextMidnight = midnight + days * 24 * HOUR_MS;
   const url = new URL(WEATHER_ENDPOINT);
   url.search = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude),
     hourly: [...VARIABLES,...(exerciseFields?['wind_speed_10m','shortwave_radiation','weather_code']:[])].join(','), models: 'ecmwf_ifs025', timezone: FORECAST_TIMEZONE,
@@ -166,7 +167,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     return key==='weather_code'&&!Number.isInteger(value)?null:value;
   };
   const hourly = [];
-  for (let h = 0; h < 24; ++h) {
+  for (let h = 0; h < days * 24; ++h) {
     const stamp = midnight + h * HOUR_MS;
     const instant = index.get(stamp), following = index.get(stamp + HOUR_MS);
     if (instant === undefined || following === undefined) throw new ForecastDataError('FORECAST_COVERAGE_INCOMPLETE');
@@ -194,18 +195,20 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const source = { name: 'ECMWF IFS 0.25°，经 Open-Meteo 提供', model: 'ecmwf_ifs025', provider: 'Open-Meteo',
     type: 'model_forecast', documentation: 'https://open-meteo.com/en/docs/ecmwf-api',
     metadataDocumentation: 'https://open-meteo.com/en/docs/model-updates', attribution: 'ECMWF / Open-Meteo', url: url.href };
-  const intervalText = summary.rain.intervals.map((p) => `${p.start.slice(11, 16)}–${p.end.slice(11, 16) === '00:00' ? '24:00' : p.end.slice(11, 16)}`).join('、');
+  const intervalText = summary.rain.intervals.map((p) => days === 1
+    ? `${p.start.slice(11, 16)}–${p.end.slice(11, 16) === '00:00' ? '24:00' : p.end.slice(11, 16)}`
+    : `${p.start.slice(5, 16).replace('T', ' ')}–${p.end.slice(5, 16).replace('T', ' ')}`).join('、');
   const text = [
-    `${place.name} ${day === 'today' ? '今日' : '明日'}天气预报｜${date}`,
+    `${place.name} ${days === 2 ? '两日' : day === 'today' ? '今日' : '明日'}天气预报｜${date}${days === 2 ? ` 至 ${localDate(nextMidnight - HOUR_MS)}` : ''}`,
     `逐小时温度范围 ${shown(temperature.min)}～${shown(temperature.max, '°C')}；湿度 ${shown(humidity.min)}～${shown(humidity.max, '%')}。`,
-    `全日降水 ${shown(summary.precipitationTotalMm, ' mm')}（雨雪合计水当量）；最高逐小时降水概率 ${shown(probability.max, '%')}，不是全日降水概率。`,
+    `${days === 2 ? '两日' : '全日'}降水 ${shown(summary.precipitationTotalMm, ' mm')}（雨雪合计水当量）；最高逐小时降水概率 ${shown(probability.max, '%')}，不是全日降水概率。`,
     `是否下雨：${summary.rain.text}${intervalText ? ` 有雨信号时段：${intervalText}。` : ''}`,
     ...(missingValues ? ['部分字段缺失；范围仅按有效数据计算，缺失值未计为零。'] : []),
     `获取 ${localTime(now).replace('T', ' ')}；来源最新起报元数据 ${localTime(Date.parse(freshness.latestModelRunAt)).replace('T', ' ')}（不保证本次响应同批次）。`,
     `来源：ECMWF IFS / Open-Meteo https://open-meteo.com/ ；模型预报，非实测。时区 ${FORECAST_TIMEZONE}。`,
   ].join('\n');
   const hourlyText = hourly.map((p) => `${p.time.slice(11, 16)} ${shown(p.temperatureC, '°C')} ${shown(p.humidityPct, '%')} ${shown(p.precipitationMm, 'mm')} ${shown(p.precipitationProbabilityPct, '%')}`).join('\n');
-  return { kind: 'weather', city: { ...place }, date, day, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText,
+  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText,
     source, fetchedAt: new Date(now).toISOString(), modelRunAt: null, freshness, warnings,
     temporalNote: '温湿度为行首时刻；降水量/概率对应 time 至 periodEnd。降水为雨雪合计，不等于雨量。' };
 }

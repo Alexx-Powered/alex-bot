@@ -60,9 +60,9 @@ export class WeatherCommands {
     const places=await Promise.all(cities.map(city=>this.locations.resolve(city)));
     if(new Set(places.map(place=>place.id)).size!==places.length)throw new Error('INVALID_CITY');
     const now=this.now(), date=beijingDay(now);
-    const queries=places.map(place=>this.weather({city:place.id,place,day:'today',now,...(includeData?{exerciseFields:true}:{})}));
+    const queries=places.map(place=>this.weather({city:place.id,place,day:'today',days:2,now,...(includeData?{exerciseFields:true}:{})}));
     const airPlace=places.find(place=>place.id==='beijing')??places[0];
-    queries.push(this.air({city:airPlace.id,place:airPlace,now}));
+    queries.push(this.air({city:airPlace.id,place:airPlace,window:'calendar',now}));
     const results=await Promise.allSettled(queries);
     const weather=cities.map((_,i)=>results[i].status==='fulfilled'?results[i].value:null);
     const airResult=results.at(-1);
@@ -71,7 +71,7 @@ export class WeatherCommands {
     const missing=places.filter((_,i)=>!weather[i]).map(place=>place.name+'天气缺数据');
     if(!air)missing.push(airPlace.name+'CAMS缺数据');
     const ids=places.map(place=>place.id);
-    const text=`${date} ${places.map(place=>place.name).join('/')}天气图：温度、PM2.5、逐小时降水概率。模型预报，非实测。${missing.length?' '+missing.join('；')+'。':''}`;
+    const text=`${date} ${places.map(place=>place.name).join('/')}天气图：今天00:00至明天24:00，温度、PM2.5、逐小时降水概率。${missing.length?' '+missing.join('；')+'。':''}`;
     const image=renderImage?this.weatherChart({date,cities:ids,places,weather,air,now}):undefined;
     return {ok:true,date,cities:ids,text,...(image?{image}:{}),...(includeData?{inputs:{date,cities:ids,places,weather,air,now}}:{})};
   }

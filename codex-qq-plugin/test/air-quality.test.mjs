@@ -43,6 +43,21 @@ test('Beijing curve explicitly selects CAMS Global, spans 48 hourly points and l
   assert.equal(url.hostname, 'air-quality-api.open-meteo.com');
 });
 
+test('calendar window includes both complete local days while rolling remains the default', async () => {
+  const data = dataset(), calls = [];
+  const midnight = Date.parse('2026-10-28T00:00:00+08:00');
+  data.hourly.time = Array.from({ length: 48 }, (_, i) => localTime(midnight + i * HOUR_MS));
+  const result = await getAirQuality({ window: 'calendar', now: NOW, fetchImpl: fakeFetch(data, undefined, calls) });
+  assert.equal(result.hourly[0].time, '2026-10-28T00:00:00+08:00');
+  assert.equal(result.hourly.at(-1).time, '2026-10-29T23:00:00+08:00');
+  assert.match(result.text, /今明两天/);
+  const url = new URL(calls.find(call => call.url.includes('/v1/')).url);
+  assert.equal(url.searchParams.get('start_date'), '2026-10-28');
+  assert.equal(url.searchParams.get('end_date'), '2026-10-29');
+  assert.equal(url.searchParams.has('forecast_hours'), false);
+  await assert.rejects(getAirQuality({ window: 'anything', now: NOW, fetchImpl: async () => assert.fail('No request') }), { code: 'AIR_WINDOW_UNSUPPORTED' });
+});
+
 test('generalized CAMS requests and labels use the selected Guangzhou or Tianjin coordinates', async (t) => {
   for (const [city, name, latitude, longitude] of [
     ['guangzhou', '广州', 23.1291, 113.2644],

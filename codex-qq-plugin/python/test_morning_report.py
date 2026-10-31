@@ -28,6 +28,17 @@ def set_pm(data, value):
 
 
 class MorningReportTests(unittest.TestCase):
+    def test_two_day_weather_does_not_mix_tomorrow_into_today_exercise_advice(self):
+        data = packet()
+        expected = analyze_morning(data)
+        tomorrow = deepcopy(data["weather"]["hourly"])
+        for row in tomorrow:
+            for field in ("time", "periodEnd"):
+                row[field] = (datetime.fromisoformat(row[field]) + timedelta(days=1)).isoformat()
+            row.update(temperatureC=40, windSpeedMs=15, precipitationMm=20, weatherCode=95)
+        data["weather"]["hourly"].extend(tomorrow)
+        self.assertEqual(analyze_morning(data), expected)
+
     def test_normal_monday_and_wednesday_only_consider_evening(self):
         for day in ("2026-11-02", "2026-10-28"):
             with self.subTest(day=day):

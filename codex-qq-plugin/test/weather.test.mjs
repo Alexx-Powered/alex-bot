@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { getWeatherBrief, ForecastDataError, HOUR_MS, localTime } from '../src/weather.mjs';
 
 const NOW = Date.parse('2026-10-28T10:15:00Z');
-function weatherFixture(date = '2026-10-28') {
+function weatherFixture(date = '2026-10-28', hours = 48) {
   const midnight = Date.parse(date + 'T00:00:00+08:00');
   return { timezone: 'Asia/Shanghai', utc_offset_seconds: 28800,
     hourly_units: { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' },
-    hourly: { time: Array.from({ length: 48 }, (_, i) => localTime(midnight + i * HOUR_MS)),
-      temperature_2m: Array.from({ length: 48 }, (_, i) => 10 + i % 12),
-      relative_humidity_2m: Array(48).fill(60), precipitation: Array(48).fill(0),
-      precipitation_probability: Array(48).fill(0), rain: Array(48).fill(0), snowfall: Array(48).fill(0) } };
+    hourly: { time: Array.from({ length: hours }, (_, i) => localTime(midnight + i * HOUR_MS)),
+      temperature_2m: Array.from({ length: hours }, (_, i) => 10 + i % 12),
+      relative_humidity_2m: Array(hours).fill(60), precipitation: Array(hours).fill(0),
+      precipitation_probability: Array(hours).fill(0), rain: Array(hours).fill(0), snowfall: Array(hours).fill(0) } };
 }
 function metadata(now = NOW) {
   return { last_run_initialisation_time: Math.floor((now - 12 * HOUR_MS) / 1000),
@@ -47,6 +47,27 @@ test('Beijing weather requests only the fixed ECMWF model and returns 24 labelle
   assert.equal(request.searchParams.get('start_date'), '2026-10-28');
   assert.equal(request.searchParams.get('end_date'), '2026-10-29');
   assert.ok(calls.every((c) => c.options.redirect === 'error'));
+});
+
+test('two-day charts include the next day final hour and request the following midnight for precipitation', async () => {
+  const data = weatherFixture('2026-10-28', 72), calls = [];
+  data.hourly.precipitation[0] = 99;
+  data.hourly.precipitation[48] = 2.5;
+  data.hourly.precipitation_probability[48] = 80;
+  data.hourly.precipitation[49] = 99;
+  const result = await getWeatherBrief({ days: 2, now: NOW, fetchImpl: fixtureFetch(data, { calls }) });
+  assert.equal(result.hourly.length, 48);
+  assert.equal(result.hourly[0].time, '2026-10-28T00:00:00+08:00');
+  assert.equal(result.hourly.at(-1).periodEnd, '2026-10-30T00:00:00+08:00');
+  assert.equal(result.hourly.at(-1).precipitationProbabilityPct, 80);
+  assert.equal(result.summary.precipitationTotalMm, 2.5);
+  assert.match(result.text, /两日天气预报/);
+  const request = new URL(calls.find(call => call.url.includes('/v1/')).url);
+  assert.equal(request.searchParams.get('start_date'), '2026-10-28');
+  assert.equal(request.searchParams.get('end_date'), '2026-10-30');
+  for (const days of [0, 3, '2', null]) {
+    await assert.rejects(getWeatherBrief({ days, now: NOW, fetchImpl: async () => assert.fail('No request') }), { code: 'WEATHER_DAYS_UNSUPPORTED' });
+  }
 });
 
 test('exercise wind/code are instant but sunshine is shifted from preceding-hour mean',async()=>{

@@ -51,7 +51,7 @@ BASE_URLS = frozenset({"https://api.deepseek.com", "https://api.deepseek.com/v1"
 SAFE_ERROR_TEXT = "智能助手暂时不可用，请稍后再试。"
 CLARIFY_TEXT = {
     "missing_place": "请说明要查询的城市或雷达站点；同名地点请补充省份。",
-    "unsupported_time": "目前天气图支持当天，空气质量图支持未来48小时，雷达图支持当前最新观测。",
+    "unsupported_time": "天气图固定显示今天00:00至明天24:00，空气质量图支持未来48小时，雷达图支持当前最新观测。",
     "conversion_input": "请按同类单位换算，例如：换算 0.6 HU$ 人民币；1马里换公里；1马时换小时。",
     "restricted_access": "当前群为灰名单，仅开放基础聊天和换算，未开放这项查询。",
     "unsupported_action": "这件事我不能代你操作，也不能替你联系别人。",
@@ -359,7 +359,7 @@ class Runner:
 
         @tool(args_schema=CityArgs, return_direct=True)
         def weather_image(city: str) -> str:
-            """生成指定城市北京时间当天00–23时天气三联图。仅today；昨天、明天及其他日期必须clarify unsupported_time。地点不明确先clarify missing_place；不得猜测城市。"""
+            """生成指定城市北京时间今天00:00至明天24:00的48小时天气三联图。固定从今天开始；单独指定昨天、明天或其他起始日期必须clarify unsupported_time。地点不明确先clarify missing_place；不得猜测城市。"""
             return remote("weather_image", {"city": city})
 
         @tool(args_schema=CityArgs, return_direct=True)
