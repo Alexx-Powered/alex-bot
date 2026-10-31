@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { Chart } from 'chart.js';
 import { prepareWeatherChart, renderWeatherChart } from '../src/weather-chart.mjs';
 
 const NOW = Date.parse('2026-10-28T10:00:00Z');
@@ -76,6 +77,37 @@ test('real chart draws a dashed midnight separator aligned inside all four plots
   });
   assert.deepEqual(separators[0], separators[1]); assert.deepEqual(separators[1], separators[2]);
   assert.deepEqual(separators[2], separators[3]);
+});
+
+test('100% cloud and exact-axis PM2.5 peaks retain full strokes above and below the data', () => {
+  const weather = forecast(), air = airForecast(), measured = [];
+  weather.hourly.forEach((row, hour) => { row.cloudCoverPct = hour < 24 ? 100 : 0; row.precipitationProbabilityPct = hour < 24 ? 100 : 0; });
+  air.hourly.forEach((row, hour) => { row.pm25 = hour === 0 ? 0 : hour >= 15 && hour <= 23 ? 220 : 25; });
+  const probe = { id: 'weatherStrokeBoundaryProbe', afterDatasetsDraw(chart) {
+    chart.data.datasets.forEach((dataset, index) => {
+      if (!/总云量|PM2\.5/.test(dataset.label)) return;
+      const points = chart.getDatasetMeta(index).data, ys = points.map(point => point.y);
+      const controls = points.flatMap(point => [point.cp1y, point.cp2y]).filter(Number.isFinite);
+      const halfStroke = dataset.borderWidth / 2;
+      measured.push({ label: dataset.label, min: chart.scales.y.min, max: chart.scales.y.max,
+        topGap: Math.min(...ys) - halfStroke - chart.chartArea.top,
+        bottomGap: chart.chartArea.bottom - Math.max(...ys) - halfStroke,
+        controlCount: controls.length,
+        boundedControls: controls.every(value => value >= Math.min(...ys) - 0.01 && value <= Math.max(...ys) + 0.01) });
+    });
+  } };
+  Chart.register(probe);
+  try { renderWeatherChart({ date: '2026-10-28', weather: [weather], air, now: NOW }); }
+  finally { Chart.unregister(probe); }
+  assert.equal(measured.length, 2);
+  for (const bounds of measured) {
+    assert.ok(bounds.topGap >= 4, `${bounds.label}: top stroke needs breathing room, got ${bounds.topGap}`);
+    assert.ok(bounds.bottomGap >= 4, `${bounds.label}: zero stroke needs breathing room, got ${bounds.bottomGap}`);
+  }
+  const cloud = measured.find(bounds => bounds.label.includes('总云量'));
+  assert.equal(cloud.min, 0); assert.equal(cloud.max, 100, 'Percent labels retain their true physical domain');
+  assert.ok(cloud.controlCount > 0, 'Inspect the actual rendered Bezier controls');
+  assert.ok(cloud.boundedControls, 'Smoothing must not invent cloud values outside 0–100%');
 });
 
 test('missing, invalid and absent hours remain null while genuine zero probability is retained', () => {

@@ -166,7 +166,7 @@ function precipitationLegend(ctx, series, top = 1223) {
   });
 }
 
-function standardOptions({ yMin, yMax } = {}) {
+function standardOptions({ yMin, yMax, inset = false } = {}) {
   return { responsive: false, animation: false, devicePixelRatio: 1,
     layout: { padding: { left: 4, right: 26, top: 22, bottom: 34 } },
     plugins: { legend: { display: false }, tooltip: { enabled: false } },
@@ -176,6 +176,7 @@ function standardOptions({ yMin, yMax } = {}) {
         ticks: { stepSize: 6, callback: value => value === FORECAST_HOURS ? '24:00' : `${String(value % 24).padStart(2, '0')}:00`,
           color: '#718198', font: { family: FONT, size: 19 }, maxRotation: 0, autoSkip: false, padding: 8 } },
       y: { ...(yMin === undefined ? {} : { min: yMin }), ...(yMax === undefined ? {} : { max: yMax }),
+        offset: inset,
         afterFit: scale => { scale.width = 74; },
         grid: { color: COLORS.faint }, border: { display: false }, ticks: { color: COLORS.muted, font: { family: FONT, size: 22 }, maxTicksLimit: 5, padding: 9 } },
     },
@@ -202,7 +203,11 @@ function calendarBoundary(model) {
 }
 function drawChart(ctx, { x = 64, y, width = 1072, height = 280, type, data, options, plugins = [] }) {
   const plot = createCanvas(width, height);
-  const chart = new Chart(plot.getContext('2d'), { type, data, options, plugins });
+  // Keep complete strokes at the first/last hour without opening unlimited overflow.
+  const chartData = { ...data, datasets: data.datasets.map(dataset => ({
+    clip: 4, ...(type === 'line' ? { cubicInterpolationMode: 'monotone' } : {}), ...dataset,
+  })) };
+  const chart = new Chart(plot.getContext('2d'), { type, data: chartData, options, plugins });
   try { ctx.drawImage(plot, x, y); } finally { chart.destroy(); }
 }
 
@@ -298,7 +303,7 @@ export function renderWeatherChart(input) {
   airLegend(ctx);
   const validAir = airSeries.values.filter(value => value !== null);
   if (validAir.length) {
-    const options = standardOptions({ yMin: 0, yMax: Math.max(20, Math.ceil(Math.max(...validAir) / 20) * 20) });
+    const options = standardOptions({ yMin: 0, yMax: Math.max(20, Math.ceil(Math.max(...validAir) / 20) * 20), inset: true });
     drawChart(ctx, { y: 803, height: 229, type: 'line', data: { datasets: [{ label: `${airSeries.name} PM2.5`, data: hourlyPoints(airSeries.values),
       borderColor: pm25Gradient, fill: false, borderWidth: 4.5, pointRadius: 0,
       tension: 0.15, spanGaps: false }] }, options, plugins: [pm25Background(), calendarBoundary(model)] });
@@ -312,7 +317,7 @@ export function renderWeatherChart(input) {
   precipitationLegend(ctx, weatherSeries);
   const probability = weatherSeries.flatMap(series => series.precipitationProbabilityPct).filter(value => value !== null);
   if (probability.length) {
-    const options = standardOptions({ yMin: 0, yMax: 100 });
+    const options = standardOptions({ yMin: 0, yMax: 100, inset: true });
     options.scales.y.ticks.stepSize = 25;
     drawChart(ctx, { y: 1250, height: 258, type: 'bar', data: {
       datasets: weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.precipitationProbabilityPct, 0.5),
@@ -332,7 +337,7 @@ export function renderWeatherChart(input) {
   precipitationLegend(ctx, weatherSeries, 1693);
   const clouds = weatherSeries.flatMap(series => series.cloudCoverPct).filter(value => value !== null);
   if (clouds.length) {
-    const options = standardOptions({ yMin: 0, yMax: 100 });
+    const options = standardOptions({ yMin: 0, yMax: 100, inset: true });
     options.scales.y.ticks.stepSize = 25;
     drawChart(ctx, { y: 1720, height: 250, type: 'line', data: {
       datasets: weatherSeries.map(series => ({ label: `${series.name} 总云量`, data: hourlyPoints(series.cloudCoverPct),
