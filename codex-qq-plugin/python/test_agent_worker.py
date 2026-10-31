@@ -238,7 +238,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
     def test_explicit_unsupported_time_never_silently_becomes_today(self):
-        for text in ["广州明天天气", "广州昨天怎么样", "广州2026-10-29天气", "北京未来天气", "Guangzhou tomorrow"]:
+        for text in ["广州后天天气", "广州昨天怎么样", "广州2026-10-30天气", "北京下周天气", "Guangzhou next week", "北京未来三天天气", "北京未来72小时天气"]:
             with self.subTest(text=text):
                 result = self.run_action(text=text)
                 self.assertEqual(result["kind"], "clarify")
@@ -247,6 +247,18 @@ class WorkerTests(unittest.TestCase):
 
     def test_today_iso_date_is_allowed(self):
         self.assertEqual(self.run_action(text="广州2026-10-28天气")["kind"], "tool")
+
+    def test_tomorrow_weather_uses_existing_two_day_chart(self):
+        for text in ["明天北京什么天气", "广州明天天气", "北京明早冷不冷", "北京明晚下雨吗", "北京未来天气", "北京未来两天天气", "北京未来48小时天气", "广州2026-10-29天气", "Guangzhou tomorrow"]:
+            with self.subTest(text=text):
+                self.assertEqual(self.run_action(text=text)["kind"], "tool")
+        self.assertEqual(len(self.calls), 9)
+
+    def test_weather_date_window_handles_month_and_year_rollover(self):
+        self.assertFalse(worker._unsupported_time("北京2026-11-01天气", "weather_image", "2026-10-31"))
+        self.assertFalse(worker._unsupported_time("北京2027-01-01天气", "weather_image", "2026-12-31"))
+        self.assertTrue(worker._unsupported_time("北京2026-11-02天气", "weather_image", "2026-10-31"))
+        self.assertTrue(worker._unsupported_time("北京明天雷达", "radar_image", "2026-10-31"))
 
     def test_air_next48h_is_allowed_but_history_or_nextweek_is_not(self):
         self.assertEqual(self.run_action("air_quality_image", {"city": "广州"}, text="广州未来48小时空气")["kind"], "tool")
