@@ -1,0 +1,15 @@
+工具：内置 image_gen
+日期：2026-10-30
+用途：大肥鱼 Bot 新版头像与 Logo
+参考：../鲸鱼娘/Q版/whale-girl-transparent.png（角色设计参考）
+署名链：上善无形 → ZipZipPipe；参考仓库 fornarwhal/deepseek-whale-girl-icon 声明 CC BY-NC-SA 4.0，同时说明网络原图作者未确认。衍生设计保留署名、非商业、相同方式共享条件与该来源不确定性。
+输出：logo-v2.png
+
+完整生成提示词：
+Use case: logo-brand.
+Create a NEW polished mascot logo for a personal Chinese QQ chatbot called 大肥鱼 Bot, whose personality loves plain white rice.
+Input image is a CHARACTER DESIGN REFERENCE ONLY, not an edit target. Reinterpret its blue-haired whale girl, fin-shaped ears, white maid headband and navy/white maid clothing into a much simpler original mascot emblem.
+Design one single square avatar, no presentation sheet. A very cute round-faced chibi whale girl in a tight bust portrait, both little hands hugging a rounded white ceramic bowl piled with fluffy white rice. The face is the main focus, large clear blue eyes, soft pink cheeks and a delighted tiny smiling mouth. Deep ocean blue hair with a few lighter blue tips, simplified flowing locks, one playful curved forelock, whale-fin ears, restrained white maid headband. A single little blue whale tail curls up at one side to communicate whale identity. Navy-and-white clothing visible only enough to establish her identity.
+Style: professional Japanese kawaii mascot brand mark, clean confident dark navy outlines with varied but controlled weight, large simplified color shapes, minimal cel shading, expertly drawn symmetric yet lively face, charming and tasteful. This is an app avatar with excellent readability at 48 pixels. Much simpler than full anime character art. Limit tiny details; avoid lace filigree, jewelry and complex costume patterns.
+Composition: centered compact cohesive silhouette, head occupies most of image, rice bowl in lower center, keep every important element within central 80 percent safe circle for QQ circular cropping. Flat very pale icy blue square background, subtle circular blue halo behind character. Crisp high resolution raster illustration with vector-like edges.
+Text: none. No lettering, no watermark, no mockup, no extra panels, no photorealism, no 3D, no gradients dominating the drawing. One finished logo only.

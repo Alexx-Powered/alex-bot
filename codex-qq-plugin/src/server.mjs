@@ -90,11 +90,11 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     let pathname;
     try { pathname = new URL(req.url, expectedOrigin).pathname; } catch { return json(res, 400, { ok: false, code: 'INVALID_URL' }); }
     if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true, service: 'alex-codex-qq', version: '0.2.1' });
-    const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/guide': ['guide.html', 'text/html'], '/guide.css': ['guide.css', 'text/css'], '/social': ['social.html','text/html'], '/social.js':['social.js','text/javascript'], '/logo.svg': ['logo.svg', 'image/svg+xml'] };
+    const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/guide': ['guide.html', 'text/html'], '/guide.css': ['guide.css', 'text/css'], '/logo.png': ['logo.png', 'image/png'], '/social': ['social.html','text/html'], '/social.js':['social.js','text/javascript'], '/logo.svg': ['logo.svg', 'image/svg+xml'] };
     if (req.method === 'GET' && assets[pathname]) {
       const [file, type] = assets[pathname];
       res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('Content-Type', type + '; charset=utf-8');
+      res.setHeader('Content-Type', type.startsWith('text/') ? type + '; charset=utf-8' : type);
       try { return res.end(await fs.readFile(path.join(root, 'public', file))); }
       catch { return json(res, 500, { ok: false, code: 'ASSET_UNAVAILABLE' }); }
     }
