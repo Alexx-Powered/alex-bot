@@ -2,7 +2,15 @@
 
 2026-10-29 已迁移。开发工作区仍为 `D:\Projects\Alex Bot`，GitHub 仅在用户明确要求时更新。
 
-## 当前生产：两日风力与最大阵风（2026-10-31）
+## 2026-10-31 蓝色控制台与新 Logo（已上线）
+
+用户要求提交并部署原本留在工作区的界面改动。源码提交`73c46c8`，生产`linux-8bb44d1fce41`，包含蓝色控制台/指南样式、PNG Logo及来源说明、PNG静态路由与正确MIME。未推送GitHub。
+
+Windows与Linux控制台各14项测试通过。主服务PID71859于2026-10-31 22:59:25 CST启动，早报PID71877；源码清单、实际监听、argv及源码早于启动均核验。SSH隧道PID35300，启动13:58:30 +08。经本机隧道读取页面已确认蓝色变量、PNG引用、image/png及Logo SHA256一致。服务connected、paired、未暂停；发送计数10→10、无不确定投递，运行配置和每日早报claim保持一致，未发送QQ测试。
+
+切换前加密备份`alexbot-20261031T145741603Z.json`已保存云端与本机受保护恢复目录，内存验证19文件及密钥配置可恢复、未写明文。旧release和`source-linux-3b543066a571-before-console-blue-20261031T145925Z.tar.gz`保留可回退。Workbench download本轮失败，改经已认证exec传回密文并验证成功。
+
+## 历史：两日风力与最大阵风（2026-10-31）
 
 `linux-3b543066a571`，源码`fc5d920`；主PID71624，22:49:58 CST启动，早报PID71643，本机SSH PID35300。标题中间显示今明两日“主要风向 n–m级 · 阵风最大k级”，来源ECMWF/Open-Meteo；独立阵风字段按原生3小时窗口归入日期。计算在受限Python LangChain工具，固定stdio桥接仅传公开数值。Windows35/Linux45项相关回归及真实48小时天气/早报实图通过，计数10不变，配置/claim保留。最终备份`alexbot-20261031T144637734Z.json`已验证可恢复，旧源码/版本保留，本轮未推送GitHub。详细回执见HANDOVER。
 
