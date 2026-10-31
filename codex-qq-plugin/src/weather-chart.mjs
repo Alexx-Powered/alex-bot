@@ -215,7 +215,6 @@ function extremaPlugin() {
   return { id: 'weatherExtrema', afterDatasetsDraw(chart) {
     const placed = [];
     chart.data.datasets.forEach((dataset, datasetIndex) => {
-      if (dataset.apparent) return;
       const valid = dataset.data.map((point, index) => ({ value: point.y, index })).filter(point => point.value !== null);
       if (!valid.length) return;
       const low = valid.reduce((a, b) => a.value <= b.value ? a : b);
@@ -223,25 +222,40 @@ function extremaPlugin() {
       const labels = low.value === high.value ? [{ point: high, prefix: '恒', direction: -1 }] : [
         { point: high, prefix: '高', direction: -1 }, { point: low, prefix: '低', direction: 1 },
       ];
+      const step = chart.data.datasets.length > 2 ? 12 : 6;
+      const used = new Set(labels.map(item => item.point.index));
+      for (const point of valid) {
+        if ((point.index % step === 0 || point.index === dataset.data.length - 1) && !used.has(point.index))
+          labels.push({ point, prefix: '', direction: dataset.apparent ? 1 : -1 });
+      }
       for (const { point, prefix, direction } of labels) {
         const element = chart.getDatasetMeta(datasetIndex).data[point.index];
         if (!element || !Number.isFinite(element.x) || !Number.isFinite(element.y)) continue;
         const c = chart.ctx;
-        const label = `${shortLabel(c, dataset.label, 235, 20, 'bold')} ${prefix}${number(point.value)}°`;
-        c.save(); c.font = `bold 20px ${FONT}`;
-        const boxWidth = c.measureText(label).width + 16;
+        const city = chart.data.datasets.length > 2 ? `${shortLabel(c, dataset.label.replace(' 体感', ''), 90, 17)} ` : '';
+        const label = `${city}${dataset.apparent ? '体感' : ''}${prefix}${number(point.value)}°`;
+        c.save(); c.font = `${dataset.apparent ? 'normal' : 'bold'} 17px ${FONT}`;
+        const boxWidth = c.measureText(label).width + 10;
         const rawX = element.x - boxWidth / 2;
-        const rawY = element.y + (direction < 0 ? -32 : 10);
+        const rawY = element.y + (direction < 0 ? -25 : 8);
         const candidates = [0, -34, 34, -68, 68].flatMap(dy => [0, -boxWidth - 12, boxWidth + 12].map(dx => ({
           x: Math.max(chart.chartArea.left, Math.min(rawX + dx, chart.width - boxWidth - 4)),
-          y: Math.max(4, Math.min(rawY + dy, chart.chartArea.bottom - 28)), w: boxWidth, h: 27,
+          y: Math.max(4, Math.min(rawY + dy, chart.chartArea.bottom - 23)), w: boxWidth, h: 22,
         })));
-        const position = candidates.find(a => placed.every(b => a.x + a.w + 4 <= b.x || b.x + b.w + 4 <= a.x || a.y + a.h + 4 <= b.y || b.y + b.h + 4 <= a.y)) ?? candidates[0];
+        const position = candidates.find(a => placed.every(b => a.x + a.w + 4 <= b.x || b.x + b.w + 4 <= a.x || a.y + a.h + 4 <= b.y || b.y + b.h + 4 <= a.y));
+        if (!position) { c.restore(); continue; }
         placed.push(position);
         const boxX = position.x, boxY = position.y;
-        c.fillStyle = 'rgba(255,255,255,0.96)'; c.fillRect(boxX, boxY, boxWidth, 27);
-        c.fillStyle = temperatureTextColor(point.value); c.fillText(label, boxX + 8, boxY + 21);
-        c.fillStyle = temperatureColor(point.value);
+        const anchorX = Math.max(boxX, Math.min(element.x, boxX + boxWidth));
+        const anchorY = element.y < boxY ? boxY : boxY + 22;
+        if (Math.hypot(anchorX - element.x, anchorY - element.y) > 28) {
+          c.strokeStyle = dataset.apparent ? '#9eb0c877' : '#687e9566'; c.lineWidth = 1;
+          c.beginPath(); c.moveTo(element.x, element.y); c.lineTo(anchorX, anchorY); c.stroke();
+        }
+        c.strokeStyle = 'rgba(255,255,255,0.96)'; c.lineWidth = 4; c.lineJoin = 'round';
+        c.strokeText(label, boxX + 5, boxY + 17);
+        c.fillStyle = dataset.apparent ? '#7c91ad' : temperatureTextColor(point.value); c.fillText(label, boxX + 5, boxY + 17);
+        c.fillStyle = dataset.apparent ? '#9eb0c8' : temperatureColor(point.value);
         c.beginPath();
         if (dataset.borderDash?.length) c.rect(element.x - 4.5, element.y - 4.5, 9, 9);
         else c.arc(element.x, element.y, 4.5, 0, Math.PI * 2);
