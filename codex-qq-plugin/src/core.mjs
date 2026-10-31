@@ -149,7 +149,10 @@ function classifyError(error) {
   }
   if ((status >= 400 && status < 500) || /reject|invalid.?target|invalid.?reply|expired.?reply|reply.*(?:invalid|expired)|target.*(?:invalid|expired)/.test(category) ||
       (bizCode !== undefined && bizCode !== null && String(bizCode) !== '0')) {
-    return { code: 'PLATFORM_REJECTED', pause: true, uncertain: false };
+    // An explicit message rejection is final for this attempt, not a global outage.
+    // Authentication, platform rate limits, fatal and uncertain failures above/below
+    // retain their global stop behavior. Never retry this rejected message.
+    return { code: 'PLATFORM_REJECTED', pause: false, uncertain: false };
   }
   if (error?.messageAttempted === false) return { code: 'PLATFORM_REJECTED', pause: true, uncertain: false };
   return { code: 'DELIVERY_UNCERTAIN', pause: true, uncertain: true };

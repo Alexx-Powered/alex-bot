@@ -121,6 +121,7 @@ export class QQAdapter {
   #current = { state: 'disconnected', code: null };
   #observed = new Map();
   #lastGroupDiagnostic = null;
+  #lastSendDiagnostic = null;
 
   constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true } = {}) {
     if (typeof canSend !== 'function') throw new TypeError('INVALID_SEND_GUARD');
@@ -137,7 +138,8 @@ export class QQAdapter {
 
   /** Addressing diagnostics only, never IDs, content, names or authorization. */
   diagnostics() {
-    return { lastGroup: this.#lastGroupDiagnostic ? { ...this.#lastGroupDiagnostic } : null };
+    return { lastGroup: this.#lastGroupDiagnostic ? { ...this.#lastGroupDiagnostic } : null,
+      ...(this.#lastSendDiagnostic?{lastSend:{...this.#lastSendDiagnostic}}:{}) };
   }
 
   #emitStatus(state, code = null) {
@@ -384,6 +386,9 @@ export class QQAdapter {
     } catch (error) {
       const normalized = error instanceof QQAdapterError ? error : safeError(error, phase === 'upload' ? 'QQ_UPLOAD_FAILED' : 'QQ_SEND_FAILED');
       const failure = new QQAdapterError(normalized.code, { ...normalized, phase, messageAttempted });
+      this.#lastSendDiagnostic={at:new Date(this.#now()).toISOString(),scope:authorizedTarget.scope,
+        code:failure.code,phase,messageAttempted,...(failure.httpStatus!==undefined?{httpStatus:failure.httpStatus}:{}),
+        ...(failure.bizCode!==undefined?{bizCode:failure.bizCode}:{})};
       if (this.#bot === bot && this.#generation === generation) {
         if (this.#current.state !== 'blocked') this.#emitStatus(failure.fatal ? 'blocked' : this.#current.state, failure.code);
         if (failure.fatal) { try { bot.stop(); } catch {} }

@@ -161,6 +161,10 @@ test('API failures expose numeric classification only and are never retried', as
   });
   assert.equal(bot.calls.length, 1);
   assert.doesNotMatch(JSON.stringify(f.statuses), /secret-token|private QQ/);
+  const diagnostic=f.adapter.diagnostics().lastSend;
+  assert.equal(diagnostic.httpStatus,403);assert.equal(diagnostic.bizCode,40034105);
+  assert.equal(diagnostic.phase,'send');assert.equal(diagnostic.scope,'c2c');
+  assert.doesNotMatch(JSON.stringify(diagnostic),/secret-token|private QQ|private-user|OWNER_OPENID/);
   await f.adapter.disconnect();
 });
 

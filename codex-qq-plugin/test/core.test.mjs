@@ -212,13 +212,11 @@ test('Hong Kong midnight does not reset rolling minute budget', async () => {
   assert.equal((await f.core.notify({ text: 'test', idempotencyKey: 'minute-passed' })).code, 'SENT');
 });
 
-test('rate, permission, content, business rejection and fatal errors pause and count attempts', async (t) => {
+test('rate, permission, content and fatal errors pause and count attempts', async (t) => {
   for (const [error, code] of [
     [{ httpStatus: 429 }, 'RATE_LIMITED'],
     [{ httpStatus: 403 }, 'PERMISSION_DENIED'],
     [{ code: 'content_rejected' }, 'CONTENT_REJECTED'],
-    [{ bizCode: 40054001 }, 'PLATFORM_REJECTED'],
-    [{ code: 'QQ_REPLY_TARGET_EXPIRED' }, 'PLATFORM_REJECTED'],
     [{ code: 'QQ_BOT_BANNED', bizCode: 4915, fatal: true }, 'FATAL_ERROR'],
     [{ fatal: true }, 'FATAL_ERROR'],
   ]) {
@@ -234,6 +232,22 @@ test('rate, permission, content, business rejection and fatal errors pause and c
       assert.equal(JSON.stringify(f.persisted.value).includes('SECRET'), false);
       assert.equal((await f.core.notify({ text: 'test', idempotencyKey: 'fail' })).code, 'DUPLICATE');
     });
+  }
+});
+
+test('explicit message rejections do not disable unrelated subsequent messages or retry rejected sends',async()=>{
+  for(const error of [{httpStatus:400,bizCode:40054001},{code:'QQ_REPLY_TARGET_EXPIRED'}]){
+    let first=true;
+    const f=fixture({send:async()=>{if(first){first=false;throw error;}return {ok:true};}});
+    await pair(f);
+    assert.equal((await f.core.notify({text:'first',idempotencyKey:'rejected'})).code,'PLATFORM_REJECTED');
+    assert.equal(f.core.status().paused,false);
+    assert.equal((await f.core.notify({text:'first',idempotencyKey:'rejected'})).code,'DUPLICATE');
+    assert.equal((await f.core.notify({text:'other request',idempotencyKey:'next'})).code,'SENT');
+    assert.equal(f.core.status().dailyAttempts,2);
+    assert.equal(f.sent.length,2);
+    const restarted=new BridgeCore(f.deps);await restarted.init();
+    assert.equal(restarted.status().paused,false);
   }
 });
 
