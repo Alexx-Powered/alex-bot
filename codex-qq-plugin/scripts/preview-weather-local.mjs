@@ -43,13 +43,17 @@ try {
   assert.equal(Date.parse(weather.hourly[0].time), model.start);
   assert.equal(Date.parse(weather.hourly.at(-1).periodEnd), model.end);
   assert.equal(Date.parse(captured.air.hourly[0].time), model.start);
+  const cloudHours = model.weatherSeries[0].cloudCoverPct.filter(value => value !== null).length;
+  assert.ok(cloudHours > 0, 'Live ECMWF cloud data required for this preview');
   await mkdir(out, { recursive: true });
   const file = resolve(out, 'weather-48h.png');
   await writeFile(file, imageResult.image.buffer);
   const report = { previewOnly: true, sentToQQ: false, deployed: false, langchainCalled,
     city: place.name, generatedAt: new Date(now).toISOString(), start: weather.hourly[0].time,
     endExclusive: weather.hourly.at(-1).periodEnd, weatherHours: weather.hourly.length,
-    airHours: captured.air.hourly.length, sources: [weather.source.url, captured.air.source.url], file };
+    airHours: captured.air.hourly.length, cloudHours,
+    rowSources: { temperature: weather.source.model, pm25: captured.air.source.model, precipitation: weather.source.model, cloudCover: weather.source.model },
+    sources: [weather.source.url, captured.air.source.url], file };
   await writeFile(resolve(out, 'weather-48h.json'), JSON.stringify(report, null, 2));
   await writeFile(resolve(out, 'weather-48h-input.json'), JSON.stringify(input, null, 2));
   console.log(JSON.stringify(report));

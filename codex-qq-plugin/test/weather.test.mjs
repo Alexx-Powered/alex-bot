@@ -6,9 +6,10 @@ const NOW = Date.parse('2026-10-28T10:15:00Z');
 function weatherFixture(date = '2026-10-28', hours = 48) {
   const midnight = Date.parse(date + 'T00:00:00+08:00');
   return { timezone: 'Asia/Shanghai', utc_offset_seconds: 28800,
-    hourly_units: { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' },
+    hourly_units: { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm', cloud_cover: '%' },
     hourly: { time: Array.from({ length: hours }, (_, i) => localTime(midnight + i * HOUR_MS)),
       temperature_2m: Array.from({ length: hours }, (_, i) => 10 + i % 12),
+      cloud_cover: Array.from({ length: hours }, (_, i) => i % 101),
       relative_humidity_2m: Array(hours).fill(60), precipitation: Array(hours).fill(0),
       precipitation_probability: Array(hours).fill(0), rain: Array(hours).fill(0), snowfall: Array(hours).fill(0) } };
 }
@@ -60,13 +61,33 @@ test('two-day charts include the next day final hour and request the following m
   assert.equal(result.hourly[0].time, '2026-10-28T00:00:00+08:00');
   assert.equal(result.hourly.at(-1).periodEnd, '2026-10-30T00:00:00+08:00');
   assert.equal(result.hourly.at(-1).precipitationProbabilityPct, 80);
+  assert.equal(result.hourly[0].cloudCoverPct, 0);
+  assert.equal(result.hourly[1].cloudCoverPct, 1);
+  assert.equal(result.hourly.at(-1).cloudCoverPct, 47, 'Cloud is instantaneous, not shifted with precipitation');
   assert.equal(result.summary.precipitationTotalMm, 2.5);
   assert.match(result.text, /两日天气预报/);
   const request = new URL(calls.find(call => call.url.includes('/v1/')).url);
   assert.equal(request.searchParams.get('start_date'), '2026-10-28');
   assert.equal(request.searchParams.get('end_date'), '2026-10-30');
+  assert.ok(request.searchParams.get('hourly').split(',').includes('cloud_cover'));
+  assert.equal(request.searchParams.get('models'), 'ecmwf_ifs025');
   for (const days of [0, 3, '2', null]) {
     await assert.rejects(getWeatherBrief({ days, now: NOW, fetchImpl: async () => assert.fail('No request') }), { code: 'WEATHER_DAYS_UNSUPPORTED' });
+  }
+});
+
+test('cloud percentage validates its own units, shape and range without erasing other forecasts', async () => {
+  const data = weatherFixture();
+  data.hourly.cloud_cover.splice(0, 6, 0, 100, null, -1, 101, '50');
+  const report = await getWeatherBrief({ now: NOW, fetchImpl: fixtureFetch(data) });
+  assert.deepEqual(report.hourly.slice(0, 6).map(row => row.cloudCoverPct), [0, 100, null, null, null, null]);
+  assert.equal(report.summary.cloudCover.max, 100);
+  assert.equal(report.summary.temperature.validHours, 24);
+  for (const edit of [d => { delete d.hourly.cloud_cover; }, d => { d.hourly.cloud_cover.pop(); }, d => { d.hourly_units.cloud_cover = 'fraction'; }]) {
+    const missing = weatherFixture(); edit(missing);
+    const result = await getWeatherBrief({ now: NOW, fetchImpl: fixtureFetch(missing) });
+    assert.ok(result.hourly.every(row => row.cloudCoverPct === null));
+    assert.equal(result.summary.temperature.validHours, 24);
   }
 });
 

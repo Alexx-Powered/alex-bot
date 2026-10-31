@@ -359,7 +359,7 @@ class Runner:
 
         @tool(args_schema=CityArgs, return_direct=True)
         def weather_image(city: str) -> str:
-            """生成指定城市北京时间今天00:00至明天24:00的48小时天气三联图。固定从今天开始；单独指定昨天、明天或其他起始日期必须clarify unsupported_time。地点不明确先clarify missing_place；不得猜测城市。"""
+            """生成指定城市北京时间今天00:00至明天24:00的48小时天气四联图（温度、PM2.5、降水概率、总云量，每行注明来源）。固定从今天开始；单独指定昨天、明天或其他起始日期必须clarify unsupported_time。地点不明确先clarify missing_place；不得猜测城市。"""
             return remote("weather_image", {"city": city})
 
         @tool(args_schema=CityArgs, return_direct=True)

@@ -15,16 +15,16 @@ const range=(value,unit)=>value&&typeof value==='object'?`${shown(value.min)}–
 /** Morning report stays one image; no model-generated weather numbers. */
 export async function renderMorningChart({inputs,analysis,plan}){
   if(!Array.isArray(analysis.windows)||analysis.windows.length>3)throw new Error('MORNING_CHART_INVALID');
-  const base=renderWeatherChart(inputs),rows=analysis.windows;
-  const height=2250+rows.length*170;
-  const canvas=createCanvas(1200,height),ctx=canvas.getContext('2d');
-  ctx.fillStyle='#f1f5fa';ctx.fillRect(0,0,1200,height);ctx.drawImage(await loadImage(base.buffer),0,0);
+  const base=await loadImage(renderWeatherChart(inputs).buffer),rows=analysis.windows;
+  const height=base.height+450+rows.length*170;
+  const canvas=createCanvas(base.width,height),ctx=canvas.getContext('2d');
+  ctx.fillStyle='#f1f5fa';ctx.fillRect(0,0,base.width,height);ctx.drawImage(base,0,0);
   ctx.fillStyle='#f1f5fa';ctx.fillRect(35,18,650,48);line(ctx,'亚历克斯 · 早安日报',48,49,24,'#38627a');
   if(inputs.weather.some(item=>item?.simulated===true)){
     ctx.fillStyle='#fff0dd';ctx.fillRect(40,125,620,44);line(ctx,'模拟预览',48,154,24,'#a65b00');
   }
-  let y=1810;
-  line(ctx,'04  今日运动建议',48,y+35,32);
+  let y=base.height+10;
+  line(ctx,'05  今日运动建议',48,y+35,32);
   line(ctx,`${plan.calendar.holiday?plan.calendar.holidayName+'假期 · 天津':'日常 · 北京'}  |  运动天气评分`,48,y+76,23,'#596b82');
   y+=108;
   ctx.fillStyle='#ffffff';ctx.fillRect(48,y,1104,130);

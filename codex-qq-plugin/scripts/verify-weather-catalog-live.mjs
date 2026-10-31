@@ -77,8 +77,8 @@ async function getMeta(kind){
 function batchUrl(kind,batch,now){
   const url=new URL(kind==='weather'?'https://api.open-meteo.com/v1/ecmwf':'https://air-quality-api.open-meteo.com/v1/air-quality');
   const params={latitude:batch.map(p=>p.latitude).join(','),longitude:batch.map(p=>p.longitude).join(','),timezone:'Asia/Shanghai'};
-  if(kind==='weather')Object.assign(params,{hourly:'temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,rain,snowfall',models:'ecmwf_ifs025',start_date:localDate(now),end_date:localDate(now+24*HOUR_MS),temperature_unit:'celsius',precipitation_unit:'mm'});
-  else Object.assign(params,{hourly:'pm2_5',domains:'cams_global',forecast_hours:'48'});
+  if(kind==='weather')Object.assign(params,{hourly:'temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,rain,snowfall,cloud_cover',models:'ecmwf_ifs025',start_date:localDate(now),end_date:localDate(now+48*HOUR_MS),temperature_unit:'celsius',precipitation_unit:'mm'});
+  else Object.assign(params,{hourly:'pm2_5',domains:'cams_global',start_date:localDate(now),end_date:localDate(now+24*HOUR_MS)});
   url.search=new URLSearchParams(params).toString();return url;
 }
 function replayFetch(place,kind,result,index,meta){
@@ -107,10 +107,10 @@ for(let offset=0;offset<pending.length;offset+=25){
     for(let i=0;i<batch.length;i++){
       const place=batch[i];
       try{
-        const w=await getWeatherBrief({place,now,fetchImpl:replayFetch(place,'weather',weather,i,wMeta)});
-        const a=await getAirQuality({place,now,fetchImpl:replayFetch(place,'air',air,i,aMeta)});
+        const w=await getWeatherBrief({place,days:2,now,fetchImpl:replayFetch(place,'weather',weather,i,wMeta)});
+        const a=await getAirQuality({place,window:'calendar',now,fetchImpl:replayFetch(place,'air',air,i,aMeta)});
         const image=renderWeatherChart({date:w.date,cities:[place.id],places:[place],weather:[w],air:a,now});
-        if(image.buffer.readUInt32BE(16)!==1200||image.buffer.readUInt32BE(20)!==1800)throw Error('RENDER_DIMENSIONS');
+        if(image.buffer.readUInt32BE(16)!==1200||image.buffer.readUInt32BE(20)!==2250)throw Error('RENDER_DIMENSIONS');
         const missingWeather=w.hourly.filter(p=>Object.values(p).includes(null)).length;
         const missingAir=a.hourly.filter(p=>p.pm25===null).length;
         const entry={id:place.id,name:place.name,status:'passed',weatherHours:w.hourly.length,airHours:a.hourly.length,missingWeather,missingAir,imageBytes:image.buffer.length};

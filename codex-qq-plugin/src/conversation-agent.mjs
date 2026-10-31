@@ -101,7 +101,7 @@ export class ConversationAgent{
           return decorate({ignored:true,text:policy.enabled?'这件事我帮不上忙，但鱼还在，可以陪你聊聊。':''},'chat');
         }
         if(result.kind==='clarify'&&result.reason==='unsupported_action'&&policy.enabled)return decorate({text:'这件事我不能代你操作，也不能替你联系别人。'},'chat');
-        if(result.kind==='clarify')return result.reason==='restricted_access'?denied():result.reason==='missing_place'?decorate({text:'请告诉我城市或区县；雷达也可以使用区域名，例如华北。'},'chat'):result.reason==='unsupported_time'?decorate({text:'天气三联图目前只支持今天；空气质量曲线展示未来48小时。'},'chat'):null;
+        if(result.kind==='clarify')return result.reason==='restricted_access'?denied():result.reason==='missing_place'?decorate({text:'请告诉我城市或区县；雷达也可以使用区域名，例如华北。'},'chat'):result.reason==='unsupported_time'?decorate({text:'天气图固定显示今天00:00至明天24:00；空气质量曲线展示未来48小时。'},'chat'):null;
         return null;
       });
       if(result?.ignored){

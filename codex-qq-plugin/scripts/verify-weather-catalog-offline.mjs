@@ -50,7 +50,7 @@ const metadata = {
 // Weather needs 25 samples to produce 24 forward-labelled intervals.
 const weatherFixture = {
   timezone: 'Asia/Shanghai', utc_offset_seconds: 28800,
-  hourly_units: { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' },
+  hourly_units: { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm', cloud_cover: '%' },
   hourly: {
     time: Array.from({ length: 25 }, (_, i) => localTime(midnight + i * HOUR_MS)),
     temperature_2m: Array.from({ length: 25 }, (_, i) => Math.round((-4 + Math.sin(i / 6) * 31) * 10) / 10),
@@ -59,6 +59,7 @@ const weatherFixture = {
     precipitation_probability: Array.from({ length: 25 }, (_, i) => i > 10 && i < 17 ? 75 : 0),
     rain: Array.from({ length: 25 }, (_, i) => i > 10 && i < 17 ? 1.2 : 0),
     snowfall: Array(25).fill(0),
+    cloud_cover: Array(25).fill(35),
   },
 };
 const airFixture = {
@@ -145,7 +146,7 @@ for (const place of places) {
     assert.equal(weatherModel.weatherSeries[0].name, place.name); assert.equal(weatherModel.airSeries.id, place.id);
     samePlace(airModel.city, resolved);
     const weatherImage = renderWeatherChart(weatherInput), airImage = renderAirChart(air);
-    checkPng(weatherImage, 1200, 1800); checkPng(airImage, 1200, 640);
+    checkPng(weatherImage, 1200, 2250); checkPng(airImage, 1200, 640);
     item.render = 'passed';
     if (previewIds.has(place.id)) {
       const label = previewIds.get(place.id);

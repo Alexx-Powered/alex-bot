@@ -8,7 +8,7 @@ import {CHINESE_FONT} from './render-fonts.mjs';
 Chart.register(...registerables);
 
 const FONT = CHINESE_FONT;
-const WIDTH = 1200, HEIGHT = 1800;
+const WIDTH = 1200, HEIGHT = 2250;
 const FORECAST_HOURS = 48;
 const COLORS = { ink: '#17263c', muted: '#596b82', faint: '#e6edf5' };
 const SERIES_COLORS = ['#2563eb', '#db721e'];
@@ -44,7 +44,7 @@ export function prepareWeatherChart({ date, cities = ['beijing'], places, weathe
     const result = weather[i];
     if (result !== null && result !== undefined && (result.city?.id !== city || result.date !== date || result.timezone !== 'Asia/Shanghai')) fail('WEATHER_CHART_CITY_MISMATCH');
     const values = valuesByHour(result?.hourly ?? [], midnight, FORECAST_HOURS, {
-      temperatureC: [-90, 65], humidityPct: [0, 100], precipitationMm: [0, 1000], precipitationProbabilityPct: [0, 100],
+      temperatureC: [-90, 65], humidityPct: [0, 100], precipitationMm: [0, 1000], precipitationProbabilityPct: [0, 100], cloudCoverPct: [0, 100],
     });
     return { id: city, name: places[i].name, color: SERIES_COLORS[i], lineDash: i === 1 ? [12, 7] : [], ...values, fetchedAt: result?.fetchedAt ?? null };
   });
@@ -82,8 +82,11 @@ function shortLabel(ctx, text, width, size = 20, weight = 'normal') {
 }
 function panel(ctx, top, height, title, right) {
   ctx.save(); ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(40, top, 1120, height, 24); ctx.fill(); ctx.restore();
-  fitText(ctx, title, 68, top + 48, right ? 680 : 1064, 31, COLORS.ink, 'bold');
-  if (right) write(ctx, right, 1132, top + 46, 22, COLORS.muted, 'normal', 'right');
+  ctx.save(); ctx.font = `20px ${FONT}`;
+  const rightWidth = right ? Math.min(460, ctx.measureText(right).width) : 0;
+  ctx.restore();
+  fitText(ctx, title, 68, top + 48, 1064 - (right ? rightWidth + 28 : 0), 31, COLORS.ink, 'bold');
+  if (right) fitText(ctx, right, 1132, top + 46, 460, 20, COLORS.muted, 'normal', 'right');
 }
 function placeholder(ctx, centerY, title, subtitle) {
   write(ctx, '—', WIDTH / 2, centerY - 48, 52, '#b5c0cf', 'bold', 'center');
@@ -155,11 +158,11 @@ function airLegend(ctx) {
     write(ctx, band.label, x + width / 2, 790, 20, COLORS.muted, 'normal', 'center');
   });
 }
-function precipitationLegend(ctx, series) {
+function precipitationLegend(ctx, series, top = 1223) {
   series.forEach((item, i) => {
     const x = 68 + i * 530;
-    ctx.fillStyle = item.color; ctx.fillRect(x, 1223, 20, 11);
-    fitText(ctx, item.name, x + 30, 1236, 490, 21, COLORS.muted);
+    ctx.fillStyle = item.color; ctx.fillRect(x, top, 20, 11);
+    fitText(ctx, item.name, x + 30, top + 13, 490, 21, COLORS.muted);
   });
 }
 
@@ -269,7 +272,7 @@ export function renderWeatherChart(input) {
   write(ctx, '今天 00:00 → 明天 24:00 · 48 小时', 48, 154, 23, COLORS.muted);
   write(ctx, '模型预报 · 北京时间 UTC+8', 1152, 154, 23, COLORS.muted, 'normal', 'right');
 
-  panel(ctx, 190, 460, '01  温度', '°C');
+  panel(ctx, 190, 460, '01  温度', 'ECMWF IFS / Open-Meteo · °C');
   temperatureLegend(ctx, weatherSeries);
   const temperatures = weatherSeries.flatMap(series => series.temperatureC).filter(value => value !== null);
   if (temperatures.length) {
@@ -291,7 +294,7 @@ export function renderWeatherChart(input) {
     fitText(ctx, line, 68, 592 + i * 33, 1064, 23, COLORS.muted);
   });
 
-  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, 'μg/m³');
+  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, 'CAMS / ECMWF / Open-Meteo · μg/m³');
   airLegend(ctx);
   const validAir = airSeries.values.filter(value => value !== null);
   if (validAir.length) {
@@ -305,7 +308,7 @@ export function renderWeatherChart(input) {
   const airNote = `CAMS 约 45 km / 3 小时插值。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
   fitText(ctx, airNote, 68, 1105, 1064, 22);
 
-  panel(ctx, 1160, 440, '03  逐小时降水概率', '%');
+  panel(ctx, 1160, 440, '03  逐小时降水概率', 'ECMWF IFS / Open-Meteo · %');
   precipitationLegend(ctx, weatherSeries);
   const probability = weatherSeries.flatMap(series => series.precipitationProbabilityPct).filter(value => value !== null);
   if (probability.length) {
@@ -325,13 +328,27 @@ export function renderWeatherChart(input) {
     fitText(ctx, '× 数据缺失', 68, 1578, 1064, 21);
   }
 
+  panel(ctx, 1630, 420, '04  云量', 'ECMWF IFS / Open-Meteo · %');
+  precipitationLegend(ctx, weatherSeries, 1693);
+  const clouds = weatherSeries.flatMap(series => series.cloudCoverPct).filter(value => value !== null);
+  if (clouds.length) {
+    const options = standardOptions({ yMin: 0, yMax: 100 });
+    options.scales.y.ticks.stepSize = 25;
+    drawChart(ctx, { y: 1720, height: 250, type: 'line', data: {
+      datasets: weatherSeries.map(series => ({ label: `${series.name} 总云量`, data: hourlyPoints(series.cloudCoverPct),
+        borderColor: series.color, backgroundColor: `${series.color}15`, borderDash: series.lineDash,
+        borderWidth: 3, fill: true, pointRadius: 0, tension: 0.15, spanGaps: false })) },
+      options, plugins: [calendarBoundary(model)] });
+  } else placeholder(ctx, 1840, '云量数据暂不可用', '稍后刷新重试');
+  fitText(ctx, weatherSeries.map(series => `${series.name}  总云量 ${rangeLabel(series.cloudCoverPct, '%')}`).join(' / '), 68, 2010, 1064, 23);
+
   const acquisition = [...weatherSeries.map(series => ({ name: shortLabel(ctx, series.name, 150, 22), value: series.fetchedAt })),
     { name: `CAMS（${shortLabel(ctx, airSeries.name, 110, 22)}）`, value: airSeries.fetchedAt }].map(item => {
     const stamp = typeof item.value === 'string' ? Date.parse(item.value) : NaN;
     return `${item.name} ${Number.isFinite(stamp) ? localTime(stamp).slice(5).replace('T', ' ') : '无有效数据'}`;
   }).join(' / ');
-  fitText(ctx, `来源：ECMWF IFS（天气）· CAMS / ECMWF（${airSeries.name} PM2.5）· Open-Meteo`, 48, 1650, 1104, 23);
-  write(ctx, 'https://open-meteo.com/', 48, 1689, 23, '#38627a');
-  fitText(ctx, `数据获取：${acquisition}`, 48, 1728, 1104, 22);
+  fitText(ctx, '温度 / 降水 / 云量：ECMWF IFS · PM2.5：CAMS / ECMWF', 48, 2100, 1104, 23);
+  write(ctx, 'https://open-meteo.com/', 48, 2139, 23, '#38627a');
+  fitText(ctx, `数据获取：${acquisition}`, 48, 2178, 1104, 22);
   return { buffer: canvas.toBuffer('image/png'), mimeType: 'image/png' };
 }

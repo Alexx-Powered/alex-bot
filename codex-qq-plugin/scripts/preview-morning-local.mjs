@@ -22,7 +22,7 @@ try{
   for(const s of scenarios){
     const now=Date.parse(`${s.date}T${String(s.hour).padStart(2,'0')}:00:00+08:00`),midnight=Date.parse(s.date+'T00:00:00+08:00');
     const commands=new WeatherCommands({now:()=>now,
-      weather:async({city,days=1,exerciseFields})=>({simulated:true,city:CITIES[city],date:s.date,timezone:'Asia/Shanghai',fetchedAt:new Date(now).toISOString(),hourly:Array.from({length:days*24},(_,h)=>({time:localIso(midnight+h*HOUR_MS),periodEnd:localIso(midnight+(h+1)*HOUR_MS),temperatureC:18+Math.sin((h-6)*Math.PI/12)*6,humidityPct:55,precipitationMm:0,precipitationProbabilityPct:10,rainMm:0,snowfallCm:0,...(exerciseFields?{windSpeedMs:s.missing?null:2,solarRadiationWm2:h%24>=6&&h%24<19?(s.sun?650:200):0,weatherCode:0}:{})}))}),
+      weather:async({city,days=1,exerciseFields})=>({simulated:true,city:CITIES[city],date:s.date,timezone:'Asia/Shanghai',fetchedAt:new Date(now).toISOString(),hourly:Array.from({length:days*24},(_,h)=>({time:localIso(midnight+h*HOUR_MS),periodEnd:localIso(midnight+(h+1)*HOUR_MS),temperatureC:18+Math.sin((h-6)*Math.PI/12)*6,humidityPct:55,cloudCoverPct:s.missing?null:35,precipitationMm:0,precipitationProbabilityPct:10,rainMm:0,snowfallCm:0,...(exerciseFields?{windSpeedMs:s.missing?null:2,solarRadiationWm2:h%24>=6&&h%24<19?(s.sun?650:200):0,weatherCode:0}:{})}))}),
       air:async({city})=>({city:CITIES[city],timezone:'Asia/Shanghai',fetchedAt:new Date(now).toISOString(),hourly:Array.from({length:48},(_,h)=>({time:localIso(midnight+h*HOUR_MS),pm25:s.pm??20}))}),
     });
     const report=await new MorningReportService({commands,worker,now:()=>now}).create();

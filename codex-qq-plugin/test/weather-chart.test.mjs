@@ -13,7 +13,8 @@ const LONG_PLACE = { id: 'geonames-1529565', name: '新疆维吾尔自治区伊�
 function forecast(city = 'beijing') {
   return { city: { id: city }, date: '2026-10-28', timezone: 'Asia/Shanghai', fetchedAt: new Date(NOW).toISOString(),
     hourly: Array.from({ length: 48 }, (_, i) => ({ time: new Date(START + i * HOUR).toISOString(),
-      temperatureC: 10 + Math.sin(i / 4) * 5, humidityPct: 60, precipitationMm: i === 12 ? 2 : 0, precipitationProbabilityPct: i >= 10 && i <= 14 ? 65 : 0 })) };
+      temperatureC: 10 + Math.sin(i / 4) * 5, humidityPct: 60, cloudCoverPct: i % 24 * 4,
+      precipitationMm: i === 12 ? 2 : 0, precipitationProbabilityPct: i >= 10 && i <= 14 ? 65 : 0 })) };
 }
 function airForecast(city = 'beijing') {
   const base = { beijing: 45, tianjin: 30, guangzhou: 16 }[city] ?? 20;
@@ -54,12 +55,12 @@ test('all panels stay on the same two calendar days at morning, evening and mont
   }
 });
 
-test('real chart draws a dashed midnight separator aligned inside all three plots', async () => {
+test('real chart draws a dashed midnight separator aligned inside all four plots', async () => {
   const image = await loadImage(renderWeatherChart({ date: '2026-10-28', weather: [forecast()], air: airForecast(), now: NOW }).buffer);
   const canvas = createCanvas(image.width, image.height), ctx = canvas.getContext('2d');
   ctx.drawImage(image, 0, 0);
   const isSeparator = ([r, g, b]) => r >= 170 && r <= 220 && g - r >= 6 && g - r <= 28 && b - g >= 6 && b - g <= 28;
-  const separators = [299, 803, 1250].map(top => {
+  const separators = [299, 803, 1250, 1720].map(top => {
     const { data: pixels } = ctx.getImageData(550, top + 45, 160, 55);
     const columns = Array.from({ length: 160 }, (_, x) => Array.from({ length: 55 }, (_, y) => {
       const offset = (y * 160 + x) * 4;
@@ -74,10 +75,15 @@ test('real chart draws a dashed midnight separator aligned inside all three plot
     return xs.map(x => 550 + x);
   });
   assert.deepEqual(separators[0], separators[1]); assert.deepEqual(separators[1], separators[2]);
+  assert.deepEqual(separators[2], separators[3]);
 });
 
 test('missing, invalid and absent hours remain null while genuine zero probability is retained', () => {
   const weather = forecast();
+  weather.hourly[0].cloudCoverPct = 0;
+  weather.hourly[1].cloudCoverPct = null;
+  weather.hourly[2].cloudCoverPct = -1;
+  weather.hourly[3].cloudCoverPct = '0';
   weather.hourly[0].precipitationProbabilityPct = 0;
   weather.hourly[1].precipitationProbabilityPct = null;
   weather.hourly[2].precipitationProbabilityPct = -1;
@@ -86,6 +92,7 @@ test('missing, invalid and absent hours remain null while genuine zero probabili
   const air = airForecast(); air.hourly[3].pm25 = null; air.hourly[4].pm25 = -1;
   const result = prepareWeatherChart({ date: '2026-10-28', weather: [weather], air, now: NOW });
   assert.deepEqual(result.weatherSeries[0].precipitationProbabilityPct.slice(0, 5), [0, null, null, null, null]);
+  assert.deepEqual(result.weatherSeries[0].cloudCoverPct.slice(0, 5), [0, null, null, null, null]);
   assert.equal(result.weatherSeries[0].temperatureC[4], null);
   assert.equal(result.airSeries.values[3], null);
   assert.equal(result.airSeries.values[4], null);
@@ -162,7 +169,7 @@ test('date/city mismatches and duplicate hours fail instead of producing mislead
   assert.throws(() => prepareWeatherChart({ date: '2026-10-28', weather: [duplicate], now: NOW }), /WEATHER_CHART_TIME_INVALID/);
 });
 
-test('real renderer produces a bounded 1200x1800 PNG for single and dual-city reports', async () => {
+test('real renderer produces a bounded 1200x2250 PNG for single and dual-city reports', async () => {
   for (const cities of [['beijing'], ['tianjin'], ['guangzhou'], ['beijing', 'tianjin'], ['beijing', 'guangzhou'], ['guangzhou', 'tianjin']]) {
     const airCity = cities.includes('beijing') ? 'beijing' : cities[0];
     const image = renderWeatherChart({ date: '2026-10-28', cities, weather: cities.map(city => forecast(city)), air: airForecast(airCity), now: NOW });
@@ -171,7 +178,7 @@ test('real renderer produces a bounded 1200x1800 PNG for single and dual-city re
     assert.deepEqual([...image.buffer.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
     assert.ok(image.buffer.length < 5 * 1024 * 1024);
     const decoded = await loadImage(image.buffer);
-    assert.equal(decoded.width, 1200); assert.equal(decoded.height, 1800);
+    assert.equal(decoded.width, 1200); assert.equal(decoded.height, 2250);
   }
 });
 
@@ -182,7 +189,7 @@ test('dynamic and long administrative names render bounded single and dual-city 
     const input = { date: '2026-10-28', cities, places, weather, air: places.length === 2 ? null : airForecast(cities[0]), now: NOW };
     const rendered = renderWeatherChart(input), image = await loadImage(rendered.buffer);
     assert.equal(rendered.mimeType, 'image/png'); assert.ok(rendered.buffer.length < 5 * 1024 * 1024);
-    assert.equal(image.width, 1200); assert.equal(image.height, 1800);
+    assert.equal(image.width, 1200); assert.equal(image.height, 2250);
   }
 });
 
@@ -193,7 +200,7 @@ test('renderer supports unavailable and partly missing panels without fabricatin
   assert.ok(model.weatherSeries[1].temperatureC.every(value => value === null));
   assert.ok(model.weatherSeries[1].precipitationProbabilityPct.every(value => value === null));
   const image = await loadImage(renderWeatherChart(input).buffer);
-  assert.equal(image.height, 1800);
+  assert.equal(image.height, 2250);
   const tianjinImage = await loadImage(renderWeatherChart({ date: '2026-10-28', cities: ['tianjin'], weather: [forecast('tianjin')], air: null, now: NOW }).buffer);
   assert.equal(tianjinImage.width, 1200);
   const guangzhou = forecast('guangzhou');
@@ -206,5 +213,5 @@ test('renderer supports unavailable and partly missing panels without fabricatin
   assert.deepEqual(missingAir.weatherSeries[0].temperatureC.slice(0, 2), [null, 0]);
   assert.deepEqual(missingAir.weatherSeries[0].precipitationProbabilityPct.slice(0, 2), [null, 0]);
   const guangzhouImage = await loadImage(renderWeatherChart({ date: '2026-10-28', cities: ['guangzhou'], weather: [guangzhou], air: null, now: NOW }).buffer);
-  assert.equal(guangzhouImage.width, 1200); assert.equal(guangzhouImage.height, 1800);
+  assert.equal(guangzhouImage.width, 1200); assert.equal(guangzhouImage.height, 2250);
 });

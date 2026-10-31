@@ -8,7 +8,7 @@ export { CITIES } from './locations.mjs';
 const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/ecmwf';
 const WEATHER_METADATA = 'https://api.open-meteo.com/data/ecmwf_ifs025/static/meta.json';
 const MAX_BODY_BYTES = 512 * 1024;
-const VARIABLES = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'precipitation_probability', 'rain', 'snowfall'];
+const VARIABLES = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'precipitation_probability', 'rain', 'snowfall', 'cloud_cover'];
 
 export class ForecastDataError extends Error {
   constructor(code) { super(code); this.name = 'ForecastDataError'; this.code = code; }
@@ -161,7 +161,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const freshness = validateModelMetadata(metadata.data, { now, requiredEnd: nextMidnight, maxRunAgeHours: 24 });
   const data = forecast.data;
   const index = hourlyIndex(data, { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' });
-  // Optional exercise fields never turn a missing forecast into a calm/dark/clear hour.
+  // Additional fields stay nullable so an absent cloud/exercise series cannot erase other weather.
   const extra=(key,unit,i,min,max)=>{
     const value=data.hourly_units?.[key]===unit&&Array.isArray(data.hourly?.[key])&&data.hourly[key].length===data.hourly.time.length?finiteValue(data.hourly[key][i],min,max):null;
     return key==='weather_code'&&!Number.isInteger(value)?null:value;
@@ -176,6 +176,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     hourly.push({ time: localIso(stamp), periodEnd: localIso(stamp + HOUR_MS),
       temperatureC: finiteValue(data.hourly.temperature_2m[instant], -90, 65),
       humidityPct: finiteValue(data.hourly.relative_humidity_2m[instant], 0, 100),
+      cloudCoverPct: extra('cloud_cover', '%', instant, 0, 100),
       precipitationMm: finiteValue(data.hourly.precipitation[following], 0, 1000),
       precipitationProbabilityPct: finiteValue(data.hourly.precipitation_probability[following], 0, 100),
       rainMm: finiteValue(data.hourly.rain[following], 0, 1000),
@@ -189,7 +190,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const probability = range(hourly.map((p) => p.precipitationProbabilityPct));
   const missingValues = hourly.some((p) => Object.values(p).includes(null));
   const warnings = ['MODEL_RUN_NOT_BOUND_TO_RESPONSE', ...(missingValues ? ['MISSING_VALUES'] : []), ...(freshness.recentUpdate ? ['MODEL_UPDATE_PROPAGATING'] : [])];
-  const summary = { temperature, humidity, precipitationTotalMm: total(hourly.map((p) => p.precipitationMm)),
+  const summary = { temperature, humidity, cloudCover: range(hourly.map((p) => p.cloudCoverPct)), precipitationTotalMm: total(hourly.map((p) => p.precipitationMm)),
     rainTotalMm: total(hourly.map((p) => p.rainMm)), snowfallTotalCm: total(hourly.map((p) => p.snowfallCm)),
     maxHourlyPrecipitationProbabilityPct: probability.max, probabilityComplete: probability.complete, rain: assessRain(hourly) };
   const source = { name: 'ECMWF IFS 0.25°，经 Open-Meteo 提供', model: 'ecmwf_ifs025', provider: 'Open-Meteo',
@@ -207,8 +208,8 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     `获取 ${localTime(now).replace('T', ' ')}；来源最新起报元数据 ${localTime(Date.parse(freshness.latestModelRunAt)).replace('T', ' ')}（不保证本次响应同批次）。`,
     `来源：ECMWF IFS / Open-Meteo https://open-meteo.com/ ；模型预报，非实测。时区 ${FORECAST_TIMEZONE}。`,
   ].join('\n');
-  const hourlyText = hourly.map((p) => `${p.time.slice(11, 16)} ${shown(p.temperatureC, '°C')} ${shown(p.humidityPct, '%')} ${shown(p.precipitationMm, 'mm')} ${shown(p.precipitationProbabilityPct, '%')}`).join('\n');
+  const hourlyText = hourly.map((p) => `${p.time.slice(11, 16)} ${shown(p.temperatureC, '°C')} ${shown(p.humidityPct, '%')} ${shown(p.precipitationMm, 'mm')} ${shown(p.precipitationProbabilityPct, '%')} 云量${shown(p.cloudCoverPct, '%')}`).join('\n');
   return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText,
     source, fetchedAt: new Date(now).toISOString(), modelRunAt: null, freshness, warnings,
-    temporalNote: '温湿度为行首时刻；降水量/概率对应 time 至 periodEnd。降水为雨雪合计，不等于雨量。' };
+    temporalNote: '温湿度与总云量为行首时刻；降水量/概率对应 time 至 periodEnd。降水为雨雪合计，不等于雨量。' };
 }

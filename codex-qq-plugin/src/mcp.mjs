@@ -32,7 +32,7 @@ export function createMcpServer(bridge = createBridgeClient({timeoutMs:60000})) 
     inputSchema:z.object(weatherArgs).strict(),annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:true},
   },args=>invoke(()=>bridge.weatherPreview(args)));
   server.registerTool('qq_weather_briefing',{
-    title:'向本人QQ发送今日早安日报',description:'按本机已启用的日报设置发送：增强版启用后按官方假期选择天津、平日选择北京；增强版未启用时发送原有北京天气三联图。daily省略cities让本机确定，按北京时间日期去重，一天最多一份，不因城市或内容更新换键重发。先查qq_status，暂停或离线时不能擅自恢复。test仅用于用户明确要求的即时测试，可显式指定城市；未指定时使用北京。',
+    title:'向本人QQ发送今日早安日报',description:'按本机已启用的日报设置发送：增强版启用后按官方假期选择天津、平日选择北京；增强版未启用时发送北京天气四联图（温度、PM2.5、降水概率、云量）。daily省略cities让本机确定，按北京时间日期去重，一天最多一份，不因城市或内容更新换键重发。先查qq_status，暂停或离线时不能擅自恢复。test仅用于用户明确要求的即时测试，可显式指定城市；未指定时使用北京。',
     inputSchema:z.object({cities:weatherCities.optional(),mode:z.enum(['daily','test']).default('daily')}).strict(),annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true},
   },args=>invoke(()=>bridge.weatherBriefing({mode:args.mode,...(args.cities===undefined?{}:{cities:args.cities})})));
   server.registerTool('qq_status', {
