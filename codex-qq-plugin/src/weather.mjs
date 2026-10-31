@@ -8,7 +8,7 @@ export { CITIES } from './locations.mjs';
 const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/ecmwf';
 const WEATHER_METADATA = 'https://api.open-meteo.com/data/ecmwf_ifs025/static/meta.json';
 const MAX_BODY_BYTES = 512 * 1024;
-const VARIABLES = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'precipitation_probability', 'rain', 'snowfall', 'cloud_cover'];
+const VARIABLES = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'precipitation_probability', 'rain', 'snowfall', 'cloud_cover', 'apparent_temperature'];
 
 export class ForecastDataError extends Error {
   constructor(code) { super(code); this.name = 'ForecastDataError'; this.code = code; }
@@ -175,6 +175,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     // these only so each row describes [time, periodEnd), including 23-24h.
     hourly.push({ time: localIso(stamp), periodEnd: localIso(stamp + HOUR_MS),
       temperatureC: finiteValue(data.hourly.temperature_2m[instant], -90, 65),
+      apparentTemperatureC: extra('apparent_temperature', '°C', instant, -120, 100),
       humidityPct: finiteValue(data.hourly.relative_humidity_2m[instant], 0, 100),
       cloudCoverPct: extra('cloud_cover', '%', instant, 0, 100),
       precipitationMm: finiteValue(data.hourly.precipitation[following], 0, 1000),

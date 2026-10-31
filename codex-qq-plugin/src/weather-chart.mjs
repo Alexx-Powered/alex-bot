@@ -44,7 +44,7 @@ export function prepareWeatherChart({ date, cities = ['beijing'], places, weathe
     const result = weather[i];
     if (result !== null && result !== undefined && (result.city?.id !== city || result.date !== date || result.timezone !== 'Asia/Shanghai')) fail('WEATHER_CHART_CITY_MISMATCH');
     const values = valuesByHour(result?.hourly ?? [], midnight, FORECAST_HOURS, {
-      temperatureC: [-90, 65], humidityPct: [0, 100], precipitationMm: [0, 1000], precipitationProbabilityPct: [0, 100], cloudCoverPct: [0, 100],
+      temperatureC: [-90, 65], apparentTemperatureC: [-120, 100], humidityPct: [0, 100], precipitationMm: [0, 1000], precipitationProbabilityPct: [0, 100], cloudCoverPct: [0, 100],
     });
     return { id: city, name: places[i].name, color: SERIES_COLORS[i], lineDash: i === 1 ? [12, 7] : [], ...values, fetchedAt: result?.fetchedAt ?? null };
   });
@@ -215,6 +215,7 @@ function extremaPlugin() {
   return { id: 'weatherExtrema', afterDatasetsDraw(chart) {
     const placed = [];
     chart.data.datasets.forEach((dataset, datasetIndex) => {
+      if (dataset.apparent) return;
       const valid = dataset.data.map((point, index) => ({ value: point.y, index })).filter(point => point.value !== null);
       if (!valid.length) return;
       const low = valid.reduce((a, b) => a.value <= b.value ? a : b);
@@ -279,15 +280,19 @@ export function renderWeatherChart(input) {
 
   panel(ctx, 190, 460, '01  温度', 'ECMWF IFS / Open-Meteo · °C');
   temperatureLegend(ctx, weatherSeries);
-  const temperatures = weatherSeries.flatMap(series => series.temperatureC).filter(value => value !== null);
+  write(ctx, '淡虚线：体感温度', 68, 300, 18, '#8293a6');
+  const temperatures = weatherSeries.flatMap(series => [...series.temperatureC, ...series.apparentTemperatureC]).filter(value => value !== null);
   if (temperatures.length) {
     const minimum = Math.min(...temperatures), maximum = Math.max(...temperatures);
     const margin = Math.max(3, (maximum - minimum) * 0.28);
     const options = standardOptions({ yMin: Math.floor((minimum - margin) / 5) * 5, yMax: Math.ceil((maximum + margin) / 5) * 5 });
     drawChart(ctx, { y: 299, height: 254, type: 'line', data: {
-      datasets: weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.temperatureC), borderColor: temperatureGradient,
+      datasets: [...weatherSeries.map(series => ({ label: `${series.name} 体感`, apparent: true,
+        data: hourlyPoints(series.apparentTemperatureC), borderColor: `${series.color}66`,
+        borderDash: [5, 5], borderWidth: 2.5, pointRadius: 0, spanGaps: false, order: 1 })),
+      ...weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.temperatureC), borderColor: temperatureGradient,
         borderDash: series.lineDash,
-        borderWidth: 4.5, pointRadius: 0, tension: 0.2, spanGaps: false })) }, options, plugins: [extremaPlugin(), calendarBoundary(model)] });
+        borderWidth: 4.5, pointRadius: 0, tension: 0.2, spanGaps: false, order: 0 }))] }, options, plugins: [extremaPlugin(), calendarBoundary(model)] });
   } else placeholder(ctx, 420, '温度数据暂不可用', '稍后刷新重试');
   weatherSeries.forEach((series, i) => {
     const dayTotal = day => {

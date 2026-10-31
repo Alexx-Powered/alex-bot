@@ -91,6 +91,17 @@ test('cloud percentage validates its own units, shape and range without erasing 
   }
 });
 
+test('apparent temperature uses instantaneous Celsius samples and remains missing when unavailable', async () => {
+  const data = weatherFixture();
+  data.hourly_units.apparent_temperature = '°C';
+  data.hourly.apparent_temperature = Array.from({length:48}, (_,i)=>i-10);
+  const result = await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(data)});
+  assert.equal(result.hourly[0].apparentTemperatureC,-10);
+  assert.equal(result.hourly[1].apparentTemperatureC,-9);
+  const missing = await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch()});
+  assert.ok(missing.hourly.every(row=>row.apparentTemperatureC===null));
+});
+
 test('exercise wind/code are instant but sunshine is shifted from preceding-hour mean',async()=>{
   const data=weatherFixture(),calls=[];
   Object.assign(data.hourly_units,{wind_speed_10m:'m/s',shortwave_radiation:'W/m²',weather_code:'wmo code'});
