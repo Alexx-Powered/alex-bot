@@ -102,6 +102,15 @@ test('apparent temperature uses instantaneous Celsius samples and remains missin
   assert.ok(missing.hourly.every(row=>row.apparentTemperatureC===null));
 });
 
+test('daily gust excludes previous-day windows and includes the final closed three-hour block',async()=>{
+  const data=weatherFixture();Object.assign(data.hourly_units,{wind_speed_10m:'m/s',wind_direction_10m:'°',wind_gusts_10m:'m/s'});
+  Object.assign(data.hourly,{wind_speed_10m:Array(48).fill(2),wind_direction_10m:Array(48).fill(0),wind_gusts_10m:Array(48).fill(5)});
+  data.hourly.wind_gusts_10m[0]=100;data.hourly.wind_gusts_10m[3]=8;data.hourly.wind_gusts_10m[24]=11;data.hourly.wind_gusts_10m[27]=99;
+  const report=await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(data)});
+  assert.deepEqual(report.hourly.slice(0,3).map(row=>row.windGustMs),[8,8,8]);
+  assert.equal(report.hourly[23].windGustMs,11);assert.match(report.windBrief[0],/2–2级.*阵风最大6级/);
+});
+
 test('exercise wind/code are instant but sunshine is shifted from preceding-hour mean',async()=>{
   const data=weatherFixture(),calls=[];
   Object.assign(data.hourly_units,{wind_speed_10m:'m/s',shortwave_radiation:'W/m²',weather_code:'wmo code'});

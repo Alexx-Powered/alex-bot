@@ -14,6 +14,6 @@ export function summarizeWind(hourly) {
     child.stdout.on('data',chunk=>{output+=chunk;if(output.length>4096){child.kill();finish(null);}});
     child.stderr.resume();child.on('error',()=>finish(null));child.stdin.on('error',()=>finish(null));
     child.on('close',()=>{try{const days=JSON.parse(output);finish(Array.isArray(days)&&days.length===2&&days.every(line=>typeof line==='string'&&line.length<100&&!/[<>@\r\n]/.test(line))?days:null);}catch{finish(null);}});
-    child.stdin.end(JSON.stringify({speeds:hourly.map(row=>row.windSpeedMs??null),directions:hourly.map(row=>row.windDirectionDeg??null)})+'\n');
+    child.stdin.end(JSON.stringify({speeds:hourly.map(row=>row.windSpeedMs??null),directions:hourly.map(row=>row.windDirectionDeg??null),gusts:hourly.map(row=>row.windGustMs??null)})+'\n');
   });
 }

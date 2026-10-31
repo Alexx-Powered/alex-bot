@@ -7,10 +7,12 @@ from langchain_core.tools import tool
 
 
 @tool
-def wind_brief(speeds: list[float | None], directions: list[float | None]) -> list[str]:
+def wind_brief(speeds: list[float | None], directions: list[float | None], gusts: list[float | None] | None = None) -> list[str]:
     """Summarize up to 48 ordered hourly 10m wind samples in m/s and degrees; no I/O."""
     if len(speeds) != len(directions) or not 1 <= len(speeds) <= 48:
         raise ValueError("INVALID_WIND_WINDOW")
+    if gusts is not None and len(gusts) != len(speeds):
+        raise ValueError("INVALID_GUST_WINDOW")
     def valid(value, maximum):
         return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= maximum
     days = []
@@ -30,15 +32,20 @@ def wind_brief(speeds: list[float | None], directions: list[float | None]) -> li
         if leaders:
             direction = names[leaders[0][0]] if leaders[0][1] > sum(sectors.values()) / 3 and (len(leaders) < 2 or leaders[0][1] > leaders[1][1]) else "风向多变"
         level = sum(max(values) >= threshold for threshold in limits)
+        minimum_level = sum(min(values) >= threshold for threshold in limits)
+        gust_values = [value for value in (gusts or [])[start:start + 24] if valid(value, 150)]
+        gust_text = f"阵风最大{sum(max(gust_values) >= threshold for threshold in limits)}级" if gust_values else "阵风缺数据"
+        if gust_values and len(gust_values) < 24:
+            gust_text += "（部分）"
         missing = 24 - len(values)
-        days.append(f"{direction}  {min(values):.1f}–{max(values):.1f} m/s · 最高{level}级" + (f"（缺{missing}小时）" if missing else ""))
+        days.append(f"{direction}  {minimum_level}–{level}级 · {gust_text}" + (f"（风速缺{missing}小时）" if missing else ""))
     return days
 
 
 if __name__ == "__main__":
     try:
         packet = json.loads(sys.stdin.buffer.readline(65537))
-        if set(packet) != {"speeds", "directions"}:
+        if not {"speeds", "directions"} <= set(packet) or set(packet) - {"speeds", "directions", "gusts"}:
             raise ValueError("INVALID_FIELDS")
         print(json.dumps(wind_brief.invoke(packet), ensure_ascii=False))
     except Exception:
