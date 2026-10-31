@@ -54,18 +54,25 @@ test('all panels stay on the same two calendar days at morning, evening and mont
   }
 });
 
-test('real chart draws the midnight separator at the same x position in all three panels', async () => {
+test('real chart draws a dashed midnight separator aligned inside all three plots', async () => {
   const image = await loadImage(renderWeatherChart({ date: '2026-10-28', weather: [forecast()], air: airForecast(), now: NOW }).buffer);
   const canvas = createCanvas(image.width, image.height), ctx = canvas.getContext('2d');
   ctx.drawImage(image, 0, 0);
-  const separators = [299 + 100, 803 + 100, 1250 + 100].map(y => {
-    const pixels = ctx.getImageData(550, y, 160, 1).data;
-    return Array.from({ length: 160 }, (_, x) => x).filter(x => {
-      const offset = x * 4;
-      return pixels[offset] === 128 && pixels[offset + 1] === 149 && pixels[offset + 2] === 176;
-    }).map(x => 550 + x);
+  const isSeparator = ([r, g, b]) => r >= 170 && r <= 220 && g - r >= 6 && g - r <= 28 && b - g >= 6 && b - g <= 28;
+  const separators = [299, 803, 1250].map(top => {
+    const { data: pixels } = ctx.getImageData(550, top + 45, 160, 55);
+    const columns = Array.from({ length: 160 }, (_, x) => Array.from({ length: 55 }, (_, y) => {
+      const offset = (y * 160 + x) * 4;
+      return isSeparator(pixels.subarray(offset, offset + 3));
+    }));
+    const xs = columns.flatMap((column, x) => column.filter(Boolean).length >= 8 ? [x] : []);
+    assert.ok(xs.length >= 1 && xs.length <= 3);
+    const pattern = columns[xs[0]];
+    assert.ok(pattern.some(Boolean) && pattern.some(value => !value), 'Dashed line has visible gaps');
+    const header = ctx.getImageData(550 + xs[0], top + 3, 1, 15).data;
+    assert.ok(Array.from({ length: 15 }, (_, y) => header.subarray(y * 4, y * 4 + 3)).every(color => !isSeparator(color)), 'Separator stays out of the header');
+    return xs.map(x => 550 + x);
   });
-  assert.ok(separators.every(xs => xs.length >= 1 && xs.length <= 3));
   assert.deepEqual(separators[0], separators[1]); assert.deepEqual(separators[1], separators[2]);
 });
 
