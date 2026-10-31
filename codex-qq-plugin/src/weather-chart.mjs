@@ -287,7 +287,12 @@ export function renderWeatherChart(input) {
   const canvas = createCanvas(WIDTH, HEIGHT), ctx = canvas.getContext('2d');
   ctx.fillStyle = '#f1f5fa'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
   write(ctx, '亚历克斯 · 天气', 48, 49, 24, '#38627a', 'bold');
-  fitText(ctx, `${model.places.map(place => place.name).join(' / ')}天气`, 48, 107, 760, 44, COLORS.ink, 'bold');
+  fitText(ctx, `${model.places.map(place => shortLabel(ctx, place.name, 200, 30)).join(' / ')}天气`, 48, 107, 255, 44, COLORS.ink, 'bold');
+  write(ctx, '两日风速 · ECMWF / Open-Meteo', 340, 45, 19, '#718198');
+  for (let day = 0; day < 2; day++) {
+    const wind = model.places.map((place, i) => `${model.cities.length > 1 ? place.name + ' ' : ''}${input.weather[i]?.windBrief?.[day] ?? '风速缺数据'}`).join(' / ');
+    fitText(ctx, `${day === 0 ? '今天' : '明天'}  ${wind}`, 340, 80 + day * 34, 540, 22, COLORS.muted);
+  }
   write(ctx, `${model.date.slice(5).replace('-', '.')}–${model.nextDate.slice(5).replace('-', '.')}`, 1152, 102, 32, COLORS.ink, 'bold', 'right');
   write(ctx, '今天 00:00 → 明天 24:00 · 48 小时', 48, 154, 23, COLORS.muted);
   write(ctx, '模型预报 · 北京时间 UTC+8', 1152, 154, 23, COLORS.muted, 'normal', 'right');
