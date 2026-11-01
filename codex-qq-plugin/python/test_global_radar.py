@@ -50,4 +50,20 @@ class GlobalRadarTests(unittest.TestCase):
         self.assertEqual(caught.exception.code,'GLOBAL_RADAR_LOCATION_AMBIGUOUS')
         self.assertEqual(tile_position(0,0,1),(1,1))
 
+    def test_basemap_failure_uses_bundled_coastlines_but_never_replaces_failed_radar(self):
+        calls=[]
+        def fetch(url,*args):
+            calls.append(url)
+            if 'openstreetmap.org' in url:raise RadarFailure('GLOBAL_RADAR_SOURCE_UNAVAILABLE')
+            return png(512,(255,255,255,0))
+        place={'world':False,'name':'东京','latitude':35.68,'longitude':139.69,'zoom':6}
+        with tempfile.TemporaryDirectory() as folder:
+            view,covered=map_image(place,FRAME,Path(folder),fetch)
+            self.assertEqual(view.size,(1024,1024));self.assertTrue(covered);self.assertEqual(place['base_source'],'Natural Earth')
+            count=sum('openstreetmap.org' in u for u in calls)
+            map_image(place,FRAME,Path(folder),fetch)
+            self.assertEqual(sum('openstreetmap.org' in u for u in calls),count)
+            def fail_radar(url,*args):raise RadarFailure('GLOBAL_RADAR_TIMEOUT')
+            with self.assertRaises(RadarFailure):map_image(place,FRAME,Path(folder),fail_radar)
+
 if __name__=='__main__':unittest.main()

@@ -6,6 +6,8 @@ import math
 import re
 import time
 import uuid
+import threading
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -108,6 +110,32 @@ def decode_tile(raw,size):
     if image.size!=(size,size) or image.format!='PNG':raise RadarFailure('GLOBAL_RADAR_TILE_INVALID')
     return image.convert('RGBA')
 
+@lru_cache(maxsize=1)
+def base_geography():
+    return json.loads((Path(__file__).resolve().parents[1]/'data/global-radar-base.json').read_text(encoding='utf-8'))
+
+def natural_base(zoom,left,top,size):
+    """Same Web Mercator as the radar tiles; bundled coastlines, never weather data."""
+    image=Image.new('RGBA',(size,size),'#dcebf3');draw=ImageDraw.Draw(image);world=512*2**zoom
+    data=base_geography()
+    for geometry in data['land']:
+        polygons=[geometry['coordinates']] if geometry['type']=='Polygon' else geometry['coordinates']
+        for polygon in polygons:
+            for index,ring in enumerate(polygon):
+                points=[(tile_position(lat,lon,zoom)[0]*512-left,tile_position(lat,lon,zoom)[1]*512-top) for lon,lat in ring]
+                if not points:continue
+                for offset in [-world,0,world]:
+                    shifted=[(x+offset,y) for x,y in points]
+                    if max(x for x,y in shifted)<0 or min(x for x,y in shifted)>size or max(y for x,y in shifted)<0 or min(y for x,y in shifted)>size:continue
+                    draw.polygon(shifted,fill='#f7f5ee' if index==0 else '#dcebf3',outline='#95a9b4')
+    from render_fonts import font_path
+    font=ImageFont.truetype(font_path(False),21)
+    if zoom>=4:
+        for label in data['labels']:
+            x,y=tile_position(label['latitude'],label['longitude'],zoom);x=x*512-left;y=y*512-top
+            if 30<x<size-80 and 25<y<size-25:draw.text((x,y),label['name'],font=font,fill='#617482',stroke_width=2,stroke_fill='#f7f5ee')
+    return image
+
 def map_image(place,frame,private,fetch=request):
     zoom=place['zoom'];n=2**zoom
     if place['world']:
@@ -118,25 +146,35 @@ def map_image(place,frame,private,fetch=request):
         tiles=[(x%n,y,x*512-left,y*512-top) for x in range(math.floor(left/512),math.floor((left+size-1)/512)+1) for y in range(math.floor(top/512),math.floor((top+size-1)/512)+1) if 0<=y<n]
     base=Image.new('RGBA',(size,size),'#e2e8ef');radar=Image.new('RGBA',(size,size));mask=Image.new('L',(size,size),255)
     cache=private/'global-radar-tiles';cache.mkdir(parents=True,exist_ok=True,mode=0o700)
+    unavailable=cache/'osm-unavailable';use_natural=threading.Event()
+    if unavailable.exists() and 0<=time.time()-unavailable.stat().st_mtime<3600:use_natural.set()
     for old in cache.glob('osm-*.png'):
         if time.time()-old.stat().st_mtime>8*86400:old.unlink(missing_ok=True)
     # Only tiles intersecting this requested viewport; OSM cache retained at least seven days.
     def load_tile(row):
         x,y,dx,dy=row
         cached=cache/f'osm-{zoom}-{x}-{y}.png'
-        if cached.exists() and 0<=time.time()-cached.stat().st_mtime<7*86400:
-            raw=cached.read_bytes()
-        else:
-            if not cached.exists() and sum(1 for _ in cache.glob('osm-*.png'))>=512:raise RadarFailure('GLOBAL_RADAR_CACHE_FULL')
-            raw=fetch(f'https://tile.openstreetmap.org/{zoom}/{x}/{y}.png')
-            decode_tile(raw,256);temporary=cached.with_name(cached.name+'.'+uuid.uuid4().hex+'.tmp');temporary.write_bytes(raw);temporary.replace(cached)
-        background=decode_tile(raw,256).resize((512,512),Image.Resampling.LANCZOS)
+        background=None
+        if not use_natural.is_set():
+            try:
+                if cached.exists() and 0<=time.time()-cached.stat().st_mtime<7*86400:
+                    raw=cached.read_bytes()
+                else:
+                    if not cached.exists() and sum(1 for _ in cache.glob('osm-*.png'))>=512:raise RadarFailure('GLOBAL_RADAR_CACHE_FULL')
+                    raw=fetch(f'https://tile.openstreetmap.org/{zoom}/{x}/{y}.png')
+                    decode_tile(raw,256);temporary=cached.with_name(cached.name+'.'+uuid.uuid4().hex+'.tmp');temporary.write_bytes(raw);temporary.replace(cached)
+                background=decode_tile(raw,256).resize((512,512),Image.Resampling.LANCZOS)
+            except (RadarFailure,OSError):
+                use_natural.set();unavailable.touch()
         echo=decode_tile(fetch(f"{HOST}{frame['path']}/512/{zoom}/{x}/{y}/2/0_0.png"),512)
         coverage=decode_tile(fetch(f'{HOST}/v2/coverage/0/512/{zoom}/{x}/{y}/0/0_0.png'),512).getchannel('A')
         return background,echo,coverage,dx,dy
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for background,echo,coverage,x,y in pool.map(load_tile,tiles):
-            base.paste(background,(x,y));radar.paste(echo,(x,y));mask.paste(coverage,(x,y))
+            if background is not None:base.paste(background,(x,y))
+            radar.paste(echo,(x,y));mask.paste(coverage,(x,y))
+    if use_natural.is_set():base=natural_base(zoom,left,top,size)
+    place['base_source']='Natural Earth' if use_natural.is_set() else 'OpenStreetMap'
     base=Image.alpha_composite(base,radar)
     shade=Image.new('RGBA',base.size,(84,94,108,115));hatch=ImageDraw.Draw(shade)
     for offset in range(-size,size*2,18):hatch.line((offset,0,offset-size,size),fill=(70,82,99,175),width=2)
@@ -166,7 +204,7 @@ def render(place,map_view,covered,frame):
         x=245+i*103;draw.rectangle((x,1203,x+92,1219),fill=color);draw.text((x+25,1227),str(value),font=font(20),fill='#536b84')
     draw.text((30,1265),'灰纹：无雷达覆盖   ·   圆点：查询位置' if not place['world'] else '灰纹：无雷达覆盖',font=font(23),fill='#536b84')
     draw.text((30,1301),'雷达 RainViewer · https://www.rainviewer.com/',font=font(22),fill='#536b84')
-    draw.text((30,1336),'底图 © OpenStreetMap contributors · openstreetmap.org/copyright',font=font(20),fill='#536b84')
+    draw.text((30,1336),'底图 Natural Earth · naturalearthdata.com' if place.get('base_source')=='Natural Earth' else '底图 © OpenStreetMap contributors · openstreetmap.org/copyright',font=font(20),fill='#536b84')
     output=io.BytesIO();image.save(output,format='PNG',optimize=True)
     if output.tell()>4_500_000:raise RadarFailure('GLOBAL_RADAR_IMAGE_TOO_LARGE')
     return output.getvalue()
