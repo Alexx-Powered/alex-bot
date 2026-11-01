@@ -48,12 +48,12 @@ async function body(req, limit = maxBody) {
 }
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 
-export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands(), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), socialConfigStore = new SocialConfigStore(home), socialService, telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
+export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands({home}), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), socialConfigStore = new SocialConfigStore(home), socialService, telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
   const limits=sendLimits??await loadSendLimits(home);
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
   let configured = Boolean(await store.readCredentials());
-  const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000,liang_status:75000}});
+  const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
   if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   const campus = campusService || new CampusService({home,configStore:campusConfigStore});
   const statusTools = new PublicStatusService({home});
@@ -324,6 +324,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     },
     async close() {
       worker.close();
+      weatherCommands.close?.();
       social?.close();
       campus.close();
       statusTools.close();

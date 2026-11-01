@@ -270,6 +270,12 @@ class WorkerTests(unittest.TestCase):
         self.run_action(text='广州今天和明天天气')
         self.assertNotIn('day',self.calls[-1][3])
 
+    def test_global_radar_source_is_optional_and_bounded(self):
+        self.assertEqual(self.run_action('radar_image',{'target':'东京','source':'global'},text='发全球雷达东京')['kind'],'tool')
+        self.assertEqual(self.calls[-1][3],{'target':'东京','source':'global'})
+        self.run_action('radar_image',{'target':'纽约'},text='纽约雷达')
+        self.assertEqual(self.calls[-1][3],{'target':'纽约'})
+
     def test_air_next48h_is_allowed_but_history_or_nextweek_is_not(self):
         self.assertEqual(self.run_action("air_quality_image", {"city": "广州"}, text="广州未来48小时空气")["kind"], "tool")
         for text in ["广州昨天空气", "广州下周空气", "广州未来3天空气"]:

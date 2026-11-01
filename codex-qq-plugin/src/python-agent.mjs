@@ -58,7 +58,7 @@ export class PythonAgentWorker{
     if(value.kind==='campus'&&task.requestType!=='campus')throw failure();
     if(value.kind==='balance'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='deepseek_account_balance'))throw failure();
     if(value.kind==='reasoned'&&!['request','campus_advice'].includes(task.requestType))throw failure();
-    if(value.kind==='analysis'&&!['morning','social','media','insight','social_insight_save','public_status'].includes(task.requestType))throw failure();
+    if(value.kind==='analysis'&&!['morning','social','media','insight','social_insight_save','public_status','global_radar'].includes(task.requestType))throw failure();
     if(value.kind==='conversion'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='convert_units'))throw failure();
     if(value.kind==='error'){
       const allowed=new Set(['MODEL_AUTH_ERROR','MODEL_BALANCE_INSUFFICIENT','MODEL_PROVIDER_RATE_LIMITED','MODEL_PROVIDER_UNAVAILABLE','MODEL_TIMEOUT','MODEL_CONNECTION_ERROR','MODEL_TOOL_ROUTING_FAILED']);

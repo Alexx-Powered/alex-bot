@@ -1,4 +1,4 @@
-import { RadarService } from './radar.mjs';
+import { RadarRouter } from './global-radar.mjs';
 import { CITIES, getWeatherBrief } from './weather.mjs';
 import { getAirQuality } from './air-quality.mjs';
 import { renderAirChart } from './air-chart.mjs';
@@ -14,6 +14,8 @@ const cityQuery = value => cityIds.get(value.trim().replace(/市$/, '')) ?? valu
 export function parseWeatherCommand(text) {
   if (typeof text !== 'string' || text.length > 100) return null;
   const input=text.trim();
+  const global=/^(?:发\s*)?全球雷达(?:图)?(?:\s*(.*))?$/u.exec(input);
+  if(global&&(!global[1]||isCityQuery(global[1])))return {type:'radar',city:global[1]?.trim()||'全球',source:'global'};
   if (/^(帮助|菜单|\/help)$/.test(input)) return {type:'help'};
   let m=/^(?:雷达目录|雷达站点|发\s*雷达\s*目录)(?:\s*(.*))?$/.exec(input);
   if(m && /^[\p{Script=Han}A-Za-z0-9·（）() _-]{0,40}$/u.test(m[1]||'')) return {type:'radar-list',query:(m[1]||'').trim()};
@@ -26,7 +28,7 @@ export function parseWeatherCommand(text) {
   return null;
 }
 export class WeatherCommands {
-  constructor({radar=new RadarService(),locations=new LocationService(),weather=getWeatherBrief,air=getAirQuality,chart=renderAirChart,weatherChart=renderWeatherChart,now=Date.now}={}) {
+  constructor({home,radar=new RadarRouter({home}),locations=new LocationService(),weather=getWeatherBrief,air=getAirQuality,chart=renderAirChart,weatherChart=renderWeatherChart,now=Date.now}={}) {
     this.radar=radar; this.locations=locations; this.weather=weather; this.air=air; this.chart=chart; this.weatherChart=weatherChart; this.now=now;
   }
   async handle(text) {
@@ -35,8 +37,8 @@ export class WeatherCommands {
     try {
       if(command.type==='radar-list') return {text:(await this.radar.list(command.query)).text};
       if(command.type==='radar') {
-        const result=await this.radar.get(command.city);
-        return {text:'',image:{buffer:result.buffer,mimeType:result.mimeType}};
+        const result=await this.radar.get(command.city,command.source?{source:command.source}:{});
+        return {text:result.global?result.caption:'',image:{buffer:result.buffer,mimeType:result.mimeType},...(result.global?{richMedia:true}:{})};
       }
       if(command.type==='air') {
         const place=await this.locations.resolve(command.city);
@@ -47,6 +49,7 @@ export class WeatherCommands {
       return {text:result.timeoutNotice||'',image:result.image,...(result.timeoutNotice?{richMedia:true}:{})};
     } catch(error) {
       const timeout=timeoutNotice(error);if(timeout)return {text:timeout};
+      if(error?.code?.startsWith('GLOBAL_RADAR_'))return {text:error.message+'\n来源：RainViewer https://www.rainviewer.com/'};
       if(error?.code==='LOCATION_AMBIGUOUS') return {text:'地名有重名，请加省市：\n'+(error.suggestions??[]).slice(0,8).join('\n')};
       if(['LOCATION_NOT_FOUND','LOCATION_INPUT_INVALID'].includes(error?.code))return {text:'未找到该地点，请使用完整城市或区县名，并补充省市。'};
       if(error?.code==='LOCATION_SOURCE_UNAVAILABLE')return {text:'地点查询暂不可用，请稍后查询。'};
@@ -84,4 +87,5 @@ export class WeatherCommands {
     const image=renderImage?this.weatherChart({date,cities:ids,places,weather,air,now}):undefined;
     return {ok:true,date,cities:ids,text,...(timeoutMessages.length?{timeoutNotice:timeoutMessages.join('\n')}:{}),...(image?{image}:{}),...(includeData?{inputs:{date,cities:ids,places,weather,air,now}}:{})};
   }
+  close(){this.radar.close?.();}
 }
