@@ -10,14 +10,15 @@ const ENDPOINT = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const METADATA = 'https://air-quality-api.open-meteo.com/data/cams_global/static/meta.json';
 export const PM25_FORECAST_HOURS = 48;
 
-export async function getAirQuality({ city, place: resolvedPlace, window = 'rolling', now: nowInput = Date.now(), fetchImpl = globalThis.fetch } = {}) {
+export async function getAirQuality({ city, place: resolvedPlace, window = 'rolling', day='today', now: nowInput = Date.now(), fetchImpl = globalThis.fetch } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('AIR_CITY_UNSUPPORTED');
   if (resolvedPlace !== undefined && city !== undefined && city !== place.id) throw new ForecastDataError('AIR_CITY_MISMATCH');
   if (!['rolling', 'calendar'].includes(window)) throw new ForecastDataError('AIR_WINDOW_UNSUPPORTED');
+  if(!['today','tomorrow'].includes(day)||(window==='rolling'&&day!=='today'))throw new ForecastDataError('AIR_DAY_UNSUPPORTED');
   const now = forecastNow(nowInput);
-  const start = window === 'calendar' ? Date.parse(`${localDate(now)}T00:00:00+08:00`) : Math.floor(now / HOUR_MS) * HOUR_MS;
+  const start = window === 'calendar' ? Date.parse(`${localDate(now+(day==='tomorrow'?24*HOUR_MS:0))}T00:00:00+08:00`) : Math.floor(now / HOUR_MS) * HOUR_MS;
   const end = start + (PM25_FORECAST_HOURS - 1) * HOUR_MS;
   const url = new URL(ENDPOINT);
   url.search = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude),
@@ -54,7 +55,7 @@ export async function getAirQuality({ city, place: resolvedPlace, window = 'roll
   const text = [
     `${place.name} PM2.5 模型预报（非实测）`,
     `${localTime(start).replace('T', ' ')} 至 ${localTime(end).replace('T', ' ')}，时区 ${FORECAST_TIMEZONE}。`,
-    `${summary.missingHours ? '有效数据' : window === 'calendar' ? '今明两天' : '未来48小时'}范围 ${summary.minPm25.toFixed(1)}～${summary.maxPm25.toFixed(1)} μg/m³；峰值时刻 ${summary.peakTime.slice(5, 16).replace('T', ' ')}。`,
+    `${summary.missingHours ? '有效数据' : window === 'calendar' ? day==='tomorrow'?'明后两天':'今明两天' : '未来48小时'}范围 ${summary.minPm25.toFixed(1)}～${summary.maxPm25.toFixed(1)} μg/m³；峰值时刻 ${summary.peakTime.slice(5, 16).replace('T', ' ')}。`,
     ...(summary.missingHours ? [`缺 ${summary.missingHours} 个小时；曲线应断开，缺失不能画成零。`] : []),
     `获取 ${localTime(now).replace('T', ' ')}；来源最新起报元数据 ${localTime(Date.parse(freshness.latestModelRunAt)).replace('T', ' ')}（不保证本次响应同批次）。`,
     '来源：CAMS / ECMWF，经 Open-Meteo https://open-meteo.com/ 提供；约45公里网格，原生3小时预报插值为逐小时。',

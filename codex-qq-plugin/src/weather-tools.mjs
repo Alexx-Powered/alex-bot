@@ -3,7 +3,7 @@ import {isCityQuery,parseWeatherCommand} from './weather-commands.mjs';
 const location=z.string().max(60).refine(isCityQuery);
 const target=z.string().trim().min(1).max(40).regex(/^[\p{Script=Han}A-Za-z0-9·（）() _-]+$/u);
 const schemas={
-  weather_image:z.object({city:location}).strict(),air_quality_image:z.object({city:location}).strict(),
+  weather_image:z.object({city:location,day:z.enum(['today','tomorrow']).optional()}).strict(),air_quality_image:z.object({city:location}).strict(),
   radar_image:z.object({target}).strict(),radar_catalog:z.object({query:z.string().max(40).regex(/^[\p{Script=Han}A-Za-z0-9·（）() _-]*$/u)}).strict(),
   local_weather_briefing:z.object({cities:z.array(location).min(1).max(2),renderImage:z.boolean().default(true)}).strict(),
 };
@@ -13,6 +13,10 @@ export class WeatherToolbox{
     if(!Object.hasOwn(schemas,name))throw new Error('UNKNOWN_WEATHER_TOOL');
     const a=schemas[name].parse(args);
     if(name==='local_weather_briefing')return this.commands.briefing(a);
+    if(name==='weather_image'&&a.day==='tomorrow'){
+      try{return {text:'',image:(await this.commands.briefing({cities:[a.city],day:a.day})).image};}
+      catch{return {text:'预报数据暂不可用，请稍后查询。'};}
+    }
     const text=name==='weather_image'?'发 天气 '+a.city:name==='air_quality_image'?'发 雾霾 '+a.city:name==='radar_image'?'发 雷达 '+a.target:'雷达目录 '+a.query;
     return this.commands.handle(text);
   }

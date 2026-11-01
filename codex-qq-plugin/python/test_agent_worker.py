@@ -260,6 +260,16 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(worker._unsupported_time("北京2026-11-02天气", "weather_image", "2026-10-31"))
         self.assertTrue(worker._unsupported_time("北京明天雷达", "radar_image", "2026-10-31"))
 
+    def test_tomorrow_start_survives_model_omitting_optional_day(self):
+        self.assertEqual(self.run_action(text='北京明天天气')['kind'],'tool')
+        self.assertEqual(self.calls[-1][3],{'city':'广州','day':'tomorrow'})
+        self.run_action(args={'city':'北京','day':'tomorrow'},text='北京明早天气')
+        self.assertEqual(self.calls[-1][3]['day'],'tomorrow')
+        self.run_action(text='广州2026-10-29天气')
+        self.assertEqual(self.calls[-1][3]['day'],'tomorrow')
+        self.run_action(text='广州今天和明天天气')
+        self.assertNotIn('day',self.calls[-1][3])
+
     def test_air_next48h_is_allowed_but_history_or_nextweek_is_not(self):
         self.assertEqual(self.run_action("air_quality_image", {"city": "广州"}, text="广州未来48小时空气")["kind"], "tool")
         for text in ["广州昨天空气", "广州下周空气", "广州未来3天空气"]:

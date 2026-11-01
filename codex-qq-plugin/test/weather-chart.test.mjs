@@ -7,6 +7,14 @@ import { prepareWeatherChart, renderWeatherChart } from '../src/weather-chart.mj
 const NOW = Date.parse('2026-10-28T10:00:00Z');
 const HOUR = 3_600_000;
 const START = Date.parse('2026-10-28T00:00:00+08:00');
+test('tomorrow chart date labels and both curves follow the shifted two-day window',()=>{
+  const weather=forecast(),air=airForecast();weather.date='2026-10-29';
+  for(const result of [weather,air])for(const row of result.hourly)row.time=new Date(Date.parse(row.time)+24*HOUR).toISOString();
+  const model=prepareWeatherChart({date:'2026-10-29',weather:[weather],air,now:NOW});
+  assert.deepEqual(model.dayLabels,['明天','后天']);assert.equal(model.nextDate,'2026-10-30');
+  assert.equal(model.start,START+24*HOUR);assert.equal(model.airSeries.start,model.start);
+  assert.equal(model.weatherSeries[0].temperatureC[0],10);assert.equal(model.airSeries.values[47],92);
+});
 const SHANGHAI = { id: 'geonames-1796236', name: '上海', latitude: 31.2304, longitude: 121.4737 };
 const SHENZHEN = { id: 'geonames-1795565', name: '深圳', latitude: 22.5431, longitude: 114.0579 };
 const CHAOYANG = { id: 'geonames-2038154', name: '辽宁省朝阳市', latitude: 41.5739, longitude: 120.4506 };

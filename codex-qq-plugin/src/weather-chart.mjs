@@ -55,7 +55,10 @@ export function prepareWeatherChart({ date, cities = ['beijing'], places, weathe
   if (air !== null && (air?.city?.id !== airCity || air?.timezone !== 'Asia/Shanghai')) fail('WEATHER_CHART_AIR_CITY_MISMATCH');
   const airValues = valuesByHour(air?.hourly ?? [], airStart, 48, { pm25: [0, 5000] }).pm25;
   return { date, nextDate: localDate(midnight + 24 * HOUR_MS), start: midnight, end: midnight + FORECAST_HOURS * HOUR_MS,
-    now, cities: [...cities], places, weatherSeries,
+    now, dayLabels:[0,1].map(offset=>{
+      const delta=Math.round((midnight+offset*24*HOUR_MS-Date.parse(`${localDate(now)}T00:00:00+08:00`))/(24*HOUR_MS));
+      return ['今天','明天','后天'][delta]??localDate(midnight+offset*24*HOUR_MS).slice(5);
+    }), cities: [...cities], places, weatherSeries,
     airSeries: { id: airCity, name: airPlace.name, enabled: true, values: airValues, start: airStart, fetchedAt: air?.fetchedAt ?? null },
     hours: Array.from({ length: FORECAST_HOURS }, (_, i) => String(i % 24).padStart(2, '0')) };
 }
@@ -197,8 +200,8 @@ function calendarBoundary(model) {
     if (!chart.chartArea || !x) return;
     // Two levels on the time axis: hours above, date spans below.
     const label = (date, prefix) => `${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日 · ${prefix}`;
-    write(c, label(model.date, '今天'), x.getPixelForValue(12), chart.height - 7, 20, '#526982', 'normal', 'center');
-    write(c, label(model.nextDate, '明天'), x.getPixelForValue(36), chart.height - 7, 20, '#526982', 'normal', 'center');
+    write(c, label(model.date, model.dayLabels[0]), x.getPixelForValue(12), chart.height - 7, 20, '#526982', 'normal', 'center');
+    write(c, label(model.nextDate, model.dayLabels[1]), x.getPixelForValue(36), chart.height - 7, 20, '#526982', 'normal', 'center');
   } };
 }
 function drawChart(ctx, { x = 64, y, width = 1072, height = 280, type, data, options, plugins = [] }) {
@@ -291,10 +294,10 @@ export function renderWeatherChart(input) {
   write(ctx, '两日风速 · ECMWF / Open-Meteo', 340, 45, 19, '#718198');
   for (let day = 0; day < 2; day++) {
     const wind = model.places.map((place, i) => `${model.cities.length > 1 ? place.name + ' ' : ''}${input.weather[i]?.windBrief?.[day] ?? '风速缺数据'}`).join(' / ');
-    fitText(ctx, `${day === 0 ? '今天' : '明天'}  ${wind}`, 340, 80 + day * 34, 540, 22, COLORS.muted);
+    fitText(ctx, `${model.dayLabels[day]}  ${wind}`, 340, 80 + day * 34, 540, 22, COLORS.muted);
   }
   write(ctx, `${model.date.slice(5).replace('-', '.')}–${model.nextDate.slice(5).replace('-', '.')}`, 1152, 102, 32, COLORS.ink, 'bold', 'right');
-  write(ctx, '今天 00:00 → 明天 24:00 · 48 小时', 48, 154, 23, COLORS.muted);
+  write(ctx, `${model.dayLabels[0]} 00:00 → ${model.dayLabels[1]} 24:00 · 48 小时`, 48, 154, 23, COLORS.muted);
   write(ctx, '模型预报 · 北京时间 UTC+8', 1152, 154, 23, COLORS.muted, 'normal', 'right');
 
   panel(ctx, 190, 460, '01  温度', 'ECMWF IFS / Open-Meteo · °C');
@@ -319,7 +322,7 @@ export function renderWeatherChart(input) {
       return values.every(value => value !== null) ? `${number(values.reduce((a, b) => a + b, 0))} mm` : '缺数据';
     };
     const missing = series.temperatureC.filter(value => value === null).length;
-    const line = `${series.name}  湿度 ${rangeLabel(series.humidityPct, '%')}   ·   降水 今天 ${dayTotal(0)} / 明天 ${dayTotal(1)}${missing ? `   ·   温度缺 ${missing} 小时` : ''}`;
+    const line = `${series.name}  湿度 ${rangeLabel(series.humidityPct, '%')}   ·   降水 ${model.dayLabels[0]} ${dayTotal(0)} / ${model.dayLabels[1]} ${dayTotal(1)}${missing ? `   ·   温度缺 ${missing} 小时` : ''}`;
     fitText(ctx, line, 68, 592 + i * 33, 1064, 23, COLORS.muted);
   });
 

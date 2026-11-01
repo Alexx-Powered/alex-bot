@@ -55,14 +55,15 @@ export class WeatherCommands {
       return {text:command.type==='radar'?'雷达图暂不可用，请稍后查询。':'预报数据暂不可用，请稍后查询。'};
     }
   }
-  async briefing({cities=['beijing'],renderImage=true,includeData=false}={}) {
+  async briefing({cities=['beijing'],renderImage=true,includeData=false,day='today'}={}) {
+    if(!['today','tomorrow'].includes(day))throw new Error('INVALID_WEATHER_DAY');
     if(!Array.isArray(cities)||cities.length<1||cities.length>2||cities.some(c=>!isCityQuery(c))||new Set(cities).size!==cities.length)throw new Error('INVALID_CITY');
     const places=await Promise.all(cities.map(city=>this.locations.resolve(city)));
     if(new Set(places.map(place=>place.id)).size!==places.length)throw new Error('INVALID_CITY');
-    const now=this.now(), date=beijingDay(now);
-    const queries=places.map(place=>this.weather({city:place.id,place,day:'today',days:2,now,...(includeData?{exerciseFields:true}:{})}));
+    const now=this.now(), date=beijingDay(now+(day==='tomorrow'?86400000:0));
+    const queries=places.map(place=>this.weather({city:place.id,place,day,days:2,now,...(includeData?{exerciseFields:true}:{})}));
     const airPlace=places.find(place=>place.id==='beijing')??places[0];
-    queries.push(this.air({city:airPlace.id,place:airPlace,window:'calendar',now}));
+    queries.push(this.air({city:airPlace.id,place:airPlace,window:'calendar',day,now}));
     const results=await Promise.allSettled(queries);
     const weather=cities.map((_,i)=>results[i].status==='fulfilled'?results[i].value:null);
     const airResult=results.at(-1);
@@ -71,7 +72,7 @@ export class WeatherCommands {
     const missing=places.filter((_,i)=>!weather[i]).map(place=>place.name+'天气缺数据');
     if(!air)missing.push(airPlace.name+'CAMS缺数据');
     const ids=places.map(place=>place.id);
-    const text=`${date} ${places.map(place=>place.name).join('/')}天气图：今天00:00至明天24:00，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
+    const text=`${date} ${places.map(place=>place.name).join('/')}天气图：${day==='tomorrow'?'明天00:00至后天24:00':'今天00:00至明天24:00'}，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
     const image=renderImage?this.weatherChart({date,cities:ids,places,weather,air,now}):undefined;
     return {ok:true,date,cities:ids,text,...(image?{image}:{}),...(includeData?{inputs:{date,cities:ids,places,weather,air,now}}:{})};
   }

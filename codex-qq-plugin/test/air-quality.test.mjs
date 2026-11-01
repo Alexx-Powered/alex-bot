@@ -5,6 +5,17 @@ import { HOUR_MS, localTime } from '../src/weather.mjs';
 
 const NOW = Date.parse('2026-10-28T10:15:00Z');
 const START = Math.floor(NOW / HOUR_MS) * HOUR_MS;
+test('tomorrow calendar PM2.5 shifts dates without shifting source freshness clock',async()=>{
+  const start=Date.parse('2026-10-29T00:00:00+08:00'),data=dataset(),calls=[];
+  data.hourly.time=Array.from({length:48},(_,i)=>localTime(start+i*HOUR_MS));
+  const result=await getAirQuality({now:NOW,window:'calendar',day:'tomorrow',fetchImpl:fakeFetch(data,undefined,calls)});
+  assert.equal(result.hourly[0].time,'2026-10-29T00:00:00+08:00');
+  assert.equal(result.hourly.at(-1).time,'2026-10-30T23:00:00+08:00');
+  assert.equal(result.fetchedAt,new Date(NOW).toISOString());
+  const url=new URL(calls.find(c=>c.url.includes('/v1/')).url);
+  assert.equal(url.searchParams.get('start_date'),'2026-10-29');assert.equal(url.searchParams.get('end_date'),'2026-10-30');
+  await assert.rejects(getAirQuality({now:NOW,day:'tomorrow',fetchImpl:fakeFetch()}),{code:'AIR_DAY_UNSUPPORTED'});
+});
 function dataset() {
   return { timezone: 'Asia/Shanghai', utc_offset_seconds: 28800, hourly_units: { pm2_5: 'μg/m³' },
     hourly: { time: Array.from({ length: 48 }, (_, i) => localTime(START + i * HOUR_MS)), pm2_5: Array.from({ length: 48 }, (_, i) => 20 + i) } };

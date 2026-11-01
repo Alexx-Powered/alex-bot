@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {WeatherCommands,parseWeatherCommand,beijingDay} from '../src/weather-commands.mjs';
+import {WeatherToolbox} from '../src/weather-tools.mjs';
+
+test('tomorrow tool moves weather, CAMS and chart together while preserving real retrieval time',async()=>{
+  const now=Date.parse('2026-12-31T15:50:00Z'),calls=[],image={buffer:Buffer.from('plot'),mimeType:'image/png'};
+  let chart;
+  const commands=new WeatherCommands({now:()=>now,weather:async args=>{calls.push(['weather',args]);return {city:{id:args.city}};},air:async args=>{calls.push(['air',args]);return {};},weatherChart:value=>{chart=value;return image;}});
+  const tool=new WeatherToolbox(commands,{});
+  assert.equal((await tool.execute('weather_image',{city:'北京',day:'tomorrow'})).image,image);
+  assert.equal(chart.date,'2027-01-01');assert.equal(chart.now,now);
+  assert.equal(calls.length,2);assert.ok(calls.every(([,args])=>args.day==='tomorrow'&&args.now===now));
+  await assert.rejects(tool.execute('weather_image',{city:'北京',day:'yesterday'}));
+  assert.equal((await commands.briefing({renderImage:false})).date,'2026-12-31');
+});
 test('weather grammar accepts location queries only after a fixed operation',()=>{
   assert.deepEqual(parseWeatherCommand('发 雷达 北京'),{type:'radar',city:'北京'});
   assert.deepEqual(parseWeatherCommand('发雷达天津'),{type:'radar',city:'天津'});
