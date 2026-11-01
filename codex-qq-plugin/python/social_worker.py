@@ -66,9 +66,13 @@ def main():
             with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
                 report=process(p,store)
             out={'type':'result','id':request_id,'kind':'analysis','report':report}
-        except Exception:
+        except Exception as error:
             # Never serialize provider errors, media URLs, transcripts, or credentials.
-            out={'type':'result','id':request_id,'kind':'analysis','report':{'ok':False,'code':'SOCIAL_UNAVAILABLE'}}
+            from timeout_errors import is_timeout
+            report={'ok':False,'code':'SOCIAL_TIMEOUT' if is_timeout(error) else 'SOCIAL_UNAVAILABLE'}
+            if is_timeout(error) and getattr(error,'stage',None) in {'download','vision','asr'}:
+                report['timeout_stage']=error.stage
+            out={'type':'result','id':request_id,'kind':'analysis','report':report}
         sys.stdout.write(json.dumps(out,ensure_ascii=False)+'\n');sys.stdout.flush()
 
 

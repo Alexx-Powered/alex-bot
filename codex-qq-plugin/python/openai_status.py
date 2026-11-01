@@ -54,5 +54,6 @@ def read_status(scope='all', query='', fetch=_fetch, now=None, include_recent=Fa
         return {'available':True,'checked_at':checked,'source':ORIGIN,'scope':scope,'global_status':summary['status'],
                 'components':selected[:30],'scope_component_found':bool(selected),'active_incidents':active[:8],
                 'recent_resolved_incidents':recent[:5], 'limits':'全局聚合状态，不验证个人账号、额度、网络或特定模型权限；recent_resolved不是当前故障；checked_at是实际检查时间，page更新时间可能很早。'}
-    except Exception:
-        return {'available':False,'checked_at':checked,'source':ORIGIN,'error':'OFFICIAL_STATUS_UNAVAILABLE','instruction':'本次无法核实官方状态，不得推断正常或故障；请稍后重试或打开官方状态页。'}
+    except Exception as error:
+        from timeout_errors import is_timeout
+        return {'available':False,'checked_at':checked,'source':ORIGIN,'error':'OFFICIAL_STATUS_TIMEOUT' if is_timeout(error) else 'OFFICIAL_STATUS_UNAVAILABLE','instruction':'OpenAI官方状态接口响应超时（单次6秒时限），请稍后重试。' if is_timeout(error) else '本次无法核实官方状态，不得推断正常或故障；请稍后重试或打开官方状态页。'}

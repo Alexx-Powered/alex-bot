@@ -4,6 +4,7 @@ import {checkChatInput,boundChatReply,sanitizeContextText,naturalChatReply} from
 import {isBalanceQuery,balanceReply} from './balance-tools.mjs';
 import {conversionReply,fixedToolContext} from './conversion-tools.mjs';
 import {isGray,fullAccess,basicAccess,RESTRICTED_REPLY} from './access-policy.mjs';
+import {timeoutNotice} from './timeout-notice.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
@@ -13,7 +14,8 @@ export class ConversationAgent{
   }
   async handle(text,context={}){
     let socialData={};
-    try{socialData=await this.socialService?.prepare(text,context)||{};}catch{
+    try{socialData=await this.socialService?.prepare(text,context)||{};}catch(error){
+      if(error.timedOut)return {text:timeoutNotice(error,{stage:text.startsWith('/记忆')?'记忆处理':'图片或语音识别'}),requiredAccess:'chat'};
       if(/^\/(?:识图|记忆)(?:\s|$)/u.test(text)||context.media?.length)return {text:context.media?.some(a=>a.kind==='audio')?'这条语音暂时没听清，再发一次试试~':text.startsWith('/记忆')?'记忆暂时更新不了，稍后再试~':'这张图暂时没看清，再发一次试试~',requiredAccess:'chat'};
       socialData={social:{ok:false,disabled:true,unavailable:true}};
     }
@@ -30,7 +32,7 @@ export class ConversationAgent{
       let config;try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机检查。'};}
       if(!config.apiKey)return {text:'尚未配置 DeepSeek API Key，请在本机配置页保存。'};
       try{return await this.worker.run({type:'execute',name:'deepseek_account_balance',args:{},config,context:{scope:context.scope,...(context.scope==='group'?{access:'white'}:{})},...fixedToolContext(context)},async()=>{throw Error('BALANCE_RPC_DENIED');},value=>fullAccess(context)?decorate(balanceReply(value),'white',true):denied());}
-      catch{return {text:'余额查询暂不可用，请稍后再试。'};}
+      catch(error){return {text:timeoutNotice(error)||'余额查询暂不可用，请稍后再试。'};}
     }
     const conversion=await this.conversionTools?.handle(text,context);if(conversion)return decorate(conversion,'chat');
     if(!gray){const fixed=await this.toolbox.handle(text);if(fixed)return decorate(fixed);}
@@ -128,7 +130,7 @@ export class ConversationAgent{
       const messages={MODEL_AUTH_ERROR:'模型接口鉴权失败，请检查本机保存的 Key 和权限。',MODEL_BALANCE_INSUFFICIENT:'模型接口提示余额不足，可以私聊问“查余额”确认。',MODEL_PROVIDER_RATE_LIMITED:'模型接口暂时限流了，稍等再问我。',MODEL_PROVIDER_UNAVAILABLE:'模型服务暂时异常，稍后再试一下。',MODEL_TIMEOUT:'模型回复超时了，稍后再问一次吧。',MODEL_CONNECTION_ERROR:'这次没连上模型接口，稍后再试一下。',MODEL_TOOL_ROUTING_FAILED:'这次没能正确识别工具参数，请换个说法再试。'};
       const reason=Object.hasOwn(messages,error?.reason)?error.reason:'WORKER_FAILED';
       console.warn('[qq-agent] '+reason);
-      return {text:messages[reason]||'这次智能助手没能完成回复，稍后再试一下。'};
+      return {text:timeoutNotice(error)||messages[reason]||'这次智能助手没能完成回复，稍后再试一下。'};
     }
   }
 }

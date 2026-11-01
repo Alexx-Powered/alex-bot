@@ -15,7 +15,7 @@ const ALIAS_ADDRESS = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+\S/u;
 
 /** Deliberately excludes the SDK's message, URL, response body and cause. */
 export class QQAdapterError extends Error {
-  constructor(code, { httpStatus, bizCode, kind = 'error', fatal = false, phase, messageAttempted } = {}) {
+  constructor(code, { httpStatus, bizCode, kind = 'error', fatal = false, phase, messageAttempted, timedOut } = {}) {
     super(code);
     this.name = 'QQAdapterError';
     this.code = code;
@@ -25,6 +25,7 @@ export class QQAdapterError extends Error {
     if (Number.isSafeInteger(bizCode) && bizCode >= 0) this.bizCode = bizCode;
     if (phase === 'upload' || phase === 'send') this.phase = phase;
     if (typeof messageAttempted === 'boolean') this.messageAttempted = messageAttempted;
+    if(timedOut===true)this.timedOut=true;
   }
 }
 
@@ -41,6 +42,7 @@ function safeError(error, fallback) {
   const httpStatus = error?.httpStatus;
   const bizCode = error?.bizCode;
   const details = { httpStatus, bizCode };
+  if(error?.name==='TimeoutError'||error?.name==='AbortError'||/^Request timeout \[/u.test(error?.message||''))return new QQAdapterError('QQ_HTTP_TIMEOUT',{...details,timedOut:true});
   if (httpStatus === 429 || bizCode === 50002) {
     return new QQAdapterError('QQ_RATE_LIMITED', { ...details, kind: 'rate_limited' });
   }
@@ -385,7 +387,7 @@ export class QQAdapter {
       return { ok: true };
     } catch (error) {
       const normalized = error instanceof QQAdapterError ? error : safeError(error, phase === 'upload' ? 'QQ_UPLOAD_FAILED' : 'QQ_SEND_FAILED');
-      const failure = new QQAdapterError(normalized.code, { ...normalized, phase, messageAttempted });
+      const failure = new QQAdapterError(normalized.timedOut?(phase==='upload'?'QQ_UPLOAD_TIMEOUT':'QQ_SEND_TIMEOUT'):normalized.code, { ...normalized, phase, messageAttempted });
       this.#lastSendDiagnostic={at:new Date(this.#now()).toISOString(),scope:authorizedTarget.scope,
         code:failure.code,phase,messageAttempted,...(failure.httpStatus!==undefined?{httpStatus:failure.httpStatus}:{}),
         ...(failure.bizCode!==undefined?{bizCode:failure.bizCode}:{})};

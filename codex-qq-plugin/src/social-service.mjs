@@ -117,7 +117,7 @@ export class SocialService{
       const mood=r.mood?.[0];return {reply:r.disabled?'这里关于你的记录已关闭':
         [preferences.length?preferences.map(p=>p.text).join('\n'):'暂时还没有记下你的稳定偏好~',...(r.habits||[]).map(h=>'聊天时'+h.label),mood?'最近你说过：'+mood.said:'',r.style?.effective_samples?'也在慢慢熟悉你的聊天习惯':''].filter(Boolean).join('\n'),social:r};
 
-    })().catch(()=>({reply:'记忆暂时没能更新，稍后再试~'}));
+    })().catch(error=>({reply:error.timedOut?'记忆处理超时（10秒时限），请稍后重试':'记忆暂时没能更新，稍后再试~'}));
     if(cacheKey){this.#controlOutcomes.set(cacheKey,work);while(this.#controlOutcomes.size>512)this.#controlOutcomes.delete(this.#controlOutcomes.keys().next().value);}
     return work;
   }
@@ -142,7 +142,7 @@ export class SocialService{
     if(!selected)return identify.test(text)?{reply:'还没收到图片，先发一张，再发 /识图 就行~'}:{social};
     const force=identify.test(text);
     const result=await this.#understand(selected,c,config,force);
-    if(!result.ok)return {social,...(force||current.length?{reply:result.code==='AUDIO_EMPTY'?'这条语音里没听清内容，再说一遍吧~':result.code==='ASR_NOT_CONFIGURED'?'这条语音没有平台转写，语音识别还没配置好':result.code==='MEDIA_EXPIRED'?'刚才那张图已过期，再发一次吧~':'这次没看清或听清，再发一次试试~'}:{})};
+    if(!result.ok)return {social,...(force||current.length?{reply:result.code==='SOCIAL_TIMEOUT'?(({download:'媒体下载超时（10秒时限）',vision:'图片识别模型响应超时（20秒时限）',asr:'语音识别模型响应超时（20秒时限）'}[result.timeout_stage]||'媒体处理超时')+'，请稍后重试'):result.code==='AUDIO_EMPTY'?'这条语音里没听清内容，再说一遍吧~':result.code==='ASR_NOT_CONFIGURED'?'这条语音没有平台转写，语音识别还没配置好':result.code==='MEDIA_EXPIRED'?'刚才那张图已过期，再发一次吧~':'这次没看清或听清，再发一次试试~'}:{})};
     if(c.scope==='group'&&c.access==='gray'&&!force&&selected.kind==='image'&&!result.is_meme)return {social};
     if(force){
       const summary=[result.description,result.visible_text].filter(Boolean).join(' / ');

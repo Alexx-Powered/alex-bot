@@ -4,6 +4,7 @@ import { getAirQuality } from './air-quality.mjs';
 import { renderAirChart } from './air-chart.mjs';
 import { renderWeatherChart } from './weather-chart.mjs';
 import { LocationService } from './locations.mjs';
+import {timeoutNotice} from './timeout-notice.mjs';
 
 export const beijingDay = (now = Date.now()) => new Date(now + 8 * 3600000).toISOString().slice(0,10);
 const names = Object.fromEntries(Object.entries(CITIES).map(([id, city]) => [id, city.name]));
@@ -43,8 +44,9 @@ export class WeatherCommands {
         return {text:'',image:this.chart(result)};
       }
       const result=await this.briefing({cities:[command.city]});
-      return {text:'',image:result.image};
+      return {text:result.timeoutNotice||'',image:result.image,...(result.timeoutNotice?{richMedia:true}:{})};
     } catch(error) {
+      const timeout=timeoutNotice(error);if(timeout)return {text:timeout};
       if(error?.code==='LOCATION_AMBIGUOUS') return {text:'地名有重名，请加省市：\n'+(error.suggestions??[]).slice(0,8).join('\n')};
       if(['LOCATION_NOT_FOUND','LOCATION_INPUT_INVALID'].includes(error?.code))return {text:'未找到该地点，请使用完整城市或区县名，并补充省市。'};
       if(error?.code==='LOCATION_SOURCE_UNAVAILABLE')return {text:'地点查询暂不可用，请稍后查询。'};
@@ -68,12 +70,18 @@ export class WeatherCommands {
     const weather=cities.map((_,i)=>results[i].status==='fulfilled'?results[i].value:null);
     const airResult=results.at(-1);
     const air=airResult?.status==='fulfilled'?airResult.value:null;
-    if(!weather.some(Boolean)&&!air)throw new Error('WEATHER_DATA_UNAVAILABLE');
+    if(!weather.some(Boolean)&&!air){
+      const timed=results.find(r=>r.status==='rejected'&&timeoutNotice(r.reason));
+      if(timed)throw timed.reason;
+      throw new Error('WEATHER_DATA_UNAVAILABLE');
+    }
+    const timeoutMessages=results.flatMap((r,i)=>r.status==='rejected'&&timeoutNotice(r.reason)?[`${i<places.length?places[i].name+'天气':'PM2.5'}：${timeoutNotice(r.reason)}`]:[]);
     const missing=places.filter((_,i)=>!weather[i]).map(place=>place.name+'天气缺数据');
     if(!air)missing.push(airPlace.name+'CAMS缺数据');
+    weather.forEach((result,i)=>{if(result?.timeoutNotice)timeoutMessages.push(places[i].name+'：'+result.timeoutNotice);});
     const ids=places.map(place=>place.id);
     const text=`${date} ${places.map(place=>place.name).join('/')}天气图：${day==='tomorrow'?'明天00:00至后天24:00':'今天00:00至明天24:00'}，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
     const image=renderImage?this.weatherChart({date,cities:ids,places,weather,air,now}):undefined;
-    return {ok:true,date,cities:ids,text,...(image?{image}:{}),...(includeData?{inputs:{date,cities:ids,places,weather,air,now}}:{})};
+    return {ok:true,date,cities:ids,text,...(timeoutMessages.length?{timeoutNotice:timeoutMessages.join('\n')}:{}),...(image?{image}:{}),...(includeData?{inputs:{date,cities:ids,places,weather,air,now}}:{})};
   }
 }

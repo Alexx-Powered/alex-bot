@@ -168,6 +168,17 @@ test('API failures expose numeric classification only and are never retried', as
   await f.adapter.disconnect();
 });
 
+test('SDK request timeouts identify upload versus submitted send without exposing response text',async()=>{
+  for(const upload of [true,false]){
+    const f=fixture(),bot=await f.connect();
+    const error=Object.assign(new Error('Request timeout [/private-path]: exceeded 120000ms SECRET'),{httpStatus:0});
+    if(upload)bot.uploadError=error;else bot.sendError=error;
+    try{await assert.rejects(f.adapter.send({ownerId:'OWNER_OPENID',text:upload?'':'test',...(upload?{image:{buffer:PNG,mimeType:'image/png'}}:{})}),e=>e.timedOut===true&&e.messageAttempted===!upload&&e.code===(upload?'QQ_UPLOAD_TIMEOUT':'QQ_SEND_TIMEOUT'));
+      assert.doesNotMatch(JSON.stringify(f.adapter.diagnostics()),/private-path|SECRET/);
+    }finally{await f.adapter.disconnect();}
+  }
+});
+
 test('structured API rate-limit errors are recognized without inspecting sensitive message text', async () => {
   const f = fixture(); const bot = await f.connect();
   bot.sendError = Object.assign(new Error('opaque'), { httpStatus: 429, bizCode: 50002 });

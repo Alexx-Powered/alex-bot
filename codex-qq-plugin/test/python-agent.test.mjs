@@ -32,6 +32,13 @@ test('wrong request id, non-JSON logging, overlong stdout and timeout fail close
     const f=fakeWorker(respond);try{await assert.rejects(f.worker.run({type:'request'},async()=>null),/PYTHON_AGENT_UNAVAILABLE/);}finally{f.worker.close();}
   }
 });
+
+test('worker deadlines preserve actual stage and limit while malformed responses are not timeouts',async()=>{
+  const f=fakeWorker(()=>{}, {timeoutMs:15});
+  try{await assert.rejects(f.worker.run({type:'execute',name:'weather_image'},async()=>null),error=>error.timedOut===true&&error.timeoutMs===15&&error.stage==='weather_image');}finally{f.worker.close();}
+  const bad=fakeWorker((v,out)=>out('not-json\n'));
+  try{await assert.rejects(bad.worker.run({type:'request'},async()=>null),error=>error.timedOut!==true);}finally{bad.worker.close();}
+});
 test('worker cannot claim image without callback or invoke two tools',async()=>{
   const none=fakeWorker((v,o)=>o({type:'result',id:v.id,kind:'tool'}));
   try{await assert.rejects(none.worker.run({type:'request'},async()=>null));}finally{none.worker.close();}

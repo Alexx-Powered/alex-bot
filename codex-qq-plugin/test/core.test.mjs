@@ -42,6 +42,21 @@ test('empty owner fails closed, no send, and groups never pair', async () => {
   assert.equal(f.core.status().paused, true);
 });
 
+test('upload timeout gets one text notice; uncertain submission never retries or sends a notice',async()=>{
+  const image={buffer:Buffer.from([137,80,78,71,13,10,26,10]),mimeType:'image/png'};
+  for(const submitted of [false,true]){
+    const f=fixture({send:async request=>{if(request.image)throw {timedOut:true,messageAttempted:submitted,phase:submitted?'send':'upload'};return {ok:true};}});
+    const core=new BridgeCore({...f.deps,commandHandler:async()=>({text:'',image})});f.core=core;
+    await pair(f);
+    const result=await core.handleMessage(message('weather','发天气北京'));
+    assert.equal(f.sent.filter(r=>r.image).length,1);
+    assert.equal(f.sent.length,submitted?1:2);
+    assert.equal(core.status().paused,submitted);
+    if(!submitted){assert.match(f.sent[1].text,/图片上传.*超时.*120秒/);assert.equal(result.timeoutNoticeSent,true);}
+    else assert.equal(result.code,'DELIVERY_UNCERTAIN');
+  }
+});
+
 test('pairing rejects wrong and expired codes without consuming valid code', async () => {
   const f = fixture();
   await f.core.init();

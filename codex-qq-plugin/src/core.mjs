@@ -2,6 +2,7 @@ import {copyIncomingMedia} from './incoming-media.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sanitizeContextText } from './chat-safety.mjs';
 import {recordTiming} from './telemetry.mjs';
+import {timeoutNotice} from './timeout-notice.mjs';
 
 export const CORE_LIMITS = Object.freeze({
   textLength: 1500,
@@ -131,6 +132,10 @@ function restoreState(raw) {
 // Only return fixed categories. Upstream error text, URLs, message bodies and
 // credentials must never reach status(), persisted state or API responses.
 function classifyError(error) {
+  if(error?.timedOut===true){
+    if(error.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false,timeoutText:'图片上传到QQ超时（120秒时限），图片消息尚未提交，请稍后重试'};
+    return {code:'DELIVERY_UNCERTAIN',pause:true,uncertain:true};
+  }
   if(error?.code==='QQ_SEND_CANCELLED'&&error?.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false};
   const status = Number(error?.httpStatus ?? error?.status ?? error?.statusCode);
   const category = `${error?.code ?? ''} ${error?.kind ?? ''}`.toLowerCase().slice(0, 256);
@@ -616,7 +621,7 @@ export class BridgeCore {
           scopeKey:hash('chat-scope-c2c:'+senderId),userKey:hash('chat-user:'+senderId)},incomingKey,replyTarget,undefined,hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id));
         if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
         try { response = await this.#commandHandler(command, context); }
-        catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
+        catch(error) { response = { text: timeoutNotice(error)||'这次处理未完成，请稍后再试。' }; }
         if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       return result(true, 'IGNORED');
@@ -684,7 +689,7 @@ export class BridgeCore {
       this.#bindRequest(context,incomingKey,target,groupId,hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id));
       if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
       try { response = await this.#commandHandler(command, context); }
-      catch { response = { text: '天气查询暂时未完成，请稍后再试。未将旧数据作为当前结果。' }; }
+      catch(error) { response = { text: timeoutNotice(error)||'这次处理未完成，请稍后再试。' }; }
       if(response?.memoryReset===true)this.#groupContexts.delete(groupId);
       if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}),requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     }
@@ -827,6 +832,12 @@ export class BridgeCore {
     if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress) this.#rememberGroup(groupId, {
       key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,
     });
+    if(failure?.timeoutText&&replyTarget&&image){
+      // One separate text notice only when no original message was submitted.
+      // Never resend an image or send again after uncertain submission.
+      const notice=await this.#notify({text:failure.timeoutText,idempotencyKey:'timeout-notice:'+key,requiredAccess:input?.requiredAccess},replyTarget,groupId,proactiveGroup);
+      return result(false,failure.code,{deliveryState:record.state,timeoutNoticeSent:notice.ok===true});
+    }
     return failure ? result(false, failure.code, { deliveryState: record.state }) : result(true, 'SENT');
   }
 }

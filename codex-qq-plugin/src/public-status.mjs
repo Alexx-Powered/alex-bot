@@ -5,6 +5,7 @@ import {z} from 'zod';
 import {PythonAgentWorker} from './python-agent.mjs';
 import {APP_ROOT} from './runtime-paths.mjs';
 import {fullAccess,RESTRICTED_REPLY} from './access-policy.mjs';
+import {timeoutNotice} from './timeout-notice.mjs';
 
 const sources=Object.freeze({deepseek:'https://status.deepseek.com/',liang:'https://liang.itsuyo.top/'});
 const names=Object.freeze({deepseek_service_status:'deepseek',liang_status:'liang'});
@@ -53,7 +54,7 @@ export class PublicStatusService{
         }finally{await fs.unlink(file).catch(()=>{});}
       });
       return fullAccess(context)?response:{text:RESTRICTED_REPLY,requiredAccess:'chat'};
-    }catch{return {text:'这次状态查询没能完成，稍后再试一下\n来源：'+sources[service],requiredAccess:'white'};}
+    }catch(error){return {text:(timeoutNotice(error,{stage:service==='deepseek'?'DeepSeek状态查询':'滑动变祖器状态查询',seconds:65})||'这次状态查询没能完成，稍后再试一下')+'\n来源：'+sources[service],requiredAccess:'white'};}
   }
   close(){this.worker.close();}
 }

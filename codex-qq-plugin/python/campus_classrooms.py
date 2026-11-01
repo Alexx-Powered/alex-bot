@@ -19,7 +19,8 @@ SCHEMA='buaa-classrooms.v1'
 NAME=re.compile(r'^[\w\u3400-\u9fff（）()· .-]{1,64}$')
 CODES=frozenset({'OK','CAMPUS_NOT_CONFIGURED','CAMPUS_DISABLED','CAMPUS_CONFIG_UNAVAILABLE','CAMPUS_BUSY',
     'CAMPUS_INVALID_DATE','CAMPUS_AUTH_FAILED','CAMPUS_INTERACTION_REQUIRED','CAMPUS_NETWORK_ERROR',
-    'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED'})
+    'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED',
+    'CAMPUS_NAVIGATION_TIMEOUT','CAMPUS_LOGIN_TIMEOUT','CAMPUS_SEARCH_TIMEOUT','CAMPUS_INTERACTIVE_LOGIN_TIMEOUT','CAMPUS_LOGIN_ACTION_TIMEOUT'})
 
 class CampusError(Exception):
     def __init__(self,code):self.code=code;super().__init__(code)
@@ -147,7 +148,7 @@ def browser_collect(credentials,private_root,day,*,interactive=False,session_sta
                             failure=login_failure(frame)
                             if failure:raise CampusError(failure)
                     page.wait_for_timeout(250)
-                if not initial:raise CampusError('CAMPUS_INTERACTION_REQUIRED' if submitted else 'CAMPUS_AUTH_FAILED')
+                if not initial:raise CampusError('CAMPUS_INTERACTIVE_LOGIN_TIMEOUT' if interactive else 'CAMPUS_LOGIN_TIMEOUT')
                 campuses=[x for x in initial['payload']['d']['xqs'] if x.get('name')=='学院路校区']
                 if len(campuses)!=1 or 'xqid' not in campuses[0]:raise CampusError('CAMPUS_SCHEMA_CHANGED')
                 url=initial['endpoint'].removesuffix('index1')+'search1'
@@ -164,6 +165,9 @@ def browser_collect(credentials,private_root,day,*,interactive=False,session_sta
                 if browser:browser.close()
     except CampusError:raise
     except Exception as error:
+        from timeout_errors import is_timeout
+        if is_timeout(error):
+            raise CampusError('CAMPUS_SEARCH_TIMEOUT' if phase=='classroom_search' else 'CAMPUS_NAVIGATION_TIMEOUT' if phase=='navigate' else 'CAMPUS_LOGIN_ACTION_TIMEOUT' if phase in {'login_fill','login_submit'} else 'CAMPUS_INTERACTIVE_LOGIN_TIMEOUT' if interactive else 'CAMPUS_LOGIN_TIMEOUT') from None
         # Sanitized local diagnostics only; never serialize SDK error text,
         # input values, requests, headers, page content or full URLs.
         network=re.search(r'net::(ERR_[A-Z_]{1,60})',str(error))

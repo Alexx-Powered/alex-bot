@@ -7,12 +7,14 @@ import {createHash} from 'node:crypto';
 import {studyImage} from './study-briefing.mjs';
 import {z} from 'zod';
 import {fullAccess} from './access-policy.mjs';
+import {timeoutNotice} from './timeout-notice.mjs';
 
 const source='https://app.buaa.edu.cn/site/classRoomQuery/index';
 const semantics='接口标空闲则为空闲，其余课节为有课；保留接口给出的节次。';
 const codes=['OK','CAMPUS_NOT_CONFIGURED','CAMPUS_DISABLED','CAMPUS_CONFIG_UNAVAILABLE','CAMPUS_BUSY',
   'CAMPUS_INVALID_DATE','CAMPUS_AUTH_FAILED','CAMPUS_INTERACTION_REQUIRED','CAMPUS_NETWORK_ERROR',
-  'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED','CAMPUS_OWNER_ONLY'];
+  'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED','CAMPUS_OWNER_ONLY',
+  'CAMPUS_NAVIGATION_TIMEOUT','CAMPUS_LOGIN_TIMEOUT','CAMPUS_SEARCH_TIMEOUT','CAMPUS_WORKER_TIMEOUT','CAMPUS_INTERACTIVE_LOGIN_TIMEOUT','CAMPUS_LOGIN_ACTION_TIMEOUT'];
 export const campusArgs=z.object({date:z.string().regex(/^(?:\d{4}-\d{2}-\d{2})?$/).default('')}).strict();
 const regionList=z.array(z.string().min(1).max(32).regex(/^[\p{L}\p{N}_（）()· .-]+$/u)).max(12);
 export const recommendationArgs=campusArgs.extend({session:z.enum(['now','morning','afternoon','evening']).default('now'),
@@ -112,7 +114,7 @@ export class CampusService{
         return {data,image};
       });
       this.#last=result.data;return result;
-    }catch{return {data:campusFailure('CAMPUS_QUERY_FAILED',parsed.date)};}
+    }catch(error){return {data:campusFailure(error.timedOut?'CAMPUS_WORKER_TIMEOUT':'CAMPUS_QUERY_FAILED',parsed.date)};}
     finally{this.#busy=false;}
   }
   async resolveIntent(text,requested='auto',origin='query'){
@@ -138,7 +140,7 @@ export class CampusService{
     const result=await this.run(queryArgs,compact?'query':'report',{requestText,building,regions});
     if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     if(compact&&result.data.ok)return this.recommend({date:result.data.date,session:intent.session,...(building?{building}:{}),...(regions?{regions}:{})},context,requestText);
-    return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify(result.data),requiredAccess:'white'};
+    return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify({...result.data,...(timeoutNotice({code:result.data.code})?{message:timeoutNotice({code:result.data.code})}:{})}),requiredAccess:'white'};
   }
   async recommend(args,context,requestText){
     if(!fullAccess(context))return {text:'当前会话未开放教室推荐。',requiredAccess:'chat'};

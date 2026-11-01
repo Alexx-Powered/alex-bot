@@ -158,7 +158,7 @@ export class LocationService {
         candidates.set(place.id, place);
       }
       return [...candidates.values()];
-    } catch { throw new LocationError('LOCATION_SOURCE_UNAVAILABLE'); }
+    } catch(error) { throw new LocationError(['TimeoutError','AbortError'].includes(error?.name)?'LOCATION_SOURCE_TIMEOUT':'LOCATION_SOURCE_UNAVAILABLE'); }
     finally { this.#active--; this.#waiting.shift()?.(); }
   }
 }

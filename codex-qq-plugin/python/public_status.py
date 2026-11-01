@@ -205,6 +205,7 @@ def fetch_liang_vote():
     # stay liang.itsuyo.top; no caller-selected addresses or TLS exceptions.
     addresses=sorted({item[4][0] for item in socket.getaddrinfo('liang.itsuyo.top',443,socket.AF_INET,socket.SOCK_STREAM)
                       if ipaddress.ip_address(item[4][0]).is_global},key=ipaddress.ip_address)[:2]
+    timed_out=False
     for address in addresses:
         args=[curl,'-q','--ipv4','--no-buffer','--fail','--silent','--compressed','--connect-timeout','4','--max-time','10',
               '--max-filesize','2000000','--resolve','liang.itsuyo.top:443:'+address,'--header','Cache-Control: no-cache','--url',url]
@@ -219,6 +220,8 @@ def fetch_liang_vote():
             try:process.wait(timeout=2)
             except subprocess.TimeoutExpired:process.kill();process.wait(timeout=2)
             process.stdout.close()
+        timed_out=timed_out or process.returncode==28
+    if timed_out:raise TimeoutError('STATUS_SOURCE_TIMEOUT')
     raise ValueError('STATUS_SOURCE_UNAVAILABLE')
 
 
@@ -371,10 +374,11 @@ def query_status(service):
         file.chmod(0o600)
         result.update(ok=True, artifact_id=artifact_id, checked_at=checked_at,
                       text="\n".join(lines) + "\n查询时间：" + checked_at.replace("T", " ")[:19] + "（北京时间）\n来源：" + SOURCES[service])
-    except Exception:
+    except Exception as error:
         # Raw browser/network exceptions can contain URLs and environment paths.
         name = "DeepSeek 官方状态" if service == "deepseek" else "滑动变祖器实时状态或图片"
-        result["text"] = "这次未能获取" + name + "，稍后再试一下\n来源：" + SOURCES[service]
+        from timeout_errors import is_timeout
+        result["text"] = (name+'查询超时，数据源未在单次请求时限内响应，请稍后重试' if is_timeout(error) else "这次未能获取" + name + "，稍后再试一下")+"\n来源："+SOURCES[service]
     return result
 
 

@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 import ssl
 import time
+from timeout_errors import is_timeout
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):raise ValueError('REDIRECT_DENIED')
@@ -42,4 +43,5 @@ def read_balance(key,fetch=_fetch):
         return '\n'.join(lines)
     except HTTPError as e:
         return 'DeepSeek 余额查询鉴权失败，请检查本机保存的 Key。' if e.code in {401,403} else 'DeepSeek 余额接口暂不可用，请稍后再试。'
-    except Exception:return '暂时无法核实 DeepSeek 余额，请稍后再试。'
+    except Exception as error:
+        return 'DeepSeek 余额查询超时（每次接口请求8秒时限，有限重试后仍未完成），请稍后重试。' if is_timeout(error) else '暂时无法核实 DeepSeek 余额，请稍后再试。'

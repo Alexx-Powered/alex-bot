@@ -215,8 +215,9 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     `来源：ECMWF IFS / Open-Meteo https://open-meteo.com/ ；模型预报，非实测。时区 ${FORECAST_TIMEZONE}。`,
   ].join('\n');
   const hourlyText = hourly.map((p) => `${p.time.slice(11, 16)} ${shown(p.temperatureC, '°C')} ${shown(p.humidityPct, '%')} ${shown(p.precipitationMm, 'mm')} ${shown(p.precipitationProbabilityPct, '%')} 云量${shown(p.cloudCoverPct, '%')}`).join('\n');
-  const windBrief = await summarizeWind(hourly);
-  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText, windBrief,
+  let windTimedOut=false;
+  const windBrief = await summarizeWind(hourly,{onTimeout:()=>{windTimedOut=true;}});
+  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText, windBrief,...(windTimedOut?{timeoutNotice:'风速简报计算超时（10秒时限），其余预报正常展示'}:{}),
     source, fetchedAt: new Date(now).toISOString(), modelRunAt: null, freshness, warnings,
     temporalNote: '温湿度与总云量为行首时刻；降水量/概率对应 time 至 periodEnd。降水为雨雪合计。阵风为覆盖该行的3小时窗口最大值。' };
 }
