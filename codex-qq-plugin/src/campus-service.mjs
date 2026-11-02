@@ -8,6 +8,7 @@ import {studyImage} from './study-briefing.mjs';
 import {z} from 'zod';
 import {fullAccess} from './access-policy.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
+import {withHeavyWork} from './heavy-work.mjs';
 
 const source='https://app.buaa.edu.cn/site/classRoomQuery/index';
 const semantics='接口标空闲则为空闲，其余课节为有课；保留接口给出的节次。';
@@ -55,7 +56,7 @@ export class CampusService{
   #busy=false;#last=null;#cache=new Map();#cacheLoaded=false;
   constructor({home,configStore,worker,now=()=>Date.now()}){
     Object.assign(this,{home,configStore,now});
-    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','campus_worker.py'),timeoutMs:210000,maxLineBytes:262144});
+    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','campus_worker.py'),timeoutMs:210000,maxLineBytes:262144,idleMs:90_000});
   }
   async #loadCache(){
     if(this.#cacheLoaded)return;
@@ -97,7 +98,7 @@ export class CampusService{
       if(process.platform!=='win32'){
         try{const saved=await unprotectCredential(JSON.parse(await fs.readFile(sessionFile,'utf8')).cipher);if(saved.identity===identity)sessionState=saved.state;}catch{ /* A missing/expired session requires a fresh login. */ }
       }
-      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
+      const result=await withHeavyWork(()=>this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
         const data=validateCampusData(value.data);
         if(process.platform!=='win32'&&data.ok&&value.session_state){
           await atomicJson(sessionFile,{format:credentialFormat(),cipher:await protectCredential({identity,state:value.session_state})});
@@ -112,9 +113,9 @@ export class CampusService{
         const buffer=await fs.readFile(file);
         const image=await studyImage({idempotencyKey:'study:'+value.artifact_id.repeat(2),pngBase64:buffer.toString('base64')});
         return {data,image};
-      });
+      }));
       this.#last=result.data;return result;
-    }catch(error){return {data:campusFailure(error.timedOut?'CAMPUS_WORKER_TIMEOUT':'CAMPUS_QUERY_FAILED',parsed.date)};}
+    }catch(error){return {data:campusFailure(error.code==='HEAVY_WORK_BUSY'?'CAMPUS_BUSY':error.timedOut?'CAMPUS_WORKER_TIMEOUT':'CAMPUS_QUERY_FAILED',parsed.date)};}
     finally{this.#busy=false;}
   }
   async resolveIntent(text,requested='auto',origin='query'){

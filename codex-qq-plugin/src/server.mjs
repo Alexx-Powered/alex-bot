@@ -9,6 +9,7 @@ import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { PrivateStore } from './storage.mjs';
 import { BridgeCore } from './core.mjs';
 import { QQAdapter } from './qq-adapter.mjs';
+import { OneBotAdapter, validateOneBotProfile } from './onebot-adapter.mjs';
 import { WeatherCommands, beijingDay } from './weather-commands.mjs';
 import {WeatherToolbox} from './weather-tools.mjs';
 import {ConversationAgent} from './conversation-agent.mjs';
@@ -48,23 +49,27 @@ async function body(req, limit = maxBody) {
 }
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 
-export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory = (options) => new QQAdapter(options), weatherCommands = new WeatherCommands({home}), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), socialConfigStore = new SocialConfigStore(home), socialService, telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
+export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory, oneBotProfile = null, weatherCommands = new WeatherCommands({home}), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, morningReport, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), socialConfigStore = new SocialConfigStore(home), socialService, telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
+  const profile = oneBotProfile === null ? null : validateOneBotProfile(oneBotProfile);
+  const identityDomain = profile ? 'qq_uin_'+profile.selfId : null;
+  const readTransportCredentials = () => profile ?? store.readCredentials();
   const limits=sendLimits??await loadSendLimits(home);
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
-  let configured = Boolean(await store.readCredentials());
+  let configured = Boolean(await readTransportCredentials());
   const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
-  if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   const campus = campusService || new CampusService({home,configStore:campusConfigStore});
   const statusTools = new PublicStatusService({home});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,worker});
-  const social=socialService||(prewarm?new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
+  const social=socialService||(prewarm && !profile ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
   const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core;
-  const adapter = adapterFactory({
+  const makeAdapter = adapterFactory ?? (options => profile ? new OneBotAdapter(options) : new QQAdapter(options));
+  const adapter = makeAdapter({
     canSend: request => core?.canDeliver(request) === true,
+    admit: event => core?.admitsOneBotEvent(event) === true,
     onMessage: async (message) => {
       try { await monitoring.run({scope:message?.kind},()=>core.handleMessage(message)); } catch { /* no text or credential logging */ }
     },
@@ -72,9 +77,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       if (['blocked', 'error'].includes(status.state)) core?.setPaused(true).catch(() => {});
     },
   });
-  core = new BridgeCore({ loadState: () => store.loadState(), saveState: (state) => store.saveState(state),
+  core = new BridgeCore({ loadState: async () => {
+    const raw = await store.loadState();
+    if (raw && (raw.identityDomain ?? null) !== identityDomain) throw Error('TRANSPORT_STATE_MISMATCH');
+    return raw;
+  }, saveState: state => store.saveState(identityDomain ? {...state,identityDomain} : state), oneBotMode:profile?.mode,
     send: (request) => measureSpan('qq_send',()=>adapter.send(request)), now: () => Date.now(), limits, observeMessage:social?(data,context)=>social.observe(data,context):null, commandHandler: (text,context) => measureSpan('agent',()=>agent.handle(text,context)) });
   await core.init();
+  if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   let configBusy = false;
   let connectionGeneration = 0;
   let boundPort = port;
@@ -206,6 +216,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
           break;
         }
         case '/api/config': {
+          if (profile) return json(res,409,{ok:false,code:'OPERATOR_MANAGED_TRANSPORT'});
           if (!/^[0-9]{4,30}$/.test(data.appId || '') || typeof data.appSecret !== 'string' || data.appSecret.length < 8 || data.appSecret.length > 512 || /\s/.test(data.appSecret)) {
             return json(res, 400, { ok: false, code: 'INVALID_CREDENTIAL_FORMAT' });
           }
@@ -221,7 +232,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         }
         case '/api/connect': {
             const generation = connectionGeneration;
-            const credentials = await store.readCredentials();
+            const credentials = await readTransportCredentials();
             if (generation !== connectionGeneration) { result = { ok: false, code: 'CONNECT_CANCELLED' }; break; }
             if (!credentials) return json(res, 409, { ok: false, code: 'NOT_CONFIGURED' });
             await adapter.disconnect();
@@ -316,7 +327,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   server.headersTimeout = 10000;
   server.keepAliveTimeout = 3000;
   return {
-    server, core, adapter, store, monitoring,
+    server, core, adapter, store, monitoring, readTransportCredentials,
     async listen() {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
       boundPort = server.address().port;
@@ -337,10 +348,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
 
 if (await isEntrypoint(import.meta.url)) {
   try {
-    const app = await createBridgeServer({prewarm:true});
+    const transport = process.env.QQ_TRANSPORT ?? 'official';
+    if (!['official','onebot11'].includes(transport)) throw Error('TRANSPORT_INVALID');
+    const profile = transport === 'onebot11'
+      ? validateOneBotProfile(JSON.parse(await fs.readFile(path.join(process.env.CREDENTIALS_DIRECTORY,'onebot.json'),'utf8'))) : null;
+    const app = await createBridgeServer({prewarm:true,oneBotProfile:profile});
     const port = await app.listen();
-    if (process.argv.includes('--connect') && app.core.status().paired) {
-      const credentials=await app.store.readCredentials();
+    if (process.argv.includes('--connect') && app.core.status().paired && (!profile || !app.core.status().paused)) {
+      const credentials=await app.readTransportCredentials();
       if(credentials) await app.adapter.connect(credentials);
     }
     console.log('Codex QQ 本地测试服务已启动：http://127.0.0.1:' + port);

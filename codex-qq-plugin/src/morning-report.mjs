@@ -1,5 +1,6 @@
 import {morningPlan} from './morning-calendar.mjs';
 import {renderMorningChart} from './morning-chart.mjs';
+import {withHeavyWork} from './heavy-work.mjs';
 export class MorningReportService{
   constructor({commands,worker,now=Date.now,chart=renderMorningChart}){Object.assign(this,{commands,worker,now,chart});}
   plan(){return morningPlan(this.now());}
@@ -16,6 +17,7 @@ export class MorningReportService{
         return r.report;
       });
     }catch{analysis={date:plan.date,city:plan.city,title:'运动建议暂不可用',summary:'分析服务未完成，暂不推荐户外运动时段。',windows:[],recommendation:null,notes:['运动分析暂不可用']};}
-    return {ok:true,date:plan.date,cities:[plan.city],text:`${plan.cityName}早安日报：今日天气与运动建议。`,image:await this.chart({inputs:input,analysis,plan}),analysis,plan};
+    const image=await withHeavyWork(()=>this.chart({inputs:input,analysis,plan}));
+    return {ok:true,date:plan.date,cities:[plan.city],text:`${plan.cityName}早安日报：今日天气与运动建议。`,image,analysis,plan};
   }
 }

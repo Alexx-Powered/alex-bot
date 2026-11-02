@@ -1,0 +1,45 @@
+[Unit]
+Description=Isolated Alex QQ gateway
+After=network-online.target
+ConditionPathExists=/etc/alex-qq-gateway/onebot.json
+
+[Service]
+Type=simple
+User=alexqqgw
+Group=alexqqgw
+WorkingDirectory=/var/lib/alexqqgw
+Environment=HOME=/var/lib/alexqqgw NAPCAT_WORKDIR=/var/lib/alexqqgw NAPCAT_DISABLE_MULTI_PROCESS=1 NAPCAT_DISABLE_PIPE=1
+ExecStart=/usr/bin/python3 /opt/alex-qq-gateway/ops/run-onebot-gateway.py
+Restart=no
+KillMode=control-group
+TimeoutStopSec=10
+RuntimeDirectory=alex-qq-gateway
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectProc=invisible
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SocketBindDeny=ipv4:tcp
+SocketBindDeny=ipv6:tcp
+SocketBindAllow=ipv4:tcp:19328
+ReadWritePaths=/var/lib/alexqqgw
+ReadOnlyPaths=/var/lib/alexqqgw/config /var/lib/alexqqgw/plugins
+InaccessiblePaths=/var/lib/alexbot /etc/alexbot /var/backups/alexbot /etc/alex-qq-gateway
+LimitCORE=0
+TasksMax=160
+CPUQuota=100%
+MemoryHigh=352M
+MemoryMax=448M
+MemorySwapMax=64M
+OOMScoreAdjust=500
+StandardOutput=null
+StandardError=null

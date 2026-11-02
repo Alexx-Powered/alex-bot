@@ -5,16 +5,20 @@ import {z} from 'zod';
 import {PythonAgentWorker} from './python-agent.mjs';
 import {APP_ROOT} from './runtime-paths.mjs';
 import {RadarService} from './radar.mjs';
+import {withHeavyWork} from './heavy-work.mjs';
 
 const source='https://www.rainviewer.com/';
 const schema=z.object({ok:z.literal(true),artifact_id:z.string().regex(/^[a-f0-9]{32}$/),name:z.string().min(1).max(80),covered:z.boolean(),issued_at:z.string().datetime({offset:true}),source:z.literal(source)}).strict();
 const messages={GLOBAL_RADAR_LOCATION_AMBIGUOUS:'地名有重名，请补充国家或省市',GLOBAL_RADAR_LOCATION_NOT_FOUND:'全球雷达未找到该地点，请使用城市或国家名称',GLOBAL_RADAR_LOCATION_INVALID:'请提供有效的城市、国家或地区名',GLOBAL_RADAR_STALE:'全球雷达数据已过期，暂不发送旧图',GLOBAL_RADAR_TIMEOUT:'全球雷达数据请求超时（单次10秒时限），请稍后重试'};
 export class GlobalRadarService{
   constructor({home=process.env.QQ_BRIDGE_HOME||APP_ROOT,worker,now=Date.now}={}){
-    Object.assign(this,{home,now});this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python/global_radar_worker.py'),timeoutMs:90000});
+    Object.assign(this,{home,now});this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python/global_radar_worker.py'),timeoutMs:90000,idleMs:90_000});
   }
   async get(target){
     if(typeof target!=='string'||target.length>60)throw Object.assign(Error('GLOBAL_RADAR_LOCATION_INVALID'),{code:'GLOBAL_RADAR_LOCATION_INVALID'});
+    return withHeavyWork(()=>this.#render(target));
+  }
+  async #render(target){
     const result=await this.worker.run({type:'global_radar',name:'global_radar_image',args:{target}},async()=>{throw Error('GLOBAL_RADAR_RPC_DENIED');},v=>v.data);
     if(result?.ok!==true){const code=Object.hasOwn(messages,result?.code)?result.code:'GLOBAL_RADAR_SOURCE_UNAVAILABLE';throw Object.assign(Error(messages[code]||'全球雷达数据暂不可用，请稍后重试'),{code});}
     const data=schema.parse(result);const age=this.now()-Date.parse(data.issued_at);

@@ -29,7 +29,7 @@ export function parseStatusCommand(text){
 export class PublicStatusService{
   constructor({home,worker}={}){
     this.home=home;
-    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','public_status_worker.py'),timeoutMs:65000});
+    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','public_status_worker.py'),timeoutMs:65000,idleMs:90_000});
   }
   async handle(text,context){const name=parseStatusCommand(text);return name?this.execute(name,{},context):null;}
   async execute(name,args,context){

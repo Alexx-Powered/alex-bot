@@ -6,6 +6,43 @@ import {PythonAgentWorker,pythonEnvironment} from '../src/python-agent.mjs';
 import {WeatherToolbox} from '../src/weather-tools.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 import {parseChatPolicy} from '../src/chat-policy.mjs';
+import {withHeavyWork} from '../src/heavy-work.mjs';
+
+test('idle reclamation waits for queued work and starts a fresh worker on demand',async()=>{
+  let starts=0,stops=0;
+  const spawnImpl=()=>{
+    starts++;
+    const child=new EventEmitter();
+    child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();
+    child.kill=()=>{stops++;child.emit('exit');};
+    child.stdin.on('data',data=>{
+      const {id}=JSON.parse(data);
+      setTimeout(()=>child.stdout.write(JSON.stringify({id,type:'result',kind:'ignore'})+'\n'),35);
+    });
+    return child;
+  };
+  const worker=new PythonAgentWorker({home:process.cwd(),spawnImpl,idleMs:10,timeoutMs:1000});
+  try{
+    const run=()=>worker.run({type:'request'},async()=>null);
+    await Promise.all([run(),run()]);
+    assert.equal(starts,1);assert.equal(stops,0);
+    await new Promise(resolve=>setTimeout(resolve,35));
+    assert.equal(stops,1);
+    await run();assert.equal(starts,2);
+  }finally{worker.close();}
+});
+
+test('heavy leaf operations run one at a time and a failed render releases its slot',async()=>{
+  const order=[];let release;
+  const hold=new Promise(r=>release=r);
+  const a=withHeavyWork(async()=>{order.push('campus');await hold;throw Error('failed');});
+  const b=withHeavyWork(async()=>{order.push('radar');});
+  const c=withHeavyWork(async()=>{order.push('morning');});
+  await assert.rejects(withHeavyWork(async()=>{}),/HEAVY_WORK_BUSY/);
+  assert.deepEqual(order,['campus']);
+  release();await assert.rejects(a,/failed/);await Promise.all([b,c]);
+  assert.deepEqual(order,['campus','radar','morning']);
+});
 
 function fakeWorker(respond,overrides={}){
   let child,options;const lines=[];

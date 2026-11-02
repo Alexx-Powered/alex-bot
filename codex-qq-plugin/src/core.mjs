@@ -1,5 +1,6 @@
 import {copyIncomingMedia} from './incoming-media.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { sanitizeContextText } from './chat-safety.mjs';
 import {recordTiming} from './telemetry.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
@@ -85,13 +86,15 @@ function restoreState(raw) {
   const attempts = raw.attempts.map((entry) => {
     if (!Number.isSafeInteger(entry.at) || entry.at < 0 ||
         typeof entry.day !== 'string' || entry.day !== hkDay(entry.at)) throw new Error('STATE_INVALID');
-    return { at: entry.at, day: entry.day };
+    for (const key of ['target','caller']) if (entry[key] !== undefined && !isHash(entry[key])) throw Error('STATE_INVALID');
+    return { at: entry.at, day: entry.day, ...(entry.target ? {target:entry.target} : {}), ...(entry.caller ? {caller:entry.caller} : {}) };
   });
   const deliveries = raw.deliveries.map((entry) => {
     if (!isHash(entry.key) || !knownDeliveryStates.has(entry.state) ||
         !Number.isSafeInteger(entry.at) || entry.at < 0 ||
         !knownDeliveryCodes.has(entry.code)) throw new Error('STATE_INVALID');
-    return { key: entry.key, state: entry.state, at: entry.at, code: entry.code };
+    if (entry.receiptHash !== undefined && !isHash(entry.receiptHash)) throw Error('STATE_INVALID');
+    return { key: entry.key, state: entry.state, at: entry.at, code: entry.code, ...(entry.receiptHash ? {receiptHash:entry.receiptHash} : {}) };
   });
   const incoming = raw.incoming.map((key) => {
     if (!isHash(key)) throw new Error('STATE_INVALID');
@@ -182,8 +185,10 @@ export class BridgeCore {
   #groupContexts = new Map();
   #pendingIncoming = 0;
   #groupRestrictions = new Map();
+  #caller = new AsyncLocalStorage();
+  #oneBotMode;
 
-  constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, observeMessage = null, limits = {} }) {
+  constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, observeMessage = null, limits = {}, oneBotMode = null }) {
     if (![loadState, saveState, send, now].every((fn) => typeof fn === 'function')) {
       throw new TypeError('INVALID_CORE_DEPENDENCIES');
     }
@@ -193,7 +198,11 @@ export class BridgeCore {
     this.#now = now;
     this.#commandHandler = commandHandler;
     this.observeMessage = observeMessage;
-    this.#limits = sendingLimits(limits);
+    if (oneBotMode !== null && !['receive-only','limited','normal'].includes(oneBotMode)) throw Error('ONEBOT_MODE_INVALID');
+    this.#oneBotMode = oneBotMode;
+    const configured = sendingLimits(limits);
+    this.#limits = oneBotMode ? sendingLimits({dailyAttempts:Math.min(100,configured.dailyAttempts),
+      minuteAttempts:Math.min(6,configured.minuteAttempts),reservedNotifications:Math.min(99,Math.max(10,configured.reservedNotifications),Math.min(100,configured.dailyAttempts)-1)}) : configured;
   }
 
   #time() {
@@ -202,12 +211,27 @@ export class BridgeCore {
     return value;
   }
 
-  #budgetCode(now, { reply = false, count = 1 } = {}) {
+  #budgetCode(now, { reply = false, count = 1, target } = {}) {
+    if (this.#oneBotMode === 'receive-only') return 'RECEIVE_ONLY';
     const dayAttempts = this.#state.attempts.filter(entry => entry.day === hkDay(now)).length;
     if (reply && dayAttempts + count > this.#limits.dailyAttempts - this.#limits.reservedNotifications) return 'RATE_LIMIT_REPLY_DAY';
     if (dayAttempts + count > this.#limits.dailyAttempts) return 'RATE_LIMIT_DAY';
     if (this.#state.attempts.filter(entry => entry.at > now - 60_000).length + count > this.#limits.minuteAttempts) return 'RATE_LIMIT_MINUTE';
+    if (this.#oneBotMode) {
+      const recent = this.#state.attempts.filter(entry => entry.at > now - 60_000);
+      if (target && recent.filter(entry => entry.target === hash(target)).length + count > 3) return 'RATE_LIMIT_TARGET';
+      const caller = this.#caller.getStore();
+      if (caller && recent.filter(entry => entry.caller === hash(caller)).length + count > 2) return 'RATE_LIMIT_CALLER';
+    }
     return null;
+  }
+
+  admitsOneBotEvent({kind,groupId,senderId,text}) {
+    if (!this.#ready) return false;
+    if (kind === 'c2c' && this.#pairing && !this.#state.ownerId) return /^\/pair [a-f0-9]{32}$/.test(text);
+    if (kind === 'group' && this.#groupPairing && this.#state.ownerId === senderId && /^\/group-bind [a-f0-9]{32}$/.test(text)) return true;
+    if (this.#oneBotMode === 'receive-only') return false;
+    return kind === 'c2c' ? senderId === this.#state.ownerId : this.groupAccess(groupId) !== null;
   }
 
   #enqueue(work) {
@@ -244,7 +268,7 @@ export class BridgeCore {
       progress: { enumerable:false, value:async stage => {
         if(!['campus-fetch','campus-fetch-current'].includes(stage)||acknowledged||!this.canDeliver({groupId,requiredAccess:'white'}))return false;
         // Reserve enough capacity for both the acknowledgement and final reply.
-        if(this.#budgetCode(this.#time(),{reply:true,count:2}))return false;
+        if(this.#budgetCode(this.#time(),{reply:true,count:2,target:groupId??this.#state.ownerId}))return false;
         acknowledged=true;
         const delivery=await this.#notify({text:stage==='campus-fetch-current'?'正在抓取数据，随后生成当前推荐图':'正在抓取数据',requiredAccess:'white',progress:true,
           idempotencyKey:`progress:${incomingKey}:campus-fetch`},target,groupId);
@@ -401,6 +425,7 @@ export class BridgeCore {
       if (this.#state.paused) return result(false, 'PAUSED');
       const normalizedName = typeof name === 'string' ? name.trim() : name;
       if (!validGroupName(normalizedName)||!['white','gray'].includes(access)) return result(false, 'INVALID_INPUT');
+      if (this.#oneBotMode && this.#oneBotMode !== 'normal' && this.#state.allowedGroups.length + this.#state.grayGroups.length >= 1) return result(false,'PILOT_GROUP_LIMIT');
       if ((access==='white'?this.#state.allowedGroups:this.#state.grayGroups).length >= (access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups)) return result(false, 'GROUP_LIMIT_REACHED');
       const expiresAt = this.#time() + CORE_LIMITS.pairingTtlMs;
       const code = randomBytes(16).toString('hex');
@@ -568,7 +593,9 @@ export class BridgeCore {
     }
     if (countedIncoming && this.#pendingIncoming >= MAX_PENDING_INCOMING) return result(false, 'BUSY');
     if (countedIncoming) this.#pendingIncoming++;
-    try { return await this.#enqueue(async () => {
+    const receivedAt = this.#time();
+    try { return await this.#enqueue(() => this.#caller.run(message.senderId, async () => {
+      if (this.#oneBotMode && countedIncoming && this.#time() - receivedAt >= 60_000) return result(false,'REQUEST_EXPIRED');
       if (!this.#ready) return result(false, 'NOT_READY');
       if (message?.kind === 'group') return this.#handleGroupMessage(message, groupContext);
       if (!message || message.kind !== 'c2c') return result(false, 'SCOPE_DENIED');
@@ -614,7 +641,7 @@ export class BridgeCore {
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
       if (this.#commandHandler) {
         const now = this.#time();
-        const budgetCode = this.#budgetCode(now, { reply: true });
+        const budgetCode = this.#budgetCode(now, { reply: true, target:senderId });
         if (budgetCode) return result(false, budgetCode);
         let response;
         const context=this.#bindRequest({scope:'c2c',sessionKey:hash('chat:c2c:'+senderId),
@@ -625,7 +652,7 @@ export class BridgeCore {
         if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       return result(true, 'IGNORED');
-    }); } finally { if (countedIncoming) this.#pendingIncoming--; }
+    })); } finally { if (countedIncoming) this.#pendingIncoming--; }
   }
 
   #observe(message,context) {
@@ -679,7 +706,7 @@ export class BridgeCore {
     if (this.#commandHandler) {
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
       const now = this.#time();
-      const budgetCode = this.#budgetCode(now, { reply: true });
+      const budgetCode = this.#budgetCode(now, { reply: true, target:groupId });
       if (budgetCode) return result(false, budgetCode);
       let response;
       const access=this.groupAccess(groupId);
@@ -728,6 +755,7 @@ export class BridgeCore {
   async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false}) {
     return this.#enqueue(async () => {
       const empty = code => result(false, code, { results: [], attempted: 0, sent: 0 });
+      if (this.#oneBotMode && this.#oneBotMode !== 'normal') return empty(this.#oneBotMode === 'receive-only' ? 'RECEIVE_ONLY' : 'PILOT_BROADCAST_DISABLED');
       if (!this.#ready) return empty('NOT_READY');
       if (!this.#state.ownerId) return empty('NOT_PAIRED');
       if (typeof text !== 'string' || (!text.trim() && image === undefined) || text.length > CORE_LIMITS.textLength || !validId(idempotencyKey)) return empty('INVALID_INPUT');
@@ -789,7 +817,8 @@ export class BridgeCore {
     if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
     const now = this.#time();
     const day = hkDay(now);
-    const budgetCode = this.#budgetCode(now, { reply: replyTarget !== undefined && replyTarget !== null });
+    const target = groupId ?? this.#state.ownerId;
+    const budgetCode = this.#budgetCode(now, { reply: replyTarget !== undefined && replyTarget !== null, target });
     if (budgetCode) return result(false, budgetCode);
     const next = structuredClone(this.#state);
     // Keep uncertain attempts until explicitly dealt with; do not evict them
@@ -800,19 +829,25 @@ export class BridgeCore {
       next.deliveries.splice(index, 1);
     }
     next.attempts = next.attempts.filter((entry) => entry.at >= now - 48 * 60 * 60_000);
-    next.attempts.push({ at: now, day });
+    const caller = this.#caller.getStore();
+    next.attempts.push({ at: now, day, ...(this.#oneBotMode ? {target:hash(target),...(caller ? {caller:hash(caller)} : {})} : {}) });
     next.deliveries.push({ key, state: 'inFlight', at: now, code: 'SENDING' });
     next.lastDeliveryCode = 'SENDING';
     // Persist the budget and key BEFORE any network call. A crash here favors
     // suppressing an uncertain notification over sending it twice.
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
-    let failure = null;
+    let failure = null, receiptHash;
     try {
       const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat') } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
       if (response?.ok === false) throw response;
+      if (this.#oneBotMode) {
+        if (response?.ok !== true || !/^[a-f0-9]{64}$/.test(response.receiptHash ?? '')) throw Error('ONEBOT_DELIVERY_UNKNOWN');
+        receiptHash = response.receiptHash;
+      }
     } catch (error) { failure = classifyError(error); }
     const finished = structuredClone(this.#state);
     const record = finished.deliveries.find((entry) => entry.key === key);
+    if (receiptHash) record.receiptHash = receiptHash;
     record.state = failure ? (failure.uncertain ? 'uncertain' : 'rejected') : 'sent';
     record.code = failure?.code ?? 'SENT';
     finished.lastDeliveryCode = record.code;

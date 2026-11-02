@@ -92,7 +92,7 @@ function groupMention(message, appId) {
 const observedKey = (scope, targetId, msgId) => `${scope}:${targetId}:${msgId}`;
 
 /** Accept only the in-memory images produced by our trusted weather service. */
-function imageBase64(image) {
+export function imageBase64(image) {
   if (!image || typeof image !== 'object' ||
       ![Object.prototype, null].includes(Object.getPrototypeOf(image)) ||
       Reflect.ownKeys(image).length !== 2 ||

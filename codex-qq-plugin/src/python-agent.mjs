@@ -11,11 +11,19 @@ export function pythonEnvironment(source=process.env){
 const failure=()=>Object.assign(new Error('PYTHON_AGENT_UNAVAILABLE'),{code:'PYTHON_AGENT_UNAVAILABLE'});
 export class PythonAgentWorker{
   #child;#current;#tail=Promise.resolve();#buffer='';#closed=false;
-  constructor({home,pythonPath=pythonExecutable(),workerPath=resolve(APP_ROOT,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000,maxLineBytes=65536,toolTimeouts={}}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs,maxLineBytes,toolTimeouts});}
+  #idleTimer;#queued=0;
+  constructor({home,pythonPath=pythonExecutable(),workerPath=resolve(APP_ROOT,'python','agent_worker.py'),spawnImpl=spawn,timeoutMs=60000,maxLineBytes=65536,toolTimeouts={},idleMs=0}){Object.assign(this,{home,pythonPath,workerPath,spawnImpl,timeoutMs,maxLineBytes,toolTimeouts,idleMs});}
+  #scheduleIdle(){
+    clearTimeout(this.#idleTimer);
+    if(!this.idleMs||!this.#child||this.#closed||this.#queued)return;
+    const child=this.#child;
+    this.#idleTimer=setTimeout(()=>{if(this.#child===child&&!this.#queued&&!this.#current)this.#stop();},this.idleMs);
+    this.#idleTimer.unref();
+  }
   #stop(details={}){const child=this.#child;this.#child=null;this.#buffer='';if(child)child.kill();if(this.#current){const task=this.#current;this.#current=null;clearTimeout(task.timer);task.reject(Object.assign(failure(),{toolExecuted:task.called,...details}));}}
   #timeout(){const task=this.#current;this.#stop({timedOut:true,timeoutMs:task?.limitMs??this.timeoutMs,stage:task?.stage});}
-  close(){this.#closed=true;this.#stop();}
-  prewarm(){if(this.#closed)return false;try{this.#start();return true;}catch{return false;}}
+  close(){this.#closed=true;clearTimeout(this.#idleTimer);this.#stop();}
+  prewarm(){if(this.#closed)return false;try{this.#start();this.#scheduleIdle();return true;}catch{return false;}}
   warmup(){return this.run({type:'warmup'},async()=>{throw Error('WARMUP_RPC_DENIED');},()=>true);}
   #write(value){if(!this.#child?.stdin.writable)throw failure();this.#child.stdin.write(JSON.stringify(value)+'\n');}
   #start(){
@@ -71,10 +79,13 @@ export class PythonAgentWorker{
     clearTimeout(task.timer);this.#current=null;task.resolve(output);
   }
   run(payload,execute,finish=()=>null){
+    clearTimeout(this.#idleTimer);
+    this.#queued++;
     const queuedAt=performance.now();
     const operation=this.#tail.then(()=>new Promise((resolveTask,reject)=>{
       try{if(this.#closed)throw failure();recordTiming('worker_queue',performance.now()-queuedAt);this.#start();const id=randomUUID(),sentAtMs=Date.now();this.#current={id,sentAtMs,startedAt:performance.now(),record:AsyncLocalStorage.bind(recordTiming),requestType:payload.type,requestName:payload.name,execute:AsyncLocalStorage.bind(execute),finish:AsyncLocalStorage.bind(finish),resolve:resolveTask,reject,called:false,completed:false,limitMs:this.timeoutMs,stage:payload.name,timer:setTimeout(()=>this.#timeout(),this.timeoutMs)};this.#write({...payload,id,_sentAtMs:sentAtMs});}
       catch{this.#stop();reject(failure());}
-    }));this.#tail=operation.catch(()=>{});return operation;
+    })).finally(()=>{this.#queued--;this.#scheduleIdle();});
+    this.#tail=operation.catch(()=>{});return operation;
   }
 }
