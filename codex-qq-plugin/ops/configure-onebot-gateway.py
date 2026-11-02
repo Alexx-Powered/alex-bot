@@ -35,8 +35,10 @@ def prepare():
         p.chmod(0o750)
     ops = Path("/opt/alex-qq-gateway/ops")
     ops.mkdir(exist_ok=True)
-    shutil.copyfile(OPS / "run-onebot-gateway.py", ops / "run-onebot-gateway.py")
-    (ops / "run-onebot-gateway.py").chmod(0o644)
+    for name in ["run-onebot-gateway.py", "configure-onebot-gateway.py", "onebot-login.py", UNIT.name]:
+        if OPS != ops:
+            shutil.copyfile(OPS / name, ops / name)
+        (ops / name).chmod(0o644)
     shutil.copyfile(OPS / UNIT.name, UNIT)
     UNIT.chmod(0o644)
     subprocess.run(["systemctl", "daemon-reload"], check=True)
