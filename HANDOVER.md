@@ -2,7 +2,7 @@
 
 按用户“回滚到 qq 官方 bot 的版本，onebot 封号太严重”的明确指令，于 07:44 停止 OneBot 发送、业务、网关、登录控制和相关定时任务。切换前为 ONEBOT_DISCONNECTED、已暂停、当日 0 次发送、无未决投递。已恢复最后一次正式使用官方接入的 `linux-10443702394a`，源码 `e0c356c7828572b78894619ecf5e076009e97bac`，266 个发布文件哈希全部一致。`alexbot.service` 显式 QQ_TRANSPORT=official、enabled/active；PID 105680 于 2026-11-03 07:55:46 CST 启动，19327 实际监听、argv、工作目录 `/var/lib/alexbot`、current 指向和源码先于启动均已核对。本机 127.0.0.1:19327 是 OpenSSH PID 29776，于 07:40:12 CST 启动，没有启动本机 Bot。
 
-07:56:59 CST 官方 SDK 已真实鉴权 connected，原主人已配对、发送已恢复、0 次当日发送、0 未决，恢复原 2 个白名单群，灰名单 0。没有发送自动 QQ 测试消息；已请主人向原官方机器人私聊测试换算，实收结果待回答。OneBot 的 UIN 授权没有映射到官方 OpenID。OneBot 业务、网关、登录控制、试运行、日报 service/timer 六项全部 masked，19328/19330 已无监听，开机不会自动拉起。旧官方早报仍 masked，配置 enabled=false；本轮不补发 07:30 日报。原五个前缀及官方白/灰名单随版本恢复，OneBot 的逐群功能、全局自定义词库和扫码页面未迁入旧版。
+07:56:59 CST 官方 SDK 已真实鉴权 connected，原主人已配对、发送已恢复、0 次当日发送、0 未决，恢复原 2 个白名单群，灰名单 0。没有发送自动 QQ 测试消息；主人随后向原官方机器人私聊发送“1马里换公里”，并明确确认收到正确的 3.08 公里回复，官方私聊收发及实际工具换算验收通过。群聊未另作实收测试。OneBot 的 UIN 授权没有映射到官方 OpenID。OneBot 业务、网关、登录控制、试运行、日报 service/timer 六项全部 masked，19328/19330 已无监听，开机不会自动拉起。旧官方早报仍 masked，配置 enabled=false；本轮不补发 07:30 日报。原五个前缀及官方白/灰名单随版本恢复，OneBot 的逐群功能、全局自定义词库和扫码页面未迁入旧版。
 
 标准备份 `alexbot-20261102T234943484Z.json`（UTC 命名，CST 11 月 3 日 07:49）包含 21 文件，密文 SHA256 `df655c50d4f4d7a3f22e15329c453a21348e7fe25efc1cf35a09bc978846d397`。完整运行目录独立 AES-GCM/RSA-OAEP 密文 `/var/backups/alexbot-official-rollback/20261103/onebot-full-before.json`，38,015,420 字节，密文 SHA256 `86ffb38efec9fa5344edb69958c8c3da34147ef0facd35ad9ffe6bd0aa0425fb`；解密 gzip tar 28,510,970 字节、282 条目，明文归档 SHA256 `548cc615bfea07c47255c8df320d01209021a51f79edd7f4e5df3e095d9911d8`。两份密文已下载到本机 `.private/migration`，哈希一致、DPAPI 恢复身份与内存解密验证成功，未提取明文。完整备份保留全部 OneBot 阶段词库、配置、状态及记忆，网关自身设备/缓存目录保留不再运行。
 
