@@ -4,9 +4,17 @@
 
 ## 2026-11-03 恢复 QQ 官方 Bot（当前生产）
 
-用户因封号要求退出 OneBot。当前生产恢复为 `linux-10443702394a`，源码 `e0c356c7828572b78894619ecf5e076009e97bac`，266 个文件哈希全部通过。`alexbot.service` 已 enabled/active，并在单元中显式设置 `QQ_TRANSPORT=official`；原 AppID/AppSecret、主人 OpenID 和两个官方白名单群已验证可用。OneBot 的业务、网关、登录控制、试运行及其早报 service/timer 均 disabled/masked，不得为调试自动解除或重新扫码。旧 `alexbot-morning.service` 继续 masked，`config/morning-report.json` 的 enabled=false；再次明确开启时只从下一次北京时间 07:30 执行，不追补停用日报。
+官方版新版控制台采用分栏和 Apple 风格开关。快速匹配流程为：添加群 → 填备注 → 生成并复制指令 → 在目标群 @ 机器人发送 → 控制台确认并保存所选权限；匹配只捕获候选，不发群消息、不自动授权，不要求群成员 OpenID 等于主人私聊 OpenID。群名是备注，不能将数字 QQ 群号当作官方 group_openid。旧口令 API 的可选参数缺省行为保持兼容；新版界面始终提交明确的基础权限表，新群只默认聊天、换算和生活费预算。
 
-本机分支 `codex/official-bot-rollback-20261103` 以相同官方源码为基线，`codex/onebot-migration` 保留 OneBot 阶段全部提交。未完成提醒和其它本地工作未删除或纳入部署；未推送 GitHub。当前版本使用官方白/灰名单和原五个前缀，OneBot 阶段的全局词库、逐群功能管理及扫码页面随旧版本退出。最新运行数据整体加密备份仍在云端和本机，不将 OneBot 数字账号授权套用到官方 OpenID。
+全局“唤醒词”及群页的词库操作使用同一 revision 和固定词 ID，新增/改名/删除影响全部群，各群开关独立保存。改名不重置开关，允许空词库，全部关闭仍可 @。官方 SDK 的普通消息/@ 副本去重使用当前群词库。群功能实际在 Node 和 Python 工具边界执行，不是仅隐藏界面；关闭权限立即使旧请求失效。天气与空气、换算与预算合并显示；AI服务状态、DeepSeek余额及逐群早间日报沿用新名称。
+
+逐群早间日报由新官方单元 `alexbot-group-morning.timer` / `.service` 调用 `/api/group/morning/run`，与所有已屏蔽 OneBot/旧调度单元隔离。定时器提供每天北京时间 07:30 的执行入口，默认订阅 0 群；只有管理员在群页明确开启并保存的群才接收两张报告。Persistent=false、不补发，执行窗口 07:30–07:45，依旧使用 core 的逐群逐图幂等和发送限额。关闭功能/群或暂停可取消在途发送，投递不确定保持暂停。旧增强配置及旧官方调度继续关闭，不会因本次界面恢复重新订阅任何群。
+
+升级前先备份最新状态、暂停排空并仅重启 `alexbot.service`。全局词库可从退役状态单独恢复；不得导入其中的 ownerId、群 ACL、数字身份或群开关。保留所有最新投递、模型预算、记忆和配置。回退新状态时必须先保全词库及逐群权限并显式迁移，不能用不认识新群权限的旧代码直接打开发送。
+
+用户因封号要求退出 OneBot。官方接入的回滚基线为 `linux-10443702394a`、源码 `e0c356c7828572b78894619ecf5e076009e97bac`，当时 266 个文件哈希全部通过；新版界面在此官方基线上移植，具体发布版本见 HANDOVER。`alexbot.service` 显式使用 `QQ_TRANSPORT=official`，原 AppID/AppSecret、主人 OpenID 和两个官方白名单群保持。OneBot 的业务、网关、登录控制、试运行及其早报 service/timer 均 disabled/masked，不得为调试解除或重新扫码。旧 `alexbot-morning.service` 和增强配置仍关闭，逐群日报改用上文独立的官方单元，默认全部关闭。
+
+本机分支 `codex/official-bot-rollback-20261103` 以官方源码为基线，`codex/onebot-migration` 保留 OneBot 阶段提交。未完成提醒和其它本地工作不纳入部署，未推送 GitHub。当前使用官方群身份及新版控制台、全局唤醒词与逐群功能；OneBot 扫码功能不移植。最新运行数据仍有云端及本机密文备份，不将 OneBot 数字账号授权套用到官方 OpenID。
 
 回滚先停全部新链路，制作 21 文件标准加密备份以及完整运行目录加密快照。官方授权取自切换前冻结状态，投递/发送尝试/去重记录与最新状态合并；184 条投递、50 条尝试、152 个入站去重键进入恢复计划，无未决投递。模型预算、聊天记忆、模型和校园配置、管理/集成令牌及发送规则保持最新。回滚操作和回执在 root 专用 `/var/backups/alexbot-official-rollback/20261103`，完整密文为 `onebot-full-before.json`；对应本机密文在 `.private/migration`。不要直接覆盖最新 state 或把旧 OneBot 服务作为故障回退。
 

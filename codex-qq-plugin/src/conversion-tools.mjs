@@ -24,7 +24,7 @@ export function fixedToolContext(context){
   if(!context||typeof context.sessionKey!=='string'||!/^[a-f0-9]{64}$/.test(context.sessionKey))return {};
   const scope=context.scope;
   if(scope!=='c2c'&&!(scope==='group'&&['white','gray'].includes(context.access)))return {};
-  return {sessionKey:context.sessionKey,context:{scope,...(scope==='group'?{access:context.access}:{})},now:new Date().toISOString()};
+  return {sessionKey:context.sessionKey,context:{scope,...(scope==='group'?{access:context.features?'white':context.access,...(context.features?{features:context.features,policyRevision:context.policyRevision||0}:{})}:{})},now:new Date().toISOString()};
 }
 
 export function parseConversionCommand(text){

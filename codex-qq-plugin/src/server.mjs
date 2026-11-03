@@ -1,11 +1,12 @@
 import {SocialConfigStore} from './social-config.mjs';
+import {GroupMorningService,createGroupMorningStatus} from './group-morning.mjs';
 import {SocialService} from './social-service.mjs';
 import {studyImage} from './study-briefing.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { timingSafeEqual, randomUUID } from 'node:crypto';
+import { timingSafeEqual, randomUUID, createHash } from 'node:crypto';
 import { PrivateStore } from './storage.mjs';
 import { BridgeCore } from './core.mjs';
 import { QQAdapter } from './qq-adapter.mjs';
@@ -62,12 +63,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const statusTools = new PublicStatusService({home});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,worker});
-  const social=socialService||(prewarm && !profile ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
+  const enableSocial = prewarm && (!profile || profile.mode === 'normal');
+  const social=socialService||(enableSocial ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
   const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core;
   const makeAdapter = adapterFactory ?? (options => profile ? new OneBotAdapter(options) : new QQAdapter(options));
   const adapter = makeAdapter({
+    groupAddressed: (groupId,text) => core?.addressesGroupMessage(groupId,text)===true,
     canSend: request => core?.canDeliver(request) === true,
     admit: event => core?.admitsOneBotEvent(event) === true,
     onMessage: async (message) => {
@@ -84,6 +87,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   }, saveState: state => store.saveState(identityDomain ? {...state,identityDomain} : state), oneBotMode:profile?.mode,
     send: (request) => measureSpan('qq_send',()=>adapter.send(request)), now: () => Date.now(), limits, observeMessage:social?(data,context)=>social.observe(data,context):null, commandHandler: (text,context) => measureSpan('agent',()=>agent.handle(text,context)) });
   await core.init();
+  const groupMorning=new GroupMorningService({core,adapter,morning,campus});
+  const morningScheduleStatus=createGroupMorningStatus();
   if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   let configBusy = false;
   let connectionGeneration = 0;
@@ -100,7 +105,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     let pathname;
     try { pathname = new URL(req.url, expectedOrigin).pathname; } catch { return json(res, 400, { ok: false, code: 'INVALID_URL' }); }
     if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true, service: 'alex-codex-qq', version: '0.2.1' });
-    const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/guide': ['guide.html', 'text/html'], '/guide.css': ['guide.css', 'text/css'], '/logo.png': ['logo.png', 'image/png'], '/social': ['social.html','text/html'], '/social.js':['social.js','text/javascript'], '/logo.svg': ['logo.svg', 'image/svg+xml'] };
+    const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/group-console.js': ['group-console.js','text/javascript'], '/style.css': ['style.css', 'text/css'], '/guide': ['guide.html', 'text/html'], '/guide.css': ['guide.css', 'text/css'], '/logo.png': ['logo.png', 'image/png'], '/social': ['social.html','text/html'], '/social.js':['social.js','text/javascript'], '/logo.svg': ['logo.svg', 'image/svg+xml'] };
+    assets['/wake-words.js']=['wake-words.js','text/javascript'];
     if (req.method === 'GET' && assets[pathname]) {
       const [file, type] = assets[pathname];
       res.setHeader('Cache-Control', 'no-store');
@@ -112,12 +118,22 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     const admin=validToken(req.headers.authorization,store.token);
     const integration=store.integrationToken&&validToken(req.headers.authorization,store.integrationToken);
     if(!admin&&!integration)return json(res,401,{ok:false,code:'UNAUTHORIZED'});
-    if(!admin&&!['/api/status','/api/notify','/api/notify-all-allowed','/api/weather/preview','/api/weather/briefing','/api/morning/test-all-allowed','/api/study-briefing'].includes(pathname))return json(res,403,{ok:false,code:'INTEGRATION_SCOPE_DENIED'});
+    if(!admin&&!['/api/status','/api/notify','/api/notify-all-allowed','/api/weather/preview','/api/weather/briefing','/api/morning/test-all-allowed','/api/study-briefing','/api/group/morning/run'].includes(pathname))return json(res,403,{ok:false,code:'INTEGRATION_SCOPE_DENIED'});
     let mutationHeld = false;
     try {
-      if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status() });
+      if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status(),
+        groupMorning:{...await morningScheduleStatus(),enabledGroups:core.captureMorningTargets().length} });
       if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status(),transportDiagnostics:adapter.diagnostics?.()});
       if (req.method === 'GET' && pathname === '/api/social/status') return json(res,200,{ok:true,config:await socialConfigStore.status()});
+      if (req.method === 'GET' && pathname === '/api/group/directory') {
+        if (!core.status().paired) return json(res,409,{ok:false,code:'NOT_PAIRED'});
+        try {
+          const groups=await adapter.listGroups();
+          return json(res,200,{ok:true,groups:groups.map(({id,name,number})=>({
+            name,number,groupKey:createHash('sha256').update('group:'+id).digest('hex'),
+          }))});
+        } catch {return json(res,503,{ok:false,code:'GROUP_DIRECTORY_UNAVAILABLE'});}
+      }
       if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req, pathname === '/api/study-briefing' ? 2100000 : maxBody);
@@ -138,10 +154,37 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         if(!/^[a-f0-9]{64}$/.test(data.groupKey||''))throw new Error('INVALID_INPUT');
         return json(res,200,await(pathname.endsWith('/remove')?core.removeAllowedGroup({groupKey:data.groupKey}):core.setGroupAccess({groupKey:data.groupKey,access:'gray'})));
       }
+      if (pathname==='/api/group/wake-words') {
+        if (Object.keys(data).some(k=>!['groupKey','disabledWakeWords','revision'].includes(k))) throw Error('INVALID_INPUT');
+        return json(res,200,await core.setGroupWakeWords(data));
+      }
+      if (['/api/wake-words/add','/api/wake-words/rename','/api/wake-words/delete'].includes(pathname)) {
+        const operation=pathname.split('/').at(-1);
+        const keys=operation==='add'?['text','revision']:operation==='rename'?['id','text','revision']:['id','revision'];
+        if (Object.keys(data).some(k=>!keys.includes(k))) throw Error('INVALID_INPUT');
+        return json(res,200,await core.changeWakeWord({...data,operation}));
+      }
+      if (pathname==='/api/group/features') {
+        if (Object.keys(data).some(k=>!['groupKey','enabled','features'].includes(k))) throw Error('INVALID_INPUT');
+        return json(res,200,await core.setGroupFeatures(data));
+      }
       if (configBusy) return json(res, 409, { ok: false, code: 'CONFIG_BUSY' });
       configBusy = true; mutationHeld = true;
       let result;
       switch (pathname) {
+        case '/api/group/morning/run':
+          if (Object.keys(data).length) throw Error('INVALID_INPUT');
+          result=!profile||profile.mode==='normal'?await groupMorning.run():{ok:false,code:'GROUP_MORNING_UNAVAILABLE'};
+          break;
+        case '/api/group/bind': {
+          if (Object.keys(data).some(k=>!['groupKey','features'].includes(k)) || !/^[a-f0-9]{64}$/.test(data.groupKey||'')) throw Error('INVALID_INPUT');
+          let groups;
+          try {groups=await adapter.listGroups();}
+          catch {result={ok:false,code:'GROUP_DIRECTORY_UNAVAILABLE'};break;}
+          const selected=groups.find(g=>createHash('sha256').update('group:'+g.id).digest('hex')===data.groupKey);
+          result=selected?await core.addDiscoveredGroup({...selected,features:data.features}):{ok:false,code:'GROUP_DIRECTORY_CHANGED'};
+          break;
+        }
         case '/api/monitoring/test': {
           if(Object.keys(data).length)throw Error('INVALID_INPUT');
           await monitoring.run({scope:'c2c',synthetic:true},()=>measureSpan('agent',async()=>({ok:true,code:'MONITORING_TEST'})));
@@ -256,9 +299,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
           if(data.access!==undefined&&!['white','gray'].includes(data.access))throw new Error('INVALID_INPUT');
           result = await core.startGroupPairing({ name: data.name.trim(),access:data.access||'white' }); break;
         case '/api/group/confirm':
+          if(Object.keys(data).some(key=>!['groupKey','features'].includes(key)))throw new Error('INVALID_INPUT');
           if (!/^[a-f0-9]{64}$/.test(data.groupKey || '')) throw new Error('INVALID_INPUT');
           if (adapter.status().state !== 'connected') return json(res, 409, { ok: false, code: 'NOT_CONNECTED' });
-          result = await core.confirmGroupPairing({ groupKey: data.groupKey }); break;
+          result = await core.confirmGroupPairing({ groupKey: data.groupKey,features:data.features }); break;
         case '/api/group/cancel': result = await core.cancelGroupPairing(); break;
         case '/api/group/remove':
           if (!/^[a-f0-9]{64}$/.test(data.groupKey || '')) throw new Error('INVALID_INPUT');
@@ -347,12 +391,13 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
 }
 
 if (await isEntrypoint(import.meta.url)) {
+  let app;
   try {
     const transport = process.env.QQ_TRANSPORT ?? 'official';
     if (!['official','onebot11'].includes(transport)) throw Error('TRANSPORT_INVALID');
     const profile = transport === 'onebot11'
       ? validateOneBotProfile(JSON.parse(await fs.readFile(path.join(process.env.CREDENTIALS_DIRECTORY,'onebot.json'),'utf8'))) : null;
-    const app = await createBridgeServer({prewarm:true,oneBotProfile:profile});
+    app = await createBridgeServer({prewarm:true,oneBotProfile:profile});
     const port = await app.listen();
     if (process.argv.includes('--connect') && app.core.status().paired && (!profile || !app.core.status().paused)) {
       const credentials=await app.readTransportCredentials();
@@ -362,6 +407,7 @@ if (await isEntrypoint(import.meta.url)) {
     console.log('运行 scripts/open-setup.ps1 打开本机配置页。发送暂停状态会跨重启保留。');
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => app.close().finally(() => process.exit(0)));
   } catch {
+    await app?.close().catch(() => {});
     console.error('启动失败：请检查端口19327、config/send-limits.json、私有目录权限和平台加密凭据。未输出凭据。');
     process.exitCode = 1;
   }

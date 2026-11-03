@@ -117,6 +117,7 @@ export class QQAdapter {
   #createBot;
   #now;
   #canSend;
+  #groupAddressed;
   #bot = null;
   #botMentionId = null;
   #generation = 0;
@@ -125,13 +126,16 @@ export class QQAdapter {
   #lastGroupDiagnostic = null;
   #lastSendDiagnostic = null;
 
-  constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true } = {}) {
+  constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true,
+    groupAddressed = (_groupId,text) => ALIAS_ADDRESS.test(text.trim()) } = {}) {
     if (typeof canSend !== 'function') throw new TypeError('INVALID_SEND_GUARD');
+    if (typeof groupAddressed !== 'function') throw new TypeError('INVALID_GROUP_ADDRESS_GUARD');
     this.#onMessage = onMessage;
     this.#onStatus = onStatus;
     this.#createBot = createBot;
     this.#now = now;
     this.#canSend = canSend;
+    this.#groupAddressed = groupAddressed;
   }
 
   status() {
@@ -281,7 +285,7 @@ export class QQAdapter {
       if (value.expiresAt <= now) this.#observed.delete(key);
     }
     const key = observedKey(scope, targetId, message.messageId);
-    const addressed = !isGroup || mention?.mentioned === true || ALIAS_ADDRESS.test(text.trim());
+    const addressed = !isGroup || mention?.mentioned === true || this.#groupAddressed(targetId,text)===true;
     const previous = this.#observed.get(key);
     if (previous) {
       // All-message mode may deliver the ordinary copy before its trusted @

@@ -29,7 +29,9 @@ test('generated image broadcast uses the same in-memory image for owner and allo
   assert.ok(f.sent.every(item=>!Object.hasOwn(item,'replyTarget')&&item.text===''));
   assert.equal(f.core.status().dailyAttempts,2);
   assert.doesNotMatch(JSON.stringify(result),/OWNER_PRIVATE|GROUP_PRIVATE|GROUP_MEMBER/);
-  assert.doesNotMatch(JSON.stringify(f.storage.value),/image\/png|89504e47|morning-image-test|"buffer"|"text"/);
+  const {wakeWords,...deliveryState}=f.storage.value;
+  assert.ok(wakeWords.every(word=>typeof word.text==='string'));
+  assert.doesNotMatch(JSON.stringify(deliveryState),/image\/png|89504e47|morning-image-test|"buffer"|"text"/);
 });
 
 test('image broadcast validates the entire image before sending or claiming any destination',async()=>{

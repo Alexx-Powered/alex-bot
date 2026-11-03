@@ -3,6 +3,7 @@ import path from 'node:path';
 import {APP_ROOT} from './runtime-paths.mjs';
 import {PythonAgentWorker} from './python-agent.mjs';
 import {copyIncomingMedia} from './incoming-media.mjs';
+import {featureEnabled} from './group-features.mjs';
 
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const key=v=>typeof v==='string'&&/^[a-f0-9]{64}$/u.test(v);
@@ -20,9 +21,10 @@ export class SocialService{
   #pending=0;#closed=false;#latest=new Map();#results=new Map();#jobs=new Map();#epochs=new Map();#batches=new Map();#insightsPending=0;#controlOutcomes=new Map();
   constructor({home,configStore,agentConfigStore,memoryWorker,mediaWorker,insightWorker}={}){
     const workerPath=path.join(APP_ROOT,'python/social_worker.py');
-    this.memory=memoryWorker||new PythonAgentWorker({home,workerPath,timeoutMs:10000});
-    this.insight=insightWorker||(mediaWorker?null:new PythonAgentWorker({home,workerPath,timeoutMs:30000}));
-    this.media=mediaWorker||new PythonAgentWorker({home,workerPath,timeoutMs:40000});
+    const options={home,workerPath,idleMs:90_000};
+    this.memory=memoryWorker||new PythonAgentWorker({...options,timeoutMs:10000});
+    this.insight=insightWorker||(mediaWorker?null:new PythonAgentWorker({...options,timeoutMs:30000}));
+    this.media=mediaWorker||new PythonAgentWorker({...options,timeoutMs:40000});
     Object.assign(this,{configStore,agentConfigStore});
   }
   close(){this.#closed=true;this.#latest.clear();this.#results.clear();this.#batches.clear();this.#controlOutcomes.clear();this.memory.close();this.media.close();this.insight?.close();}
@@ -32,7 +34,7 @@ export class SocialService{
   async observe(data,c){
     if(!this.#valid(c)||this.#pending>=32)return;
     // Capture the latest attachment in receipt order, before any asynchronous work.
-    const attachments=copyIncomingMedia(data.media);
+    const attachments=copyIncomingMedia(data.media).filter(a=>featureEnabled(c,a.kind==='audio'?'voice':'images'));
     const captured=attachments.map((a,i)=>({...a,namespace:c.sessionKey,event:hash(data.eventKey+':'+i),at:Date.now(),epoch:this.#epochs.get(c.sessionKey)||0}));
     const image=captured.filter(a=>a.kind==='image').at(-1);
     if(image){this.#latest.set(c.scopeKey,image);while(this.#latest.size>64)this.#latest.delete(this.#latest.keys().next().value);}
@@ -40,9 +42,11 @@ export class SocialService{
     try{
       if(memoryControl(data.text)){await this.prepare(data.text,{...c,eventKey:data.eventKey});return;}
       const config=await this.configStore.read();if(!config.enabled||!this.#valid(c))return;
-      const saved=await this.#run(this.#args('observe',c,{event:data.eventKey,text:data.text.slice(0,2000)}));
-      if(!saved?.ok||saved.disabled||!this.#valid(c))return;
-      if(saved.observed)this.#collectInsights(data,c);
+      if (featureEnabled(c,'memory')) {
+        const saved=await this.#run(this.#args('observe',c,{event:data.eventKey,text:data.text.slice(0,2000)}));
+        if(!saved?.ok||saved.disabled||!this.#valid(c))return;
+        if(saved.observed)this.#collectInsights(data,c);
+      }
       // Background work never generates a QQ send, even for memes.
       for(const a of captured){
         if(a.kind==='image'&&!config.autoMemes&&!((c.scope==='c2c'||c.access==='white')&&config.autoWhiteImages))continue;
@@ -67,6 +71,7 @@ export class SocialService{
     })().catch(()=>{}).finally(()=>{this.#insightsPending--;});
   }
   async #understand(a,c,config,force){
+    if (!featureEnabled(c,a.kind==='audio'?'voice':'images')) return {ok:false,code:'MEDIA_CANCELLED'};
     if((a.epoch||0)!==(this.#epochs.get(a.namespace)||0))return {ok:false,code:'MEDIA_CANCELLED'};
     if(!this.#valid(c)||Date.now()-a.at>30*60_000)return {ok:false,code:'MEDIA_EXPIRED'};
     if(this.#results.has(a.event))return this.#results.get(a.event);
@@ -88,7 +93,7 @@ export class SocialService{
       this.#results.set(a.event,result);while(this.#results.size>128)this.#results.delete(this.#results.keys().next().value);
       const white=c.scope==='c2c'||c.access==='white';
       const permitted=a.kind==='audio'||force||white&&config.autoWhiteImages||config.autoMemes&&report.is_meme===true;
-      if(report.ok&&permitted){
+      if(report.ok&&permitted&&featureEnabled(c,'memory')){
         const text=a.kind==='audio'?report.transcript:[report.description,report.visible_text].filter(Boolean).join(' / ');
         if(text){
           const owner={...c,sessionKey:a.namespace};
@@ -124,13 +129,30 @@ export class SocialService{
   async prepare(text,c){
     if(!this.#valid(c))return {};
     const name=memoryControl(text);
-    if(name)return this.#manage(name,c);
+    if(name) {
+      if (!featureEnabled(c,'memory') && !['关闭','清空'].includes(name)) return {reply:'本群的成员记忆已关闭，仍可发送 /记忆 清空 删除自己的旧记录。'};
+      return this.#manage(name,c);
+    }
+    const hasVoice=Boolean(c.readVoiceTranscript)||c.media?.some(a=>a.kind==='audio');
+    const hasImage=identify.test(text)||c.media?.some(a=>a.kind==='image');
+    if (hasVoice&&!featureEnabled(c,'voice')) return {reply:'本群的语音理解已关闭。'};
+    if (hasImage&&!featureEnabled(c,'images')) return {reply:'本群的图片理解已关闭。'};
     const config=await this.configStore.read();
     if(!config.enabled)return identify.test(text)?{reply:'识图功能当前关闭了'}:{};
-    const social=await this.#run(this.#args('recall',c));
+    let social=await this.#run(this.#args('recall',c));
     if(!social?.ok)return {social:{ok:false,disabled:true,unavailable:true},...(identify.test(text)||c.media?.length?{reply:'这次识别暂时没能完成，稍后再试~'}:{})};
     if(social.disabled)return identify.test(text)?{reply:'你已关闭这里的记录，发送“/记忆 开启”后可以识图'}:{social};
+    if (!featureEnabled(c,'memory')) social={ok:true,disabled:true};
     const current=copyIncomingMedia(c.media);
+    if (typeof c.readVoiceTranscript === 'function') {
+      const audio = current.find(item => item.kind === 'audio');
+      const transcript = await c.readVoiceTranscript();
+      if (!this.#valid(c)) return {};
+      if (transcript) {
+        if (audio) audio.transcript = transcript;
+        else current.push({kind:'audio',url:'',transcript});
+      } else if (!audio && !current.length) return {reply:'这条语音没能转成文字，请再说一次或发文字。'};
+    }
     const reference=identify.test(text)||((c.scope==='c2c'||c.access==='white')&&/这张图|刚才.{0,8}图|图里|看.{0,8}(?:图片|照片)/u.test(text));
     let selected=reference?this.#latest.get(c.scopeKey):null;
     if(!selected&&current.length){
@@ -144,7 +166,7 @@ export class SocialService{
     const result=await this.#understand(selected,c,config,force);
     if(!result.ok)return {social,...(force||current.length?{reply:result.code==='SOCIAL_TIMEOUT'?(({download:'媒体下载超时（10秒时限）',vision:'图片识别模型响应超时（20秒时限）',asr:'语音识别模型响应超时（20秒时限）'}[result.timeout_stage]||'媒体处理超时')+'，请稍后重试'):result.code==='AUDIO_EMPTY'?'这条语音里没听清内容，再说一遍吧~':result.code==='ASR_NOT_CONFIGURED'?'这条语音没有平台转写，语音识别还没配置好':result.code==='MEDIA_EXPIRED'?'刚才那张图已过期，再发一次吧~':'这次没看清或听清，再发一次试试~'}:{})};
     if(c.scope==='group'&&c.access==='gray'&&!force&&selected.kind==='image'&&!result.is_meme)return {social};
-    if(force){
+    if(force&&featureEnabled(c,'memory')){
       const summary=[result.description,result.visible_text].filter(Boolean).join(' / ');
       await this.#run(this.#args('media',{...c,sessionKey:result.namespace},{event:result.event,kind:result.is_meme?'meme':'image',text:summary.slice(0,600)}));
     }

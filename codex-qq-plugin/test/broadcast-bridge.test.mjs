@@ -44,6 +44,8 @@ test('bridge broadcast has one fixed route and strips target arguments; daily de
     return req;
   });
   const client=createBridgeClient({home});
+  assert.deepEqual(await client.groupMorning({groupId:'ATTACKER'}),{ok:true,code:'SENT'});
+  assert.deepEqual(requests.shift(),{url:'http://127.0.0.1:19327/api/group/morning/run',method:'POST',body:{}});
   assert.deepEqual(await client.broadcast({text:'完成摘要',idempotencyKey:'operation-1',groupId:'ATTACKER',ownerId:'ATTACKER',proactiveGroup:true}),summary);
   assert.deepEqual(requests[0],{url:'http://127.0.0.1:19327/api/notify-all-allowed',method:'POST',body:{text:'完成摘要',idempotencyKey:'operation-1'}});
   await assert.rejects(client.broadcast({text:' ',idempotencyKey:'operation-2'}),{code:'BRIDGE_INVALID_INPUT'});assert.equal(requests.length,1);

@@ -9,6 +9,8 @@ const MAX_RESPONSE_BYTES = 64 * 1024;
 const validCityQuery = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 60 && /^[\p{Script=Han}\p{Script=Latin}\d ·（）()，,.'-]+$/u.test(value) && !['__proto__','constructor','toString'].includes(value);
 const WEATHER_ERROR_CODES = new Set(['LOCATION_AMBIGUOUS', 'LOCATION_NOT_FOUND', 'LOCATION_INPUT_INVALID', 'LOCATION_SOURCE_UNAVAILABLE', 'DAILY_CITY_RESTRICTED']);
 const CODES = new Set([
+  'MORNING_NOT_DUE','NO_MORNING_GROUPS','MORNING_REPORT_INVALID','MORNING_REPORT_FAILED',
+  'MORNING_WINDOW_ENDED','GROUP_MORNING_UNAVAILABLE','CAMPUS_IMAGE_MISSING',
   'OK', 'SENT', 'DUPLICATE', 'NOT_CONFIGURED', 'NOT_CONNECTED', 'NOT_PAIRED',
   'OWNER_NOT_PAIRED', 'PAUSED', 'RATE_LIMITED', 'DAILY_LIMIT', 'DAILY_LIMIT_REACHED',
   'RECEIVE_ONLY','PILOT_GROUP_LIMIT','PILOT_BROADCAST_DISABLED','REQUEST_EXPIRED','RATE_LIMIT_TARGET','RATE_LIMIT_CALLER',
@@ -131,10 +133,10 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
     throw new BridgeClientError('BRIDGE_INVALID_TIMEOUT');
   }
 
-  async function request(path, payload) {
+  async function request(path, payload, requestTimeoutMs=timeoutMs) {
     // There is no URL override, destination parameter, redirect, or proxy path.
     const url = new URL(path, origin);
-    if (url.origin !== origin || !['/api/status', '/api/notify', '/api/notify-all-allowed', '/api/weather/preview', '/api/weather/briefing', '/api/morning/test-all-allowed'].includes(url.pathname) || url.search || url.hash) {
+    if (url.origin !== origin || !['/api/status', '/api/notify', '/api/notify-all-allowed', '/api/weather/preview', '/api/weather/briefing', '/api/morning/test-all-allowed','/api/group/morning/run'].includes(url.pathname) || url.search || url.hash) {
       throw new BridgeClientError('BRIDGE_INVALID_ENDPOINT');
     }
     let token;
@@ -168,7 +170,7 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
       const timer = setTimeout(() => {
         finish(new BridgeClientError('BRIDGE_TIMEOUT'));
         req.destroy();
-      }, timeoutMs);
+      }, requestTimeoutMs);
       req.on('error', () => finish(new BridgeClientError('BRIDGE_UNAVAILABLE')));
       req.on('response', (res) => {
         let size = 0;
@@ -198,6 +200,12 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
 
   return Object.freeze({
     async status() { return projectStatus(await request('/api/status')); },
+    async groupMorning() {
+      const data=await request('/api/group/morning/run',{},900_000);
+      const result=projectNotify(data);
+      for (const key of ['attempted','sent']) if (Number.isSafeInteger(data[key])&&data[key]>=0) result[key]=data[key];
+      return result;
+    },
     async weatherPreview({cities=['beijing']}={}) {
       if(!Array.isArray(cities)||cities.length<1||cities.length>2||cities.some(c=>!validCityQuery(c))) throw new BridgeClientError('BRIDGE_INVALID_INPUT');
       const data=await request('/api/weather/preview',{cities});

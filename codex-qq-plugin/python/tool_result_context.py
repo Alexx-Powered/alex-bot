@@ -144,11 +144,18 @@ class ToolResultContext:
             return None
         raw_access = context.get("access")
         access = raw_access if isinstance(raw_access, str) else None
-        # A white -> gray -> white transition cannot resurrect an old balance.
+        if access not in {"white", "gray"}:
+            return None
+        # Every permission revision gets its own transient quantity context.
+        # This prevents a disabled then reenabled balance tool reviving old facts.
+        features=context.get('features')
+        if features is not None:
+            import json
+            access=access+':'+str(context.get('policyRevision',0))+':'+json.dumps(features,sort_keys=True,separators=(',',':'))
         for existing in list(self._quantities):
             if existing[:2] == (session_key, "group") and existing[2] != access:
                 del self._quantities[existing]
-        return (session_key, "group", access) if access in {"white", "gray"} else None
+        return session_key, "group", access
 
     def _lookup(self, session_key, context):
         key, now = self._key(session_key, context), self._now()
@@ -162,7 +169,7 @@ class ToolResultContext:
 
     @staticmethod
     def _full(key):
-        return key is not None and (key[1] == "c2c" or key[2] == "white")
+        return key is not None and (key[1] == "c2c" or key[2].split(':',1)[0] == "white")
 
     def _put(self, key, value):
         self._quantities[key] = value

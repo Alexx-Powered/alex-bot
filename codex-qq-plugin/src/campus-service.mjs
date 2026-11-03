@@ -123,28 +123,28 @@ export class CampusService{
     return this.worker.run({type:'campus',mode:'intent',args:{text,requested,origin}},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>z.object({view:z.enum(['full','compact']),session:z.enum(['now','morning','afternoon','evening'])}).strict().parse(value.intent));
   }
   async recoverIgnored(text,context){
-    if(!fullAccess(context))return null;
+    if(!fullAccess(context,'campus'))return null;
     const recovered=await this.worker.run({type:'campus',mode:'recognize',args:{text},now:new Date(this.now()).toISOString()},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>z.object({recognized:z.boolean(),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()}).parse(value));
-    if(!recovered.recognized||!fullAccess(context))return null;
+    if(!recovered.recognized||!fullAccess(context,'campus'))return null;
     const intent=await this.resolveIntent(text,'auto','query');
     console.warn('[campus] RECOVERED_IGNORED_QUERY');
     return intent.view==='full'?this.execute({date:recovered.date,view:'full'},context,text):this.recommend({date:recovered.date,session:intent.session},context,text);
   }
   async execute(args,context,requestText){
-    if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
+    if(!fullAccess(context,'campus'))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     const {building,regions,view,...queryArgs}=args||{};
     const intent=await this.resolveIntent(requestText,view||'auto','query');
-    if(!fullAccess(context))return {cancelled:true};
+    if(!fullAccess(context,'campus'))return {cancelled:true};
     const compact=intent.view==='compact';
     if(context?.progress&&await context.progress(compact?'campus-fetch-current':'campus-fetch')!==true)return {cancelled:true};
-    if(!fullAccess(context))return {cancelled:true};
+    if(!fullAccess(context,'campus'))return {cancelled:true};
     const result=await this.run(queryArgs,compact?'query':'report',{requestText,building,regions});
-    if(!fullAccess(context))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
+    if(!fullAccess(context,'campus'))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     if(compact&&result.data.ok)return this.recommend({date:result.data.date,session:intent.session,...(building?{building}:{}),...(regions?{regions}:{})},context,requestText);
     return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify({...result.data,...(timeoutNotice({code:result.data.code})?{message:timeoutNotice({code:result.data.code})}:{})}),requiredAccess:'white'};
   }
   async recommend(args,context,requestText){
-    if(!fullAccess(context))return {text:'当前会话未开放教室推荐。',requiredAccess:'chat'};
+    if(!fullAccess(context,'campus'))return {text:'当前会话未开放教室推荐。',requiredAccess:'chat'};
     let parsed;try{parsed=recommendationArgs.parse(args);}catch(error){
       console.warn('[campus-recommend] INVALID_ARGUMENTS '+JSON.stringify((error.issues||[]).map(issue=>({field:issue.path.filter(part=>['date','session','limit','exclude_room','building','regions'].includes(part)),code:issue.code}))));
       return {text:'教室推荐参数暂时解析失败，请稍后重试。本次没有返回教室结果。',requiredAccess:'white'};
@@ -153,7 +153,7 @@ export class CampusService{
     if(!status.configured||!status.enabled)return {text:'校园查询未启用，请先在本机设置页启用。',requiredAccess:'white'};
     if(this.#busy)return {text:'正在抓取教室数据，请等本次查询完成后再问推荐。',requiredAccess:'white'};
     const intent=await this.resolveIntent(requestText,'auto','recommend');
-    if(!fullAccess(context))return null;
+    if(!fullAccess(context,'campus'))return null;
     if(intent.view==='full')return this.execute({date:parsed.date,building:parsed.building,regions:parsed.regions,view:'full'},context,requestText);
     if(parsed.session==='now')parsed.session=intent.session;
     await this.#loadCache();
@@ -161,20 +161,20 @@ export class CampusService{
     const day=parsed.date||new Date(this.now()+8*3600000).toISOString().slice(0,10);
     const snapshot=this.#cache.get(day)||null;
     const report=await this.worker.run({type:'campus',mode:'recommend',args:parsed,now,snapshot,request_text:requestText},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>recommendationSchema.parse(value.recommendation));
-    if(!fullAccess(context))return null;
+    if(!fullAccess(context,'campus'))return null;
     return {text:report.message,campusRecommendation:report,requiredAccess:'white'};
   }
   async renderRecommendation(report,explanation,context){
-    if(!fullAccess(context))return null;
+    if(!fullAccess(context,'campus'))return null;
     report=recommendationSchema.parse(report);
     const id=await this.worker.run({type:'campus',mode:'recommend_render',report,explanation:typeof explanation==='string'?explanation.slice(0,180):''},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>{
       if(!/^[a-f0-9]{32}$/.test(value.artifact_id||''))throw Error('CAMPUS_RENDER_FAILED');return value.artifact_id;
     });
-    if(!fullAccess(context))return null;
+    if(!fullAccess(context,'campus'))return null;
     const file=path.join(this.home,'.private','campus-output',id+'.png');
     if((await fs.stat(file)).size>1_500_000)throw Error('CAMPUS_RENDER_FAILED');
     const image=await studyImage({idempotencyKey:'study:'+id.repeat(2),pngBase64:(await fs.readFile(file)).toString('base64')});
-    return fullAccess(context)?{image,text:'',requiredAccess:'white'}:null;
+    return fullAccess(context,'campus')?{image,text:'',requiredAccess:'white'}:null;
   }
   async handle(text,context){const args=parseCampusCommand(text);return args?this.execute(args,context):null;}
   close(){this.worker.close();}

@@ -1,0 +1,24 @@
+[Unit]
+Description=Alex official QQ group morning report
+After=alexbot.service
+Requisite=alexbot.service
+
+[Service]
+Type=oneshot
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=QQ_BRIDGE_HOME=/var/lib/alexbot TZ=Asia/Shanghai
+ExecStart=/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/scripts/group-morning.mjs
+TimeoutStartSec=900
+Restart=no
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/alexbot
+LimitCORE=0
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%

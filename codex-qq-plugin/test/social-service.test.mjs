@@ -95,6 +95,22 @@ test('official adapter admits pure-image and pure-voice messages without manufac
   assert.equal(received[0].mentioned,true);await adapter.disconnect();
 });
 
+test('native private voice respects memory opt-out and uses the existing media worker without an ASR key',async()=>{
+  let disabled=true, reads=0;
+  const memoryWorker={close(){},async run(p,_rpc,finish){return finish({report:{ok:true,disabled}});}};
+  const mediaWorker={close(){},async run(p,_rpc,finish){
+    assert.equal(p.attachment.url,'');assert.equal(p.attachment.transcript,'查询天气');
+    return finish({report:{ok:true,transcript:p.attachment.transcript}});
+  }};
+  const service=new SocialService({configStore:{read:async()=>cfg},agentConfigStore:{read:async()=>({enabled:true})},memoryWorker,mediaWorker});
+  try{
+    const c={...context(),scope:'c2c',mediaEventKey:key('voice'),readVoiceTranscript:async()=>{reads++;return '查询天气';}};
+    assert.equal((await service.prepare('[语音]',c)).social.disabled,true);assert.equal(reads,0);
+    disabled=false;
+    assert.equal((await service.prepare('[语音]',c)).text,'查询天气');assert.equal(reads,1);
+  }finally{service.close();}
+});
+
 test('clearing memory cancels an already-running media job before it can repopulate old facts',async()=>{
   let resolve,startedResolve;const started=new Promise(r=>startedResolve=r),blocked=new Promise(r=>resolve=r);const writes=[];
   const memoryWorker={close(){},async run(p,_rpc,finish){if(p.args.action==='media')writes.push(p.args);return finish({report:{ok:true,observed:true,mood:[],style:{},media:[],preferences:[]}});}};

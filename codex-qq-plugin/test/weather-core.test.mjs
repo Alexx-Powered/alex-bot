@@ -142,7 +142,7 @@ test('owner radar image is sent once with its verified reply target and remains 
       assert.equal(serialized.includes(secret), false, `state must not persist ${secret}`);
     }
     assert.deepEqual(Object.keys(snapshot).sort(), [
-      'version', 'ownerId', 'paused', 'pauseReason', 'attempts', 'deliveries', 'incoming', 'lastDeliveryCode', 'allowedGroups', 'grayGroups',
+      'version', 'ownerId', 'paused', 'pauseReason', 'attempts', 'deliveries', 'incoming', 'lastDeliveryCode', 'allowedGroups', 'grayGroups', 'wakeWords', 'wakeWordRevision',
     ].sort());
   }
 });

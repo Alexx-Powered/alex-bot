@@ -1,0 +1,11 @@
+[Unit]
+Description=Alex official QQ opted-in groups at 07:30 Beijing
+
+[Timer]
+OnCalendar=*-*-* 07:30:00 Asia/Shanghai
+Persistent=false
+AccuracySec=1s
+Unit=alexbot-group-morning.service
+
+[Install]
+WantedBy=timers.target

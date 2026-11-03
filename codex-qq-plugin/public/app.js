@@ -6,7 +6,34 @@ if (location.hash) history.replaceState(null, '', '/');
 const token = sessionStorage.getItem('qq-local-token');
 let pendingGroupKey = null;
 let monitoringInitialized=false,monitoringDirty=false,monitoringBusy=false;
+const groupConsole=createGroupConsole({api,action});
+const wakeWordConsole=createWakeWordEditor({container:$('globalWakeWords'),action});
+const consoleTabs=[...document.querySelectorAll('[data-console-target]')];
+function selectConsolePanel(key) {
+  if (!consoleTabs.some(tab=>tab.dataset.consoleTarget===key)) key='groups';
+  for (const tab of consoleTabs) {
+    const active=tab.dataset.consoleTarget===key;
+    tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
+  }
+  for (const panel of document.querySelectorAll('[data-console-panel]')) panel.classList.toggle('hidden',panel.dataset.consolePanel!==key);
+  sessionStorage.setItem('qq-console-panel',key);
+}
+for (const tab of consoleTabs) {
+  tab.onclick=()=>selectConsolePanel(tab.dataset.consoleTarget);
+  tab.onkeydown=event=>{
+    if (!['ArrowDown','ArrowUp','ArrowRight','ArrowLeft'].includes(event.key)) return;
+    event.preventDefault();
+    const step=['ArrowDown','ArrowRight'].includes(event.key)?1:-1;
+    const next=consoleTabs[(consoleTabs.indexOf(tab)+step+consoleTabs.length)%consoleTabs.length];
+    selectConsolePanel(next.dataset.consoleTarget);next.focus();
+  };
+}
+selectConsolePanel(sessionStorage.getItem('qq-console-panel')||'groups');
+for (const input of document.querySelectorAll('input[type="checkbox"]')) {input.classList.add('ios-switch');input.role='switch';}
 const descriptions = {
+  GROUP_COMMAND_COPIED:'匹配指令已复制，请在目标群 @ 机器人后粘贴。',GROUP_COPY_MANUALLY:'请选中上方匹配指令手动复制。',
+  GROUP_FEATURES_SAVED:'本群功能设置已保存，即刻生效。',GROUP_DIRECTORY_UNAVAILABLE:'无法读取机器人所在群，请确认 OneBot 已连接后刷新。',
+  GROUP_DIRECTORY_CHANGED:'机器人已不在所选群中，请刷新列表。',GROUP_DISABLED:'这个群已停用。',
   MONITORING_TEST_QUEUED:'已提交监控自检，请查看下方发送状态；不会发送QQ消息。',
   MONITORING_CONFIG_SAVED:'监控设置已加密保存。',MONITORING_CONFIG_INVALID:'请检查项目名、区域、工作区ID和Key；首次启用需要Key。',MONITORING_CONFIG_UNAVAILABLE:'监控配置暂不可用，请检查加密存储。',
   GRAY_GROUP_ALLOWED:'已加入灰名单：基础聊天与换算。',GROUP_ACCESS_CHANGED:'群权限已更新，该群上下文已清除。',GROUP_ACCESS_DENIED:'群权限已改变，本次结果未发送。',
@@ -30,12 +57,13 @@ const descriptions = {
   UNAUTHORIZED:'本地访问口令不正确，请重新运行打开配置页脚本。',
   ALREADY_PAIRED:'已经配对，不能覆盖现有接收人。', NO_PAIRING_CANDIDATE:'尚未收到有效配对消息。',
   PAIRING_EXPIRED:'配对码已过期，请重新生成。', PAIRED_APP_CHANGE_DENIED:'已配对时不允许更换 AppID，避免把消息发给其他应用下的用户。',
-  GROUP_PAIRING_STARTED:'群绑定码已生成，请只在指定群发送。机器人需有接收所有消息权限。',
+  GROUP_PAIRING_STARTED:'匹配指令已生成。请在目标群 @ 机器人后发送，5 分钟内有效。',
   GROUP_PAIRING_CANCELLED:'已取消待绑定群。', GROUP_ALLOWED:'这个群已加入白名单。', GROUP_REMOVED:'已移出群权限名单。',
   GROUP_PAIRING_EXPIRED:'群绑定码已过期，请重新生成。', NO_GROUP_PAIRING_CANDIDATE:'尚未收到有效的群绑定消息。',
   GROUP_PAIRING_KEY_MISMATCH:'待确认群已变化，请刷新并重新核对。', GROUP_ALREADY_ALLOWED:'这个群已在权限名单中，可在列表切换档位。',
   GROUP_LIMIT_REACHED:'所选名单已达10群的本地上限。', GROUP_NOT_FOUND:'这个群已不在权限名单中。', INVALID_INPUT:'请检查输入内容。',
 };
+Object.assign(descriptions,{WAKE_WORDS_SAVED:'全局唤醒词已保存，所有页面同步。',GROUP_WAKE_WORDS_SAVED:'本群唤醒词开关已保存。',WAKE_WORDS_CHANGED:'词库已在其他页面更新，请核对最新列表后再保存。',INVALID_WAKE_WORD:'请输入 1–24 字、不含空白的唤醒词。',WAKE_WORD_EXISTS:'这个唤醒词已经存在（英文不区分大小写）。',WAKE_WORD_NOT_FOUND:'该唤醒词已被删除，请刷新列表。',WAKE_WORD_LIMIT:'最多可保存 32 个唤醒词。'});
 function feedback(data) {
   const success = data?.ok === true;
   $('feedback').className = success ? 'success' : 'error';
@@ -87,6 +115,9 @@ async function refresh() {
     const state=await api('status');
     if (!state.ok) { feedback(state); return; }
     const transport=state.transport || {}, core=state.core || {};
+    const onebot=transport.protocol==='onebot11';
+    $('credentials').classList.toggle('hidden',onebot);$('officialSetupHint').classList.toggle('hidden',onebot);
+    $('onebotConnection').classList.add('hidden');
     const limits=core.limits;
     $('sendLimits').textContent=limits?`本地今日 ${core.dailyAttempts}/${limits.dailyAttempts} 次、最近一分钟 ${core.minuteAttempts}/${limits.minuteAttempts} 次发送尝试；总计达到 ${limits.replyDailyAttempts} 次后，最后 ${limits.reservedNotifications} 次只供主动通知。`:'本地限额暂不可用。';
     const agent=state.agent||{};
@@ -108,19 +139,11 @@ async function refresh() {
     $('groupStart').disabled = !core.paired || core.paused || transport.state !== 'connected';
     $('groupConfirm').disabled = !pendingGroupKey || core.paused || transport.state !== 'connected';
     $('groupStatus').textContent = pendingGroup
-      ? `收到“${pendingGroup.name}”${pendingGroup.access==='gray'?'灰名单':'白名单'}绑定请求（${pendingGroup.groupHint}）。请确认它来自你指定的群。`
+      ? `已收到备注为“${pendingGroup.name}”的群内匹配指令。请确认它来自你刚才操作的目标群。`
       : core.pendingGroupPairing ? '等待目标群发送绑定命令。' : '尚无待确认群。';
     if (!core.pendingGroupPairing || pendingGroup) $('groupCodeBox').classList.add('hidden');
-    $('groupList').replaceChildren();
-    for (const [access,groups] of [['white',core.allowedGroups||[]],['gray',core.grayGroups||[]]]) for (const group of groups) {
-      const row = document.createElement('p');
-      const name = document.createElement('span'); name.textContent = `${group.name} · ${access==='white'?'白名单：全部业务':'灰名单：聊天与换算'} · ${group.groupHint} `;
-      const change=document.createElement('button');change.className='secondary';change.textContent=access==='white'?'改为灰名单':'改为白名单';
-      change.onclick=()=>action('group/access',{groupKey:group.groupKey,access:access==='white'?'gray':'white'});
-      const remove = document.createElement('button'); remove.className = 'subtle'; remove.textContent = '移出名单';
-      remove.onclick = () => action('group/remove', { groupKey: group.groupKey });
-      row.append(name, change, remove); $('groupList').append(row);
-    }
+    groupConsole.update(core,transport,state.groupMorning);
+    wakeWordConsole.update(core);
     void refreshMonitoring();
   } catch { $('connection').textContent='本地服务不可达'; }
 }
@@ -195,7 +218,16 @@ else {
       $('groupCodeBox').classList.remove('hidden');
     }
   };
-  $('groupConfirm').onclick=()=> pendingGroupKey && action('group/confirm', { groupKey: pendingGroupKey });
+  $('groupConfirm').onclick=async()=>{
+    const groupKey=pendingGroupKey;
+    if(!groupKey)return;
+    const result=await action('group/confirm',{groupKey,features:groupConsole.enrollmentFeatures()});
+    if(result?.ok)groupConsole.selectGroup(groupKey);
+  };
+  $('groupCopy').onclick=async()=>{
+    try {await navigator.clipboard.writeText($('groupCommand').textContent);feedback({ok:true,code:'GROUP_COMMAND_COPIED'});}
+    catch {$('groupCommand').focus();feedback({ok:false,code:'GROUP_COPY_MANUALLY'});}
+  };
   $('groupCancel').onclick=()=>action('group/cancel');
   refresh(); setInterval(refresh,3000);
 }

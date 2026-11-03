@@ -4,6 +4,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sanitizeContextText } from './chat-safety.mjs';
 import {recordTiming} from './telemetry.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
+import {GROUP_FEATURES,defaultGroupFeatures,basicGroupFeatures,validGroupFeatures,normalizeGroupFeatures} from './group-features.mjs';
+import {DEFAULT_WAKE_WORDS,WAKE_WORD_LIMITS,validWakeWords,validDisabledWakeWords,normalizeWakeWord,validWakeWordText,wakeWordKey,parseGroupWake} from './wake-words.mjs';
 
 export const CORE_LIMITS = Object.freeze({
   textLength: 1500,
@@ -21,11 +23,6 @@ const GROUP_CONTEXT_TTL_MS = 30 * 60_000;
 const GROUP_CONTEXT_SIZE = 10;
 const GROUP_CONTEXT_SEEN_LIMIT = 512;
 const MAX_PENDING_INCOMING = 4;
-const GROUP_PREFIX = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+(\S[\s\S]*)$/u;
-function groupCommand(text, mentioned) {
-  const raw = text.trim(), prefixed = GROUP_PREFIX.exec(raw);
-  return { command: prefixed ? prefixed[1] : raw, addressed: Boolean(prefixed) || mentioned === true || /^\/(?:识图|记忆)(?:\s|$)/u.test(raw) };
-}
 const ownerControlCommands = new Set(['/pause', '/status']);
 const contextControl = text => text.startsWith('/') || /\/(?:pair|group-bind|pause|resume|status|notify|help|ping)\b/i.test(text) || ['帮助','菜单'].includes(text);
 function sendingLimits(overrides) {
@@ -46,7 +43,20 @@ const validGroupId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,1
 const validGroupName = (value) => typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= 80 && !/[\u0000-\u001f\u007f]/u.test(value);
 const validGroupKey = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const groupKeyFor = (id) => hash(`group:${id}`);
-const describeGroup = ({ id, name }) => ({ name, groupKey: groupKeyFor(id), groupHint: `sha256:${groupKeyFor(id).slice(0, 12)}` });
+const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white') => ({
+  name,groupKey:groupKeyFor(id),groupHint:`sha256:${groupKeyFor(id).slice(0,12)}`,
+  ...(id.match(/^qq_[1-9]\d+_g_([1-9]\d+)$/)?{groupNumber:id.split('_').at(-1)}:{}),
+  enabled,features:features??defaultGroupFeatures(access),disabledWakeWords:[...disabledWakeWords],
+});
+function restoreGroup(entry) {
+  if (!entry || typeof entry!=='object' || Array.isArray(entry) ||
+      Object.keys(entry).some(key=>!['id','name','enabled','features','disabledWakeWords'].includes(key)) ||
+      !validGroupId(entry.id) || !validGroupName(entry.name) ||
+      (entry.enabled!==undefined && typeof entry.enabled!=='boolean') ||
+      (entry.features!==undefined && !validGroupFeatures(entry.features)) ||
+      (entry.disabledWakeWords!==undefined&&!validDisabledWakeWords(entry.disabledWakeWords))) throw Error('STATE_INVALID');
+  return {...entry,...(entry.features?{features:normalizeGroupFeatures(entry.features)}:{})};
+}
 const hkDay = (time) => new Date(time + 8 * 60 * 60_000).toISOString().slice(0, 10);
 const result = (ok, code, extra = {}) => ({ ok, code, ...extra });
 const hint = (value) => value ? `sha256:${hash(value).slice(0, 12)}` : null;
@@ -72,6 +82,8 @@ function initialState() {
     lastDeliveryCode: null,
     allowedGroups: [],
     grayGroups: [],
+    wakeWords: structuredClone(DEFAULT_WAKE_WORDS),
+    wakeWordRevision: 0,
   };
 }
 
@@ -105,19 +117,16 @@ function restoreState(raw) {
   if (raw.lastDeliveryCode != null && !knownDeliveryCodes.has(raw.lastDeliveryCode)) throw new Error('STATE_INVALID');
   const groups = raw.allowedGroups === undefined ? [] : raw.allowedGroups;
   if (!Array.isArray(groups) || groups.length > CORE_LIMITS.allowedGroups || (groups.length && !raw.ownerId)) throw new Error('STATE_INVALID');
-  const allowedGroups = groups.map((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
-        Object.keys(entry).length !== 2 || !validGroupId(entry.id) || !validGroupName(entry.name)) throw new Error('STATE_INVALID');
-    return { id: entry.id, name: entry.name };
-  });
+  const allowedGroups = groups.map(restoreGroup);
   if (new Set(allowedGroups.map(entry => entry.id)).size !== allowedGroups.length) throw new Error('STATE_INVALID');
   const gray = raw.grayGroups === undefined ? [] : raw.grayGroups;
   if (!Array.isArray(gray) || gray.length > CORE_LIMITS.grayGroups || (gray.length && !raw.ownerId)) throw new Error('STATE_INVALID');
-  const grayGroups=gray.map(entry=>{
-    if(!entry||typeof entry!=='object'||Array.isArray(entry)||Object.keys(entry).length!==2||!validGroupId(entry.id)||!validGroupName(entry.name))throw new Error('STATE_INVALID');
-    return {id:entry.id,name:entry.name};
-  });
+  const grayGroups=gray.map(restoreGroup);
   if(new Set([...allowedGroups,...grayGroups].map(g=>g.id)).size!==allowedGroups.length+grayGroups.length)throw new Error('STATE_INVALID');
+  const wakeWords=raw.wakeWords===undefined?structuredClone(DEFAULT_WAKE_WORDS):raw.wakeWords;
+  const wakeWordRevision=raw.wakeWordRevision??0;
+  if (!validWakeWords(wakeWords)||!Number.isSafeInteger(wakeWordRevision)||wakeWordRevision<0||
+      [...allowedGroups,...grayGroups].some(g=>(g.disabledWakeWords||[]).some(id=>!wakeWords.some(w=>w.id===id)))) throw Error('STATE_INVALID');
   return {
     version: 1,
     ownerId: raw.ownerId,
@@ -129,6 +138,7 @@ function restoreState(raw) {
     lastDeliveryCode: raw.lastDeliveryCode ?? null,
     allowedGroups,
     grayGroups,
+    wakeWords:structuredClone(wakeWords),wakeWordRevision,
   };
 }
 
@@ -185,6 +195,7 @@ export class BridgeCore {
   #groupContexts = new Map();
   #pendingIncoming = 0;
   #groupRestrictions = new Map();
+  #groupRevisions = new Map();
   #caller = new AsyncLocalStorage();
   #oneBotMode;
 
@@ -231,7 +242,7 @@ export class BridgeCore {
     if (kind === 'c2c' && this.#pairing && !this.#state.ownerId) return /^\/pair [a-f0-9]{32}$/.test(text);
     if (kind === 'group' && this.#groupPairing && this.#state.ownerId === senderId && /^\/group-bind [a-f0-9]{32}$/.test(text)) return true;
     if (this.#oneBotMode === 'receive-only') return false;
-    return kind === 'c2c' ? senderId === this.#state.ownerId : this.groupAccess(groupId) !== null;
+    return kind === 'c2c' ? senderId === this.#state.ownerId : this.groupEnabled(groupId);
   }
 
   #enqueue(work) {
@@ -253,24 +264,73 @@ export class BridgeCore {
     return null;
   }
 
-  canDeliver({groupId,requiredAccess='chat',proactiveGroup=false}={}) {
+  groupEnabled(groupId) {
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===groupId);
+    return this.groupAccess(groupId)!==null && group?.enabled!==false;
+  }
+
+  groupFeatures(groupId) {
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===groupId);
+    return group?.features??defaultGroupFeatures(this.groupAccess(groupId));
+  }
+
+  #enabledWakeWords(groupId) {
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===groupId);
+    return this.#state.wakeWords.filter(word=>!(group?.disabledWakeWords||[]).includes(word.id));
+  }
+
+  #groupCommand(groupId,text,mentioned) {
+    return parseGroupWake(text,mentioned,this.#enabledWakeWords(groupId));
+  }
+
+  addressesGroupMessage(groupId,text) {
+    return this.groupEnabled(groupId) && typeof text==='string' && this.#groupCommand(groupId,text,false).addressed;
+  }
+
+  #wakeWordHelp(groupId) {
+    const names=this.#enabledWakeWords(groupId).map(word=>word.text).join('、');
+    const visible=Array.from(names);
+    return names?'也可用'+visible.slice(0,300).join('')+(visible.length>300?'…（完整列表见控制台）':'')+'加空格。':'本群已关闭全部唤醒词。';
+  }
+
+  canUseFeature(groupId,feature) {
+    if (feature==='notifications' && groupId!==undefined) {
+      const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===groupId);
+      return this.groupEnabled(groupId) && !group?.features && this.groupAccess(groupId)==='white';
+    }
+    return groupId===undefined || (this.groupEnabled(groupId) && this.groupFeatures(groupId)[feature]===true);
+  }
+
+  canDeliver({groupId,requiredAccess='chat',requiredFeature,proactiveGroup=false}={}) {
     if(!this.sendingEnabled())return false;
     if(groupId===undefined)return true;
-    const access=this.groupAccess(groupId);
-    return access!==null&&(!(requiredAccess==='white'||proactiveGroup)||access==='white');
+    return this.#groupCanDeliver(groupId,requiredAccess,requiredFeature,proactiveGroup);
+  }
+
+  #groupCanDeliver(groupId,requiredAccess,requiredFeature,proactiveGroup) {
+    if (!this.groupEnabled(groupId)) return false;
+    if (proactiveGroup) return this.canUseFeature(groupId,requiredFeature==='morningReport'?'morningReport':'notifications') &&
+      (!requiredFeature || this.canUseFeature(groupId,requiredFeature));
+    return requiredFeature ? this.canUseFeature(groupId,requiredFeature) :
+      !(requiredAccess==='white') || this.groupAccess(groupId)==='white';
   }
 
   #bindRequest(context, incomingKey, target, groupId, eventKey) {
     let acknowledged = false;
+    const revision=this.#groupRevisions.get(groupId);
+    const current=()=>groupId===undefined||this.#groupRevisions.get(groupId)===revision;
+    if (groupId!==undefined) context.features=structuredClone(this.groupFeatures(groupId));
+    if (groupId!==undefined) context.policyRevision=revision||0;
     Object.defineProperties(context, {
       eventKey: { enumerable:false, value:eventKey||incomingKey },
-      authorize: { enumerable:false, value:required => this.canDeliver({groupId,requiredAccess:required}) },
+      authorize: { enumerable:false, value:(required,feature) => current()&&this.canDeliver({groupId,requiredAccess:required,requiredFeature:feature}) },
+      allowsFeature: { enumerable:false, value:feature => current()&&this.canUseFeature(groupId,feature) },
       progress: { enumerable:false, value:async stage => {
-        if(!['campus-fetch','campus-fetch-current'].includes(stage)||acknowledged||!this.canDeliver({groupId,requiredAccess:'white'}))return false;
+        if(!['campus-fetch','campus-fetch-current'].includes(stage)||acknowledged||!current()||!this.canDeliver({groupId,requiredFeature:'campus'}))return false;
         // Reserve enough capacity for both the acknowledgement and final reply.
         if(this.#budgetCode(this.#time(),{reply:true,count:2,target:groupId??this.#state.ownerId}))return false;
         acknowledged=true;
-        const delivery=await this.#notify({text:stage==='campus-fetch-current'?'正在抓取数据，随后生成当前推荐图':'正在抓取数据',requiredAccess:'white',progress:true,
+        const delivery=await this.#notify({text:stage==='campus-fetch-current'?'正在抓取数据，随后生成当前推荐图':'正在抓取数据',requiredAccess:'white',requiredFeature:'campus',progress:true,
           idempotencyKey:`progress:${incomingKey}:campus-fetch`},target,groupId);
         return delivery.code==='SENT';
       } },
@@ -279,6 +339,7 @@ export class BridgeCore {
   }
 
   #restrictGroup(groupId,access){
+    this.#groupRevisions.set(groupId,(this.#groupRevisions.get(groupId)||0)+1);
     if(access==='white')return null; // Promotion takes effect only after persistence.
     const ticket={access};this.#groupRestrictions.set(groupId,ticket);this.#groupContexts.delete(groupId);return ticket;
   }
@@ -297,7 +358,7 @@ export class BridgeCore {
   }
 
   #rememberGroup(groupId, { key, speaker, role, text }) {
-    if (!this.#canRememberGroup(groupId)) return;
+    if (!this.#canRememberGroup(groupId) || !this.canUseFeature(groupId,'memory')) return;
     const context = this.#groupContext(groupId);
     if (context.seen.has(key)) return;
     const cleaned = sanitizeContextText(text);
@@ -313,7 +374,7 @@ export class BridgeCore {
     const currentSpeaker = 'member-' + hash('group-sender:' + groupId + ':' + senderId).slice(0, 12);
     return { scope: 'group', access:this.groupAccess(groupId), sessionKey: hash('chat:group:' + groupId + ':' + senderId),
       scopeKey: hash('chat-scope-group:' + groupId), userKey: hash('chat-user:' + senderId), currentSpeaker,
-      groupContext: this.#groupContext(groupId).rows.filter(row=>excludeKey===undefined||row.key!==excludeKey).map(({ speaker, role, text }) => ({ speaker, role, text })) };
+      groupContext: this.canUseFeature(groupId,'memory') ? this.#groupContext(groupId).rows.filter(row=>excludeKey===undefined||row.key!==excludeKey).map(({ speaker, role, text }) => ({ speaker, role, text })) : [] };
   }
 
   async #persist(next) {
@@ -379,9 +440,12 @@ export class BridgeCore {
       lastDeliveryCode: this.#state.lastDeliveryCode,
       uncertainDeliveries: this.#state.deliveries.filter((entry) => entry.state === 'uncertain' || entry.state === 'inFlight').length,
       groupCount: this.#state.allowedGroups.length,
-      allowedGroups: this.#state.allowedGroups.map(describeGroup),
+      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup(g,'white')),
       grayGroupCount:this.#state.grayGroups.length,
-      grayGroups:this.#state.grayGroups.map(describeGroup),
+      grayGroups:this.#state.grayGroups.map(g=>describeGroup(g,'gray')),
+      groupFeatureCatalog:GROUP_FEATURES,
+      groupDefaultFeatures:basicGroupFeatures(),
+      wakeWords:structuredClone(this.#state.wakeWords),wakeWordRevision:this.#state.wakeWordRevision,wakeWordLimits:WAKE_WORD_LIMITS,
       pendingGroupPairing: Boolean((this.#groupPairing && now < this.#groupPairing.expiresAt) ||
         (this.#groupCandidate && now < this.#groupCandidate.expiresAt)),
       pendingGroup: this.#groupCandidate && now < this.#groupCandidate.expiresAt
@@ -442,12 +506,13 @@ export class BridgeCore {
     });
   }
 
-  async confirmGroupPairing({ groupKey } = {}) {
+  async confirmGroupPairing({ groupKey,features } = {}) {
     return this.#enqueue(async () => {
       if (!this.#ready) return result(false, 'NOT_READY');
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
       if (this.#state.paused) return result(false, 'PAUSED');
       if (!validGroupKey(groupKey)) return result(false, 'INVALID_INPUT');
+      if (features!==undefined&&!validGroupFeatures(features)) return result(false,'INVALID_INPUT');
       if (!this.#groupCandidate) return result(false, 'NO_GROUP_PAIRING_CANDIDATE');
       if (this.#time() >= this.#groupCandidate.expiresAt) {
         this.#clearGroupPairing();
@@ -458,11 +523,96 @@ export class BridgeCore {
       const access=this.#groupCandidate.access||'white',key=access==='gray'?'grayGroups':'allowedGroups';
       if (this.#state[key].length >= (access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups)) return result(false, 'GROUP_LIMIT_REACHED');
       const next = structuredClone(this.#state);
-      next[key].push({ id: this.#groupCandidate.id, name: this.#groupCandidate.name });
+      // Existing operator clients retain their default; the console always
+      // submits an explicit mask, initially the basic three features.
+      next[key].push({ id: this.#groupCandidate.id, name: this.#groupCandidate.name,
+        ...(features===undefined?{}:{enabled:true,features:normalizeGroupFeatures(features)}) });
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       this.#clearGroupPairing();
       return result(true, access==='gray'?'GRAY_GROUP_ALLOWED':'GROUP_ALLOWED', { status: this.status() });
     });
+  }
+
+  async addDiscoveredGroup({id,name,features=basicGroupFeatures()}={}) {
+    return this.#enqueue(async()=>{
+      if (this.#oneBotMode!=='normal') return result(false,'GROUP_DIRECTORY_UNAVAILABLE');
+      if (!this.#ready || !this.#state.ownerId) return result(false,'NOT_PAIRED');
+      if (!this.sendingEnabled()) return result(false,'PAUSED');
+      if (!validGroupId(id) || !validGroupName(name) || !validGroupFeatures(features)) return result(false,'INVALID_INPUT');
+      if ([...this.#state.allowedGroups,...this.#state.grayGroups].some(g=>g.id===id)) return result(false,'GROUP_ALREADY_ALLOWED');
+      if (this.#state.allowedGroups.length>=CORE_LIMITS.allowedGroups) return result(false,'GROUP_LIMIT_REACHED');
+      const next=structuredClone(this.#state);
+      next.allowedGroups.push({id,name,features:normalizeGroupFeatures(features),enabled:true});
+      try {await this.#persist(next);} catch {return this.#storageFailed();}
+      return result(true,'GROUP_ALLOWED',{status:this.status()});
+    });
+  }
+
+  async changeWakeWord({operation,id,text,revision}={}) {
+    const normalized=normalizeWakeWord(text);
+    if (!['add','rename','delete'].includes(operation)||(operation==='add'&&id!==undefined)||!Number.isSafeInteger(revision)||revision<0||
+        (operation!=='delete'&&!validWakeWordText(normalized))) return result(false,'INVALID_WAKE_WORD');
+    if (revision!==this.#state.wakeWordRevision) return result(false,'WAKE_WORDS_CHANGED');
+    if (operation!=='add'&&!this.#state.wakeWords.some(word=>word.id===id)) return result(false,'WAKE_WORD_NOT_FOUND');
+    const tickets=[...this.#state.allowedGroups,...this.#state.grayGroups].map(g=>[g.id,this.#restrictGroup(g.id,null)]);
+    try {
+      return await this.#enqueue(async()=>{
+        if (!this.#ready) return result(false,'NOT_READY');
+        if (revision!==this.#state.wakeWordRevision) return result(false,'WAKE_WORDS_CHANGED');
+        if (operation!=='delete'&&this.#state.wakeWords.some(word=>word.id!==id&&wakeWordKey(word.text)===wakeWordKey(normalized))) return result(false,'WAKE_WORD_EXISTS');
+        if (operation==='add'&&this.#state.wakeWords.length>=WAKE_WORD_LIMITS.count) return result(false,'WAKE_WORD_LIMIT');
+        const next=structuredClone(this.#state);
+        if (operation==='add') next.wakeWords.push({id:randomBytes(8).toString('hex'),text:normalized});
+        else if (operation==='rename') next.wakeWords.find(word=>word.id===id).text=normalized;
+        else {
+          next.wakeWords=next.wakeWords.filter(word=>word.id!==id);
+          for (const group of [...next.allowedGroups,...next.grayGroups]) if (group.disabledWakeWords) {
+            group.disabledWakeWords=group.disabledWakeWords.filter(wordId=>wordId!==id);
+          }
+        }
+        if (next.wakeWordRevision>=Number.MAX_SAFE_INTEGER) return result(false,'INVALID_INPUT');
+        next.wakeWordRevision++;
+        try {await this.#persist(next);} catch {return this.#storageFailed();}
+        return result(true,'WAKE_WORDS_SAVED',{status:this.status()});
+      });
+    } finally {for (const [groupId,ticket] of tickets) this.#releaseRestriction(groupId,ticket);}
+  }
+
+  async setGroupWakeWords({groupKey,disabledWakeWords,revision}={}) {
+    if (!validGroupKey(groupKey)||!validDisabledWakeWords(disabledWakeWords)||!Number.isSafeInteger(revision)||revision<0) return result(false,'INVALID_INPUT');
+    if (revision!==this.#state.wakeWordRevision) return result(false,'WAKE_WORDS_CHANGED');
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>groupKeyFor(g.id)===groupKey);
+    if (!group) return result(false,'GROUP_NOT_FOUND');
+    const ticket=this.#restrictGroup(group.id,null);
+    try {
+      return await this.#enqueue(async()=>{
+        if (revision!==this.#state.wakeWordRevision) return result(false,'WAKE_WORDS_CHANGED');
+        if (disabledWakeWords.some(id=>!this.#state.wakeWords.some(word=>word.id===id))) return result(false,'INVALID_INPUT');
+        const next=structuredClone(this.#state),current=[...next.allowedGroups,...next.grayGroups].find(g=>g.id===group.id);
+        if (!current) return result(false,'GROUP_NOT_FOUND');
+        current.disabledWakeWords=[...disabledWakeWords];
+        try {await this.#persist(next);} catch {return this.#storageFailed();}
+        return result(true,'GROUP_WAKE_WORDS_SAVED',{status:this.status()});
+      });
+    } finally {this.#releaseRestriction(group.id,ticket);}
+  }
+
+  async setGroupFeatures({groupKey,features,enabled}={}) {
+    if (!validGroupKey(groupKey) || !validGroupFeatures(features) || typeof enabled!=='boolean') return result(false,'INVALID_INPUT');
+    const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>groupKeyFor(g.id)===groupKey);
+    if (!group) return result(false,'GROUP_NOT_FOUND');
+    // Block admission and ongoing work before waiting for the serial queue.
+    const ticket=this.#restrictGroup(group.id,null);
+    try {
+      return await this.#enqueue(async()=>{
+        const next=structuredClone(this.#state);
+        const current=[...next.allowedGroups,...next.grayGroups].find(g=>g.id===group.id);
+        if (!current) return result(false,'GROUP_NOT_FOUND');
+        current.enabled=enabled;current.features=normalizeGroupFeatures(features);
+        try {await this.#persist(next);} catch {return this.#storageFailed();}
+        return result(true,'GROUP_FEATURES_SAVED',{status:this.status()});
+      });
+    } finally {this.#releaseRestriction(group.id,ticket);}
   }
 
   async removeAllowedGroup({ groupKey } = {}) {
@@ -495,11 +645,12 @@ export class BridgeCore {
       const current=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===group.id);
       if(!current)return result(false,'GROUP_NOT_FOUND');
       const key=access==='gray'?'grayGroups':'allowedGroups';
-      if(this.#state[key].some(g=>g.id===group.id))return result(true,'GROUP_ACCESS_CHANGED',{status:this.status()});
+      if(this.#state[key].some(g=>g.id===group.id) && current.features===undefined)return result(true,'GROUP_ACCESS_CHANGED',{status:this.status()});
       if(this.#state[key].length>=(access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups))return result(false,'GROUP_LIMIT_REACHED');
       const next=structuredClone(this.#state);
       next.allowedGroups=next.allowedGroups.filter(g=>g.id!==group.id);next.grayGroups=next.grayGroups.filter(g=>g.id!==group.id);
-      next[key].push(current);
+      const {features,...legacy}=current;
+      next[key].push(legacy);
       try{await this.#persist(next);}catch{return this.#storageFailed();}
       this.#groupContexts.delete(group.id);
       return result(true,'GROUP_ACCESS_CHANGED',{status:this.status()});
@@ -573,7 +724,7 @@ export class BridgeCore {
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
       if (this.#canRememberGroup(groupId)) {
-        const { command, addressed } = groupCommand(text, message.mentioned);
+        const { command, addressed } = this.#groupCommand(groupId,text, message.mentioned);
         if (addressed && this.#state.incoming.includes(hash(`incoming:group:${groupId}:${id}`))) return result(false, 'DUPLICATE');
         // Freeze preceding context at receipt, before recording this message.
         groupContext = this.#groupMessageContext(groupId, senderId,hash(`context:member:${groupId}:${id}`));
@@ -646,7 +797,11 @@ export class BridgeCore {
         let response;
         const context=this.#bindRequest({scope:'c2c',sessionKey:hash('chat:c2c:'+senderId),
           scopeKey:hash('chat-scope-c2c:'+senderId),userKey:hash('chat-user:'+senderId)},incomingKey,replyTarget,undefined,hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id));
-        if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
+        if (message.media?.length || message.readVoiceTranscript) {
+          context.media = message.media || [];
+          context.mediaEventKey = context.eventKey;
+          if (typeof message.readVoiceTranscript === 'function') context.readVoiceTranscript = message.readVoiceTranscript;
+        }
         try { response = await this.#commandHandler(command, context); }
         catch(error) { response = { text: timeoutNotice(error)||'这次处理未完成，请稍后再试。' }; }
         if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
@@ -657,10 +812,14 @@ export class BridgeCore {
 
   #observe(message,context) {
     if(typeof this.observeMessage!=='function')return;
-    const isAllowed=()=>this.sendingEnabled()&&(message.kind==='group'?this.groupAccess(message.groupId)!==null:this.#state.ownerId===message.senderId);
+    const revision=this.#groupRevisions.get(message.groupId);
+    const isAllowed=()=>this.sendingEnabled()&&(message.kind==='group'?this.groupEnabled(message.groupId)&&this.#groupRevisions.get(message.groupId)===revision:this.#state.ownerId===message.senderId);
     if(!isAllowed())return;
-    const data={text:message.kind==='group'?groupCommand(message.text,message.mentioned).command:message.text,media:message.media||[],eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
-    try{Promise.resolve(this.observeMessage(data,{...context,eventKey:data.eventKey,isAllowed})).catch(()=>{});}catch{}
+    const media = message.media || [];
+    // Owner voice is processed once in the foreground after memory opt-out checks.
+    const data={text:message.kind==='group'?this.#groupCommand(message.groupId,message.text,message.mentioned).command:message.text,media:message.readVoiceTranscript?media.filter(a=>a.kind!=='audio'):media,eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
+    try{Promise.resolve(this.observeMessage(data,{...context,eventKey:data.eventKey,isAllowed,
+      allowsFeature:feature=>isAllowed()&&this.canUseFeature(message.groupId,feature)})).catch(()=>{});}catch{}
   }
 
   async #handleGroupMessage(message, groupContext) {
@@ -685,8 +844,10 @@ export class BridgeCore {
       // Candidate capture is memory-only and sends no group acknowledgement.
       return result(true, 'GROUP_PAIRING_PENDING', { ...describeGroup(this.#groupCandidate), expiresAt: this.#groupCandidate.expiresAt });
     }
+    if (!this.groupEnabled(groupId)) return result(false,'GROUP_DISABLED');
+    const revision=this.#groupRevisions.get(groupId);
     // Official normalized @ events and leading aliases share the same path.
-    const { command, addressed } = groupCommand(rawCommand, message.mentioned);
+    const { command, addressed } = this.#groupCommand(groupId,rawCommand, message.mentioned);
     if (!addressed || !command) return result(true, 'IGNORED');
     // No group participant, including the owner, may invoke private management
     // or inspect owner status through group commands. /help is a fixed menu.
@@ -700,7 +861,12 @@ export class BridgeCore {
     const target = { scope: 'group', targetId: groupId, msgId: id };
     if (command === '/ping') return this.#notify({ text: '连接正常（固定测试回复）', idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     if (['帮助', '菜单', '/help'].includes(command)) return this.#notify({
-      text: this.groupAccess(groupId)==='gray'?'灰名单群：仅开放基础聊天与换算。\n可直接@机器人，无需前缀；也可用前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n例如：梁祖 你好\n梁祖 1马里换公里\n余额、三号楼及其他查询未开放。\n帮助\n/ping':'白名单群：主动询问可使用全部业务功能。\n可直接@机器人，无需前缀；也可用前缀：梁圣、梁祖、梁嗨、小难梁、大肥鱼，后加空格。\n天气、雷达、空气、换算、生活费、官方状态、DeepSeek余额、三号楼简报均可自然询问。\n例如：梁祖 今天学院路有哪些空教室\n固定命令：发 天气 城市或区县、发 雷达 地点、雷达目录、发 雾霾 城市或区县、查DeepSeek余额、查空教室、换算 0.6 HU$ 人民币。\n帮助\n/ping',
+      text: (this.groupAccess(groupId)==='white'?'白名单群':'灰名单群')+'已开放：'+GROUP_FEATURES.filter(f=>this.canUseFeature(groupId,f.key)).map(f=>f.label.replace('本人账户','账户')).join('、')+'。\n直接@机器人，无需前缀；'+
+        this.#wakeWordHelp(groupId)+'\n'+
+        (this.canUseFeature(groupId,'weather')?'发 天气 城市或区县\n':'')+
+        (this.canUseFeature(groupId,'radar')?'发 雷达 地点；雷达目录\n':'')+
+        (this.canUseFeature(groupId,'air')?'发 雾霾 城市或区县\n':'')+
+        '/ping 测试连接；功能由主人在控制台管理。',
       idempotencyKey: `reply:${incomingKey}`,
     }, target, groupId);
     if (this.#commandHandler) {
@@ -714,11 +880,15 @@ export class BridgeCore {
         sessionKey: hash('chat:group:'+groupId+':'+senderId), scopeKey: hash('chat-scope-group:'+groupId),
         userKey: hash('chat-user:'+senderId), currentSpeaker: 'member-'+hash('group-sender:'+groupId+':'+senderId).slice(0,12), groupContext: [] };
       this.#bindRequest(context,incomingKey,target,groupId,hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id));
-      if(message.media?.length){context.media=message.media;context.mediaEventKey=hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id);}
+      if(message.media?.length||message.readVoiceTranscript){
+        context.media=message.media||[];context.mediaEventKey=context.eventKey;
+        if (typeof message.readVoiceTranscript==='function') context.readVoiceTranscript=message.readVoiceTranscript;
+      }
       try { response = await this.#commandHandler(command, context); }
       catch(error) { response = { text: timeoutNotice(error)||'这次处理未完成，请稍后再试。' }; }
+      if (this.#groupRevisions.get(groupId)!==revision) return result(false,'GROUP_ACCESS_DENIED');
       if(response?.memoryReset===true)this.#groupContexts.delete(groupId);
-      if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}),requiredAccess:response.requiredAccess,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
+      if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}),requiredAccess:response.requiredAccess,requiredFeature:response.requiredFeature,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     }
     return result(true, 'IGNORED');
   }
@@ -744,15 +914,36 @@ export class BridgeCore {
   }
 
   /** Internal generated-image operation; callers cannot choose recipients. */
-  async notifyImageAllAllowed({image,idempotencyKey,groupsOnly=false}={}) {
+  async notifyImageAllAllowed({image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets}={}) {
     if (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 ||
         !['image/png','image/jpeg'].includes(image.mimeType)) {
       return result(false, 'INVALID_INPUT', { results: [], attempted: 0, sent: 0 });
     }
-    return this.#notifyAllAllowed({text:'',image,idempotencyKey,groupsOnly});
+    return this.#notifyAllAllowed({text:'',image,idempotencyKey,groupsOnly,requiredFeature,groupTargets});
   }
 
-  async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false}) {
+  captureMorningTargets() {
+    return [...this.#state.allowedGroups,...this.#state.grayGroups]
+      .filter(g=>this.canUseFeature(g.id,'morningReport'))
+      .map(g=>({groupKey:groupKeyFor(g.id),revision:this.#groupRevisions.get(g.id)||0}));
+  }
+
+  #broadcastGroups(requiredFeature,groupTargets) {
+    return [...this.#state.allowedGroups,...this.#state.grayGroups].filter(g=>
+      this.groupEnabled(g.id)&&this.canUseFeature(g.id,requiredFeature||'notifications')&&
+      (!groupTargets||groupTargets.some(t=>t.groupKey===groupKeyFor(g.id)&&t.revision===(this.#groupRevisions.get(g.id)||0))));
+  }
+
+  pendingMorningParts(date,groupTargets) {
+    const groups=this.#broadcastGroups('morningReport',groupTargets);
+    return Object.fromEntries(['weather','campus'].map(part=>{
+      const operation=hash('broadcast:group-morning-'+date+'-'+part);
+      const count=groups.filter(g=>!this.#state.deliveries.some(d=>d.key===hash('outgoing:broadcast:'+operation+':'+groupKeyFor(g.id)))).length;
+      return [part,count];
+    }));
+  }
+
+  async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets}) {
     return this.#enqueue(async () => {
       const empty = code => result(false, code, { results: [], attempted: 0, sent: 0 });
       if (this.#oneBotMode && this.#oneBotMode !== 'normal') return empty(this.#oneBotMode === 'receive-only' ? 'RECEIVE_ONLY' : 'PILOT_BROADCAST_DISABLED');
@@ -763,7 +954,7 @@ export class BridgeCore {
       if (image !== undefined && (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 || !['image/png','image/jpeg'].includes(image.mimeType))) return empty('INVALID_INPUT');
       const operation = hash(`broadcast:${idempotencyKey}`);
       const targets = [...(groupsOnly?[]:[{ destination: 'owner', idempotencyKey: `broadcast:${operation}:owner` }]),
-        ...this.#state.allowedGroups.map(group => ({ destination: group.name, groupId: group.id,
+        ...this.#broadcastGroups(requiredFeature,groupTargets).map(group => ({ destination: group.name, groupId: group.id,
           idempotencyKey: `broadcast:${operation}:${groupKeyFor(group.id)}` }))];
       // Snapshot existing records before new sends can evict settled history.
       for (const target of targets) {
@@ -786,7 +977,7 @@ export class BridgeCore {
           stoppedCode ??= code;
           results.push({ destination: target.destination, ok: false, code }); continue;
         }
-        const delivery = await this.#notify({ text, ...(image !== undefined ? {image} : {}), idempotencyKey: target.idempotencyKey }, undefined, target.groupId, target.groupId !== undefined);
+        const delivery = await this.#notify({ text, ...(image !== undefined ? {image} : {}), ...(requiredFeature?{requiredFeature}:{}), idempotencyKey: target.idempotencyKey }, undefined, target.groupId, target.groupId !== undefined);
         if (this.#state.deliveries.some(entry => entry.key === target.key)) attempted++;
         if (delivery.code === 'SENT') sent++;
         results.push({ destination: target.destination, ok: delivery.ok, code: delivery.code,
@@ -802,7 +993,7 @@ export class BridgeCore {
     if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
     if (groupId !== undefined) {
       if (!validGroupId(groupId) || this.groupAccess(groupId)===null) return result(false, 'GROUP_DENIED');
-      if((proactiveGroup||(input?.requiredAccess||(input?.image?'white':'chat'))==='white')&&this.groupAccess(groupId)!=='white')return result(false,'GROUP_ACCESS_DENIED');
+      if(!this.#groupCanDeliver(groupId,input?.requiredAccess||(input?.image?'white':'chat'),input?.requiredFeature,proactiveGroup))return result(false,'GROUP_ACCESS_DENIED');
       if (!proactiveGroup && (replyTarget?.scope !== 'group' || replyTarget.targetId !== groupId || !validId(replyTarget.msgId))) return result(false, 'GROUP_REPLY_TARGET_INVALID');
     }
     const { text, idempotencyKey, image } = input ?? {};
@@ -838,7 +1029,7 @@ export class BridgeCore {
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
     let failure = null, receiptHash;
     try {
-      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat') } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
+      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
       if (response?.ok === false) throw response;
       if (this.#oneBotMode) {
         if (response?.ok !== true || !/^[a-f0-9]{64}$/.test(response.receiptHash ?? '')) throw Error('ONEBOT_DELIVERY_UNKNOWN');
@@ -870,7 +1061,7 @@ export class BridgeCore {
     if(failure?.timeoutText&&replyTarget&&image){
       // One separate text notice only when no original message was submitted.
       // Never resend an image or send again after uncertain submission.
-      const notice=await this.#notify({text:failure.timeoutText,idempotencyKey:'timeout-notice:'+key,requiredAccess:input?.requiredAccess},replyTarget,groupId,proactiveGroup);
+      const notice=await this.#notify({text:failure.timeoutText,idempotencyKey:'timeout-notice:'+key,requiredAccess:input?.requiredAccess,requiredFeature:input?.requiredFeature},replyTarget,groupId,proactiveGroup);
       return result(false,failure.code,{deliveryState:record.state,timeoutNoticeSent:notice.ok===true});
     }
     return failure ? result(false, failure.code, { deliveryState: record.state }) : result(true, 'SENT');
