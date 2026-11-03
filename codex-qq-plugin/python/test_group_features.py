@@ -26,6 +26,22 @@ class GroupFeatureTests(unittest.TestCase):
             self.assertEqual(result['kind'],'error')
         self.assertFalse(model.seen)
 
+    def test_split_and_legacy_daily_masks_cross_the_langchain_boundary(self):
+        ordinary=FEATURE_KEYS-{'morningWeather', 'morningCampus'}
+        masks=[{key:key=='weather' for key in FEATURE_KEYS}]
+        masks.extend({**{key:key=='weather' for key in ordinary},legacy:True}
+                     for legacy in ('morningReport', 'notifications'))
+        for features in masks:
+            with self.subTest(keys=sorted(features)):
+                model=ScriptedModel()
+                calls=[]
+                runner=build_runner(model_factory=lambda _:model,rpc_callback=lambda *_:calls.append(True) or 'image')
+                model.responses.append(call('weather_image',{'city':'北京'}))
+                result=runner.run(packet(context={'scope':'group','access':'white','features':features,
+                                                  'currentSpeaker':'member-abcdef123456','groupContext':[]}))
+                self.assertEqual(result['kind'],'tool')
+                self.assertEqual(len(calls),1)
+
 
 if __name__=='__main__':
     unittest.main()

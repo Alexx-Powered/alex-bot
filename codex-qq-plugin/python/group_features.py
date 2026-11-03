@@ -1,7 +1,7 @@
 """Trusted per-group capability policy shared by LangChain tool selection."""
 FEATURE_KEYS = {
     'chat', 'conversion', 'budget', 'weather', 'air', 'radar', 'campus',
-    'status', 'balance', 'images', 'voice', 'memory', 'morningReport',
+    'status', 'balance', 'images', 'voice', 'memory', 'morningWeather', 'morningCampus',
 }
 TOOL_FEATURES = {
     'weather_image': 'weather', 'air_quality_image': 'air',
@@ -19,8 +19,9 @@ def validate_features(context):
     if not isinstance(context, dict) or 'features' not in context:
         return
     features = context['features']
-    legacy=(FEATURE_KEYS-{'morningReport'})|{'notifications'}
-    if not isinstance(features, dict) or set(features) not in (FEATURE_KEYS,legacy) or any(type(v) is not bool for v in features.values()):
+    ordinary=FEATURE_KEYS-{'morningWeather', 'morningCampus'}
+    shapes=(FEATURE_KEYS,ordinary|{'morningReport'},ordinary|{'notifications'})
+    if not isinstance(features, dict) or set(features) not in shapes or any(type(v) is not bool for v in features.values()):
         raise ValueError('INVALID_GROUP_FEATURES')
 
 

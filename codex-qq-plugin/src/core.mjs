@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sanitizeContextText } from './chat-safety.mjs';
 import {recordTiming} from './telemetry.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
-import {GROUP_FEATURES,defaultGroupFeatures,basicGroupFeatures,validGroupFeatures,normalizeGroupFeatures} from './group-features.mjs';
+import {GROUP_FEATURES,defaultGroupFeatures,basicGroupFeatures,validGroupFeatures,normalizeGroupFeatures,MORNING_PART_FEATURES,MORNING_FEATURE_KEYS,isMorningFeature} from './group-features.mjs';
 import {DEFAULT_WAKE_WORDS,WAKE_WORD_LIMITS,validWakeWords,validDisabledWakeWords,normalizeWakeWord,validWakeWordText,wakeWordKey,parseGroupWake} from './wake-words.mjs';
 
 export const CORE_LIMITS = Object.freeze({
@@ -196,6 +196,7 @@ export class BridgeCore {
   #pendingIncoming = 0;
   #groupRestrictions = new Map();
   #groupRevisions = new Map();
+  #morningRevisions = new Map();
   #caller = new AsyncLocalStorage();
   #oneBotMode;
 
@@ -309,7 +310,7 @@ export class BridgeCore {
 
   #groupCanDeliver(groupId,requiredAccess,requiredFeature,proactiveGroup) {
     if (!this.groupEnabled(groupId)) return false;
-    if (proactiveGroup) return this.canUseFeature(groupId,requiredFeature==='morningReport'?'morningReport':'notifications') &&
+    if (proactiveGroup) return this.canUseFeature(groupId,isMorningFeature(requiredFeature)?requiredFeature:'notifications') &&
       (!requiredFeature || this.canUseFeature(groupId,requiredFeature));
     return requiredFeature ? this.canUseFeature(groupId,requiredFeature) :
       !(requiredAccess==='white') || this.groupAccess(groupId)==='white';
@@ -338,8 +339,11 @@ export class BridgeCore {
     return context;
   }
 
-  #restrictGroup(groupId,access){
+  #restrictGroup(groupId,access,morningFeatures=MORNING_FEATURE_KEYS){
     this.#groupRevisions.set(groupId,(this.#groupRevisions.get(groupId)||0)+1);
+    const morning=this.#morningRevisions.get(groupId)||{};
+    for (const feature of morningFeatures) morning[feature]=(morning[feature]||0)+1;
+    this.#morningRevisions.set(groupId,morning);
     if(access==='white')return null; // Promotion takes effect only after persistence.
     const ticket={access};this.#groupRestrictions.set(groupId,ticket);this.#groupContexts.delete(groupId);return ticket;
   }
@@ -602,13 +606,16 @@ export class BridgeCore {
     const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>groupKeyFor(g.id)===groupKey);
     if (!group) return result(false,'GROUP_NOT_FOUND');
     // Block admission and ongoing work before waiting for the serial queue.
-    const ticket=this.#restrictGroup(group.id,null);
+    const normalized=normalizeGroupFeatures(features),previous=this.groupFeatures(group.id);
+    const changedMorning=enabled!==(group.enabled!==false)?MORNING_FEATURE_KEYS:
+      MORNING_FEATURE_KEYS.filter(key=>previous[key]!==normalized[key]);
+    const ticket=this.#restrictGroup(group.id,null,changedMorning);
     try {
       return await this.#enqueue(async()=>{
         const next=structuredClone(this.#state);
         const current=[...next.allowedGroups,...next.grayGroups].find(g=>g.id===group.id);
         if (!current) return result(false,'GROUP_NOT_FOUND');
-        current.enabled=enabled;current.features=normalizeGroupFeatures(features);
+        current.enabled=enabled;current.features=normalized;
         try {await this.#persist(next);} catch {return this.#storageFailed();}
         return result(true,'GROUP_FEATURES_SAVED',{status:this.status()});
       });
@@ -922,21 +929,27 @@ export class BridgeCore {
     return this.#notifyAllAllowed({text:'',image,idempotencyKey,groupsOnly,requiredFeature,groupTargets});
   }
 
-  captureMorningTargets() {
+  captureMorningTargets(feature) {
+    if (feature!==undefined&&!isMorningFeature(feature)) return [];
     return [...this.#state.allowedGroups,...this.#state.grayGroups]
-      .filter(g=>this.canUseFeature(g.id,'morningReport'))
-      .map(g=>({groupKey:groupKeyFor(g.id),revision:this.#groupRevisions.get(g.id)||0}));
+      .filter(g=>(feature?[feature]:MORNING_FEATURE_KEYS).some(key=>this.canUseFeature(g.id,key)))
+      .map(g=>({groupKey:groupKeyFor(g.id),revision:this.#groupRevisions.get(g.id)||0,
+        morningRevisions:Object.fromEntries(MORNING_FEATURE_KEYS.filter(key=>this.canUseFeature(g.id,key))
+          .map(key=>[key,this.#morningRevisions.get(g.id)?.[key]||0]))}));
   }
 
   #broadcastGroups(requiredFeature,groupTargets) {
     return [...this.#state.allowedGroups,...this.#state.grayGroups].filter(g=>
       this.groupEnabled(g.id)&&this.canUseFeature(g.id,requiredFeature||'notifications')&&
-      (!groupTargets||groupTargets.some(t=>t.groupKey===groupKeyFor(g.id)&&t.revision===(this.#groupRevisions.get(g.id)||0))));
+      (!groupTargets||groupTargets.some(t=>t.groupKey===groupKeyFor(g.id)&&
+        (isMorningFeature(requiredFeature)&&t.morningRevisions?
+          t.morningRevisions[requiredFeature]===(this.#morningRevisions.get(g.id)?.[requiredFeature]||0):
+          t.revision===(this.#groupRevisions.get(g.id)||0)))));
   }
 
   pendingMorningParts(date,groupTargets) {
-    const groups=this.#broadcastGroups('morningReport',groupTargets);
     return Object.fromEntries(['weather','campus'].map(part=>{
+      const groups=this.#broadcastGroups(MORNING_PART_FEATURES[part],groupTargets);
       const operation=hash('broadcast:group-morning-'+date+'-'+part);
       const count=groups.filter(g=>!this.#state.deliveries.some(d=>d.key===hash('outgoing:broadcast:'+operation+':'+groupKeyFor(g.id)))).length;
       return [part,count];

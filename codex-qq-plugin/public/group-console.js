@@ -16,7 +16,8 @@ window.createGroupConsole = ({api,action}) => {
       {keys:['balance'],label:'DeepSeek余额',hint:'主人已配置的 DeepSeek API 余额'},
     ]},
     {title:'定时推送',items:[
-      {keys:['morningReport'],label:'早间日报',hint:'每天 07:30 · 天气、空气与三号楼自习简报'},
+      {keys:['morningWeather'],label:'早间天气',hint:'每天 07:30 · 天气、空气与运动建议'},
+      {keys:['morningCampus'],label:'三号楼自习简报',hint:'每天 07:30 · 三号楼空教室与自习安排'},
     ]},
   ];
   let catalog=[],defaults={},directory=[],groups=[],signature='',selected,ready=false,busy=false,initialized=false;
@@ -104,7 +105,7 @@ window.createGroupConsole = ({api,action}) => {
     const save=document.createElement('button');save.type='submit';save.textContent='保存设置';
     const remove=document.createElement('button');remove.type='button';remove.className='subtle danger';remove.textContent='移除群';remove.onclick=()=>action('group/remove',{groupKey:group.groupKey});
     controls.append(basic,all,remove,save);
-    const note=document.createElement('p');note.className='help settings-note';note.textContent='更改后点击保存。全部开启包含 DeepSeek 余额与早间日报。';
+    const note=document.createElement('p');note.className='help settings-note';note.textContent='更改后点击保存。两个 07:30 推送独立开关；全部开启包含 DeepSeek 余额与两项定时推送。';
     form.append(enabledRow,features,note,controls);
     form.onsubmit=async event=>{
       event.preventDefault();save.disabled=true;
@@ -149,7 +150,7 @@ window.createGroupConsole = ({api,action}) => {
       ready=core.paired&&!core.paused&&transport.state==='connected';
       get('managedGroups').classList.remove('hidden');
       get('groupMorningState').textContent=schedule.active?
-        '北京时间 07:30 · 已接入调度 · '+(schedule.enabledGroups||0)+' 个群开启':'北京时间 07:30 · 调度当前未运行';
+        '北京时间 07:30 · 天气 '+(schedule.weatherGroups||0)+' 群 · 自习 '+(schedule.campusGroups||0)+' 群':'北京时间 07:30 · 调度当前未运行';
       catalog=core.groupFeatureCatalog||[];defaults=core.groupDefaultFeatures||{};
       if (!initialized&&catalog.length) {grid(get('groupNewFeatures'),defaults);initialized=true;}
       const next=[...(core.allowedGroups||[]),...(core.grayGroups||[])];

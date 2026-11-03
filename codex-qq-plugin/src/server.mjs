@@ -122,7 +122,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     let mutationHeld = false;
     try {
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status(), agent:await agentStatus(), campus:await campus.status(),
-        groupMorning:{...await morningScheduleStatus(),enabledGroups:core.captureMorningTargets().length} });
+        groupMorning:{...await morningScheduleStatus(),enabledGroups:core.captureMorningTargets().length,
+          weatherGroups:core.captureMorningTargets('morningWeather').length,campusGroups:core.captureMorningTargets('morningCampus').length} });
       if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status(),transportDiagnostics:adapter.diagnostics?.()});
       if (req.method === 'GET' && pathname === '/api/social/status') return json(res,200,{ok:true,config:await socialConfigStore.status()});
       if (req.method === 'GET' && pathname === '/api/group/directory') {

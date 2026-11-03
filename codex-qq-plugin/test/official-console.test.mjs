@@ -31,7 +31,8 @@ test('official group matching accepts a separate member OpenID, requires confirm
   assert.equal((await core.confirmGroupPairing({groupKey:candidate.groupKey,features:basicGroupFeatures()})).code,'GROUP_ALLOWED');
   assert.deepEqual(saved.allowedGroups[1].features,basicGroupFeatures());
   assert.equal(core.canUseFeature('OFFICIAL_B','weather'),false);
-  assert.equal(core.canUseFeature('OFFICIAL_B','morningReport'),false);
+  assert.equal(core.canUseFeature('OFFICIAL_B','morningWeather'),false);
+  assert.equal(core.canUseFeature('OFFICIAL_B','morningCampus'),false);
   assert.equal(core.canUseFeature('OFFICIAL_A','weather'),true);
   assert.equal(core.status().groupCount,2);
 });
@@ -82,8 +83,8 @@ test('official admin API preserves identity while saving words and confirming a 
     adapterFactory:()=>({status:()=>({state:status}),async connect(){status='connected';},async disconnect(){status='disconnected';},async send(){assert.fail('No test sends');}})});
   const port=await app.listen();
   const request=(path,body,token=store.token)=>new Promise((resolve,reject)=>{
-    const raw=Buffer.from(JSON.stringify(body));
-    const req=http.request({host:'127.0.0.1',port,path:'/api/'+path,method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json','Content-Length':raw.length}},res=>{
+    const raw=body===undefined?null:Buffer.from(JSON.stringify(body));
+    const req=http.request({host:'127.0.0.1',port,path:'/api/'+path,method:raw?'POST':'GET',headers:{Authorization:'Bearer '+token,...(raw?{'Content-Type':'application/json','Content-Length':raw.length}:{})}},res=>{
       let data='';res.on('data',chunk=>data+=chunk);res.on('end',()=>resolve({status:res.statusCode,...JSON.parse(data)}));
     });req.on('error',reject);req.end(raw);
   });
@@ -99,5 +100,13 @@ test('official admin API preserves identity while saving words and confirming a 
     assert.equal(saved.ownerId,'PRIVATE_OWNER');assert.equal(saved.identityDomain,undefined);
     assert.equal(app.core.captureMorningTargets().length,0);
     assert.deepEqual(app.core.groupFeatures('OFFICIAL_A'),defaultGroupFeatures('white'));
+    for (const part of ['morningWeather','morningCampus']) {
+      assert.equal((await request('group/features',{groupKey:key('OFFICIAL_B'),enabled:true,
+        features:{...basicGroupFeatures(),[part]:true}})).code,'GROUP_FEATURES_SAVED');
+      const status=await request('status');
+      assert.equal(status.groupMorning.enabledGroups,1);
+      assert.equal(status.groupMorning.weatherGroups,Number(part==='morningWeather'));
+      assert.equal(status.groupMorning.campusGroups,Number(part==='morningCampus'));
+    }
   }finally{await app.close();}
 });

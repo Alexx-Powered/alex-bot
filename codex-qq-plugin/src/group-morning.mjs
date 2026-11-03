@@ -1,5 +1,6 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {MORNING_PART_FEATURES} from './group-features.mjs';
 
 export function groupMorningClock(now=new Date()) {
   const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{
@@ -48,21 +49,20 @@ export class GroupMorningService {
     if (!targets.length) return stop('NO_MORNING_GROUPS');
     const pending=this.core.pendingMorningParts(clock.date,targets);
     if (!pending.weather&&!pending.campus) return stop('DUPLICATE');
-    const images={};
-    try {
-      if (pending.weather) {
-        const report=await this.morning.create();
-        if (report.date!==clock.date||!report.image) return stop('MORNING_REPORT_INVALID');
-        images.weather=report.image;
-      }
+    const images={},failedParts=[];
+    for (const part of ['weather','campus']) {
       const unavailable=this.ready();
       if (unavailable) return stop(unavailable);
-      if (pending.campus&&this.core.pendingMorningParts(clock.date,targets).campus) {
-        const report=await this.campus.run({date:clock.date},'report');
-        if (!report.image) return stop('CAMPUS_IMAGE_MISSING');
-        images.campus=report.image;
-      }
-    } catch {return stop('MORNING_REPORT_FAILED');}
+      if (!this.core.pendingMorningParts(clock.date,targets)[part]) continue;
+      try {
+        const report=part==='weather'?await this.morning.create():await this.campus.run({date:clock.date},'report');
+        if (!report.image||(part==='weather'&&report.date!==clock.date)) {
+          failedParts.push({part,code:part==='weather'?'MORNING_REPORT_INVALID':'CAMPUS_IMAGE_MISSING'});
+          continue;
+        }
+        images[part]=report.image;
+      } catch {failedParts.push({part,code:part==='weather'?'MORNING_REPORT_FAILED':'CAMPUS_REPORT_FAILED'});}
+    }
     let attempted=0,sent=0;
     for (const target of targets) for (const part of ['weather','campus']) {
       if (!images[part]) continue;
@@ -72,7 +72,7 @@ export class GroupMorningService {
         if (unavailable) return {ok:false,code:unavailable,attempted,sent};
         const result=await this.core.notifyImageAllAllowed({
           image:images[part],idempotencyKey:'group-morning-'+clock.date+'-'+part,
-          groupsOnly:true,requiredFeature:'morningReport',groupTargets:[target],
+          groupsOnly:true,requiredFeature:MORNING_PART_FEATURES[part],groupTargets:[target],
         });
         attempted+=result.attempted||0;sent+=result.sent||0;
         if (!result.attempted&&['RATE_LIMIT_MINUTE','RATE_LIMIT_TARGET'].includes(result.code)) {
@@ -84,6 +84,6 @@ export class GroupMorningService {
         break;
       }
     }
-    return {ok:true,code:'SENT',attempted,sent};
+    return failedParts.length?{ok:false,code:failedParts[0].code,attempted,sent,failedParts}:{ok:true,code:'SENT',attempted,sent};
   }
 }
