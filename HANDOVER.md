@@ -1,3 +1,17 @@
+## 2026-11-03 07:30 两项推送拆成独立开关（当前生产）
+
+按用户要求，群页“定时推送”拆为“早间天气”（天气、空气与运动建议）和“三号楼自习简报”，两个开关分别保存、按群隔离；两项仍为每天北京时间 07:30。关闭的项目不抓取、不生成、不发送；关闭一项不会取消另一项，生成失败也不抑制另一项。开关关闭后重新开启不能复活旧结果，也不能将运行中新增的订阅加入旧任务。逐群逐图幂等键保持原值，已发送的图片不因拆分重复投递。继续使用现有官方 `alexbot-group-morning.timer`，Persistent=false、不补发；旧官方全局早报和全部 OneBot 单元仍 masked/inactive。
+
+功能字段为 `morningWeather` / `morningCampus`；旧合并 `morningReport` 的 true/false 同时映射到两项，旧 `notifications` 广播权限不授予定时订阅。旧 API 和 Python 群功能参数形状仍兼容，新版参数经过真实 Node→Python LangChain 验证。未迁移任何 OneBot 身份或群授权。上线前原两群的合并开关均关闭，上线后天气订阅 0 群、自习订阅 0 群，未新增订阅；明确开启并保存后才从下一个 07:30 发送。
+
+生产 release `linux-1e24bc4a96da`，运行代码 `137c8e4dbce90e8782f5085af4d1180bf898314e`，发布包 SHA256 `182aeef916abdffdd2ab5bd0ff80af2ab9c996e25410420f9dafb79669ee7155`，280 个文件哈希通过。仅重启官方 `alexbot.service`，PID 106762 于 09:41:47 CST 启动；09:43:57 再核对实际 19327 监听、argv/current 源码、cwd `/var/lib/alexbot`、显式 QQ_TRANSPORT=official、源码先于启动、三份实际 HTTP 页面资源及退役单元状态，均通过。connected、paired、未暂停，未决 0，NRestarts=0；发送计数 6→6，没有 QQ 测试发送。原主人、两个授权群、6 个唤醒词、入站去重、投递/尝试及全部共享配置保持；本机 19327 仍为 ssh.exe PID 40880（09:20:05 启动），没有本机真实 Bot。下次官方调度为 2026-11-04 07:30。
+
+本机完整 Node 527/527、Python 278/278 通过，另补充的 HTTP API 单项订阅数断言三项通过；覆盖独立生成/收件群、旧状态迁移、重启去重、单项在途关闭、旧结果不能复活、单项生成失败及跨语言兼容。ECS 在可用内存超过 600 MiB 时，仅串行运行独立 128M/零 swap/50% CPU cgroup 内的调度/官方流程、Python 和只读真实状态专项，没有运行 Linux 全量回归或 OneBot 发布保护。浏览器 fixture 验证只开天气、只开自习、刷新后保存和群间隔离；正式页面只读验收两项关闭及在线状态。正式截图在忽略目录 `codex-qq-plugin/test-output/morning-split/production-split-switches.png`，测试页和假适配器已关闭；首次真实 07:30 周期尚未触发。
+
+升级前后标准加密备份均为 22 文件：`alexbot-20261103T014147781Z.json`，SHA256 `990bb398a99bb432f0594b412b3f4f95e9d769e7f1fe88eff407b304eb2f7c51`；`alexbot-20261103T014152954Z.json`，SHA256 `f6dd85c237fb5d6f8eea71f6b8297f3dac9eea49b4ce2d6685869303f430235b`。云端 `/var/backups/alexbot` 和本机 `.private/migration` 均保留密文，哈希一致，DPAPI 身份恢复和内存解密验证成功，未写明文。专项、冻结状态、前后备份与部署/最终回执在 root 专用 `/var/backups/alexbot-morning-split/20261103`；旧 release 保留，回退须先保全新开关和最新状态，不能直接用旧代码打开新权限格式。
+
+只记录本地 Git，未推送 GitHub。用户原有 backup.mjs 修改、暂停的提醒和其它未完成工作未纳入提交或部署。下方为此前发布历史，以上节为当前状态。
+
 ## 2026-11-03 官方 Bot 上线新版控制台、快速群匹配和全局唤醒词
 
 按用户要求，将后续控制台功能择项迁入官方分支，没有合并或重新启用 OneBot。生产已于 09:15:19 CST 完成切换，当前 release `linux-1f0ee52c49ae`，运行代码提交 `4d1882a903b8d6a57f069481c80a40afc3b4232a`，280 个发布文件哈希一致。主服务 PID 106322 于 09:15:13 CST 启动；09:25:29 再次核对实际 19327 监听、argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs --connect`、cwd `/var/lib/alexbot`、显式 `QQ_TRANSPORT=official`、源码先于启动及四份实际 HTTP 静态资源哈希，均通过。connected、paired、未暂停、未决投递 0、NRestarts=0，发送计数全程 6→6，没有 QQ 测试发送。本机隧道曾退出而云端 Bot 仍在线，已只恢复受限 SSH；当前 127.0.0.1:19327 由 ssh.exe PID 40880 监听，没有启动本机 Bot。
