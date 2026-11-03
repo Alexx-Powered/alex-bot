@@ -1,3 +1,17 @@
+## 2026-11-03 已回滚到 QQ 官方 Bot
+
+按用户“回滚到 qq 官方 bot 的版本，onebot 封号太严重”的明确指令，于 07:44 停止 OneBot 发送、业务、网关、登录控制和相关定时任务。切换前为 ONEBOT_DISCONNECTED、已暂停、当日 0 次发送、无未决投递。已恢复最后一次正式使用官方接入的 `linux-10443702394a`，源码 `e0c356c7828572b78894619ecf5e076009e97bac`，266 个发布文件哈希全部一致。`alexbot.service` 显式 QQ_TRANSPORT=official、enabled/active；PID 105680 于 2026-11-03 07:55:46 CST 启动，19327 实际监听、argv、工作目录 `/var/lib/alexbot`、current 指向和源码先于启动均已核对。本机 127.0.0.1:19327 是 OpenSSH PID 29776，于 07:40:12 CST 启动，没有启动本机 Bot。
+
+07:56:59 CST 官方 SDK 已真实鉴权 connected，原主人已配对、发送已恢复、0 次当日发送、0 未决，恢复原 2 个白名单群，灰名单 0。没有发送自动 QQ 测试消息；已请主人向原官方机器人私聊测试换算，实收结果待回答。OneBot 的 UIN 授权没有映射到官方 OpenID。OneBot 业务、网关、登录控制、试运行、日报 service/timer 六项全部 masked，19328/19330 已无监听，开机不会自动拉起。旧官方早报仍 masked，配置 enabled=false；本轮不补发 07:30 日报。原五个前缀及官方白/灰名单随版本恢复，OneBot 的逐群功能、全局自定义词库和扫码页面未迁入旧版。
+
+标准备份 `alexbot-20261102T234943484Z.json`（UTC 命名，CST 11 月 3 日 07:49）包含 21 文件，密文 SHA256 `df655c50d4f4d7a3f22e15329c453a21348e7fe25efc1cf35a09bc978846d397`。完整运行目录独立 AES-GCM/RSA-OAEP 密文 `/var/backups/alexbot-official-rollback/20261103/onebot-full-before.json`，38,015,420 字节，密文 SHA256 `86ffb38efec9fa5344edb69958c8c3da34147ef0facd35ad9ffe6bd0aa0425fb`；解密 gzip tar 28,510,970 字节、282 条目，明文归档 SHA256 `548cc615bfea07c47255c8df320d01209021a51f79edd7f4e5df3e095d9911d8`。两份密文已下载到本机 `.private/migration`，哈希一致、DPAPI 恢复身份与内存解密验证成功，未提取明文。完整备份保留全部 OneBot 阶段词库、配置、状态及记忆，网关自身设备/缓存目录保留不再运行。
+
+官方主人/群 ACL 从 `/var/backups/alexbot-onebot-cutover/20261102-owner/old-state.at-freeze.json` 取回；投递按幂等键、尝试按完整记录、入站按哈希合并最新状态，恢复计划为 184 条投递、50 条尝试、152 个去重键，容量检查与旧 BridgeCore 真正载入验证通过。过去身份映射造成的不同目标/请求人哈希记录保守保留，没有清空历史或降低已用额度。当前模型预算、聊天 SQLite、模型/校园/监控配置、两个运行令牌、聊天规则和发送限额前后哈希一致。回滚脚本、原单元、状态计划、备份及恢复/启用回执在 root 专用 `/var/backups/alexbot-official-rollback/20261103`。
+
+Windows Python 275 项全部通过；Node 489 项首次 488 通过，唯一失败是 HTTP fixture 的 fetch 报 bad port，相关 server 文件 14 项独立复查全部通过，未修改业务代码掩盖失败。首次受限执行曾因 Windows 临时目录/DPAPI 访问被拒绝而失败，改为本机正常用户权限和 UTF-8 后，备份验证及 Python 全量通过。真实 Node→Python LangChain 固定换算测试通过。ECS 仅在独立 128M/零 swap/50% CPU 单元中验证恢复状态与凭据格式，没有在 2G ECS 运行完整回归；实际官方 SDK 连接另由生产服务验证。恢复后可用内存约 882 MiB，未决投递 0。
+
+工作区已切到 `codex/official-bot-rollback-20261103`，`codex/onebot-migration` 保留原 OneBot 提交；用户的 backup.mjs/提醒及其它未完成工作保持。切分支前的未提交补丁及原 backup.mjs 副本保存于忽略目录 `codex-qq-plugin/test-output/official-rollback`。本次只做本地 Git 记录，不更新 GitHub；文档以本节为当前状态，以下为历史。
+
 ## 2026-11-01 全球雷达与国内缺图自动回退（已上线）
 
 默认radar_image先取中央气象台，目标不在目录、无当前图或图过期等情况下自动尝试RainViewer全球拼图；有多个国内站名匹配时仍要求澄清，不猜位置。新增可选source=global，旧调用省略参数仍为auto。支持自然语言海外地名，“发 雷达 纽约”“发全球雷达 东京”“发 雷达 全球”“全球雷达图”。全球视图与区域图同条发送图片、简短来源；灰名单权限不变，国内原图保持原样。模型提示已明确雷达不限中国，并清理此前残留的“天气仅当天”冲突句。

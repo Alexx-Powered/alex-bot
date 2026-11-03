@@ -1,13 +1,15 @@
 # 亚历克斯 QQ Bot 开发约定
 
 - GitHub 仅在用户明确要求更新时推送或修改；日常开发优先完成本地修改、测试和部署，可使用本地 Git 记录，不自动同步远端。
-- 2026-10-29起生产服务在阿里云ECS：`/opt/alex-bot/current`，状态`/var/lib/alexbot`，systemd `alexbot`与`alexbot-morning`。本机19327是SSH转发，不能以本机Node启动代替上线或同时连接两套Bot。开发前读`codex-qq-plugin/ops/README.md`；部署核对远端实际监听PID、源码版本和启动时刻，以及本机隧道PID。不要输出Workbench凭据helper的stdout。
+- 2026-11-03 已按用户因封号而回滚的要求恢复 QQ 官方 Bot，生产在阿里云 ECS：源码 `/opt/alex-bot/current`，状态 `/var/lib/alexbot`，systemd `alexbot.service` 显式使用 `QQ_TRANSPORT=official`。OneBot 业务、网关、控制服务、试运行及其早报服务/定时器均 masked，不得自行重新启用、扫码或接入普通 QQ 账号。原 `alexbot-morning.service` 也继续 masked，早报配置 disabled；用户再次明确开启后才恢复，不能补发停用期间的日报。本机 19327 是 SSH 转发，不能启动本机 Bot 或连接第二套 Bot。开发前读 `codex-qq-plugin/ops/README.md`；部署核对远端实际监听 PID、源码版本和启动时刻，以及本机隧道 PID。不要输出 Workbench 凭据 helper 的 stdout。
 - 修改Node/Python工具协议时保留新增可选参数的默认兼容，并测试真实LangChain调用跨语言边界。部署后必须核对19327实际监听PID、工作区源码路径及启动时点，不能仅凭health在线或旧PID文件认定重启成功。
+- 全量回归默认在本机；2G ECS 只做必要的串行专项，独立 cgroup 限制 MemoryMax=128M、MemorySwapMax=0、CPUQuota=50%，至少 600 MiB 可用内存才启动。确需 Linux 全量回归时说明平台验证理由，至少 848 MiB 可用、独立 cgroup 上限 448M；资源不足不运行，不放宽保护。已退役的 onebot-release-guard 依赖 OneBot，官方发布不得调用它或为了通过它重新启动网关。
 
 - 除非用户针对某项功能另作说明，今后新增业务功能统一使用 Python LangChain 实现。固定规则、计算和查询封装为参数受限的 LangChain Tool；自然语言通过现有 agent 选择工具。确定性调用可以直接 invoke 工具，不要求调用大模型或配置模型 Key。
 - Node.js 继续承担现有 QQ 官方 SDK 接入、授权与白名单、前缀、限额、图片和进程管理；不要在 Node 中重复新增业务计算，也不要让模型获得任意命令、文件、账户或消息收件人权限。
 - Codex 执行异常求助仍由 Codex 按既有授权规则自行驱动，不迁移给群聊 agent。
 - 古月币（HU$）固定按 0.6 HU$ = 70 人民币换算；1 马里 = 3.08 km；1 马时 = 1.5 小时。比例由本地代码固定，QQ 消息和模型不得修改。它们只提供数值换算，没有钱包、充值或转账功能。
 - 群聊可直接官方 @ 机器人而无需前缀；未 @ 时沿用现有五个唤醒前缀。上下文隔离、暂停、请求与发送限额不变。固定工具可脱离模型运行；工具不可用时说明失败，不用模型编造计算结果。
+- 当前主人和两个白名单群来自官方链路冻结快照；OneBot 的 UIN 标识、逐群权限和自定义唤醒词不能直接映射为官方 OpenID 授权。新旧投递、限额、模型预算和记忆不得回到过期快照；最新 OneBot 状态已加密归档，恢复和具体版本见 HANDOVER。OneBot 开发分支保留，不自动合并回官方生产。
 
 - 生活费默认每天50人民币，每月10日发薪；根据明确可用余额计算。模糊换算/预算先调用固定LangChain工具，随后可用一次无工具权限的模型解释；全马/半马标准距离固定42.195/21.0975km。聊天自然表达，不再沿用80字、两句的硬截断。

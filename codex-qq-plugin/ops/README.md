@@ -2,6 +2,16 @@
 
 2026-10-29 已迁移。开发工作区仍为 `D:\Projects\Alex Bot`，GitHub 仅在用户明确要求时更新。
 
+## 2026-11-03 恢复 QQ 官方 Bot（当前生产）
+
+用户因封号要求退出 OneBot。当前生产恢复为 `linux-10443702394a`，源码 `e0c356c7828572b78894619ecf5e076009e97bac`，266 个文件哈希全部通过。`alexbot.service` 已 enabled/active，并在单元中显式设置 `QQ_TRANSPORT=official`；原 AppID/AppSecret、主人 OpenID 和两个官方白名单群已验证可用。OneBot 的业务、网关、登录控制、试运行及其早报 service/timer 均 disabled/masked，不得为调试自动解除或重新扫码。旧 `alexbot-morning.service` 继续 masked，`config/morning-report.json` 的 enabled=false；再次明确开启时只从下一次北京时间 07:30 执行，不追补停用日报。
+
+本机分支 `codex/official-bot-rollback-20261103` 以相同官方源码为基线，`codex/onebot-migration` 保留 OneBot 阶段全部提交。未完成提醒和其它本地工作未删除或纳入部署；未推送 GitHub。当前版本使用官方白/灰名单和原五个前缀，OneBot 阶段的全局词库、逐群功能管理及扫码页面随旧版本退出。最新运行数据整体加密备份仍在云端和本机，不将 OneBot 数字账号授权套用到官方 OpenID。
+
+回滚先停全部新链路，制作 21 文件标准加密备份以及完整运行目录加密快照。官方授权取自切换前冻结状态，投递/发送尝试/去重记录与最新状态合并；184 条投递、50 条尝试、152 个入站去重键进入恢复计划，无未决投递。模型预算、聊天记忆、模型和校园配置、管理/集成令牌及发送规则保持最新。回滚操作和回执在 root 专用 `/var/backups/alexbot-official-rollback/20261103`，完整密文为 `onebot-full-before.json`；对应本机密文在 `.private/migration`。不要直接覆盖最新 state 或把旧 OneBot 服务作为故障回退。
+
+维护按 AGENTS.md 的 2G 主机预算执行：全量测试默认本机，ECS 仅做受限专项；已退役的 OneBot 会话检查不适用于官方服务。发布时检查实际 `alexbot.service` 的 19327 监听 PID、argv、源码清单和启动时刻、本机 SSH 隧道及官方连接/配对/暂停/未决投递。具体进程、备份哈希与本轮验证限制见 HANDOVER。
+
 ## 2026-11-02 普通 QQ 账号接入试运行
 
 本次 GitHub 回退标签为 `ecs-pre-onebot-20261102`，指向与 ECS 255 个发布文件一致的 `9787355`。私有仓库 main 的 `bfb1ada` 另含上线记录。云端和本机均保留加密状态包 `alexbot-20261102T021203325Z.json`，本机已在内存验证 21 个文件和凭据可恢复。云端源码归档为 `source-linux-5e4d642a771d-before-onebot-20261102T021203Z.tar.gz`。
