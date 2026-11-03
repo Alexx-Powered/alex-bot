@@ -1,3 +1,19 @@
+## 2026-11-03 官方 Bot 上线新版控制台、快速群匹配和全局唤醒词
+
+按用户要求，将后续控制台功能择项迁入官方分支，没有合并或重新启用 OneBot。生产已于 09:15:19 CST 完成切换，当前 release `linux-1f0ee52c49ae`，运行代码提交 `4d1882a903b8d6a57f069481c80a40afc3b4232a`，280 个发布文件哈希一致。主服务 PID 106322 于 09:15:13 CST 启动；09:25:29 再次核对实际 19327 监听、argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs --connect`、cwd `/var/lib/alexbot`、显式 `QQ_TRANSPORT=official`、源码先于启动及四份实际 HTTP 静态资源哈希，均通过。connected、paired、未暂停、未决投递 0、NRestarts=0，发送计数全程 6→6，没有 QQ 测试发送。本机隧道曾退出而云端 Bot 仍在线，已只恢复受限 SSH；当前 127.0.0.1:19327 由 ssh.exe PID 40880 监听，没有启动本机 Bot。
+
+新版控制台采用侧栏、分栏和滑动开关，天气/空气及换算/生活费预算合并，使用“AI服务状态”“DeepSeek余额”“早间日报”名称。官方快速群匹配流程为：添加群、填写备注、生成五分钟一次性匹配指令，在目标群 @ 官方机器人并发送，然后回控制台确认授权。捕获指令不自动授权、不回复；新控制台明确提交基础功能配置，旧 API 省略可选参数时保持原默认。官方事件中的成员 OpenID 不要求与主人私聊 OpenID 相同，候选群、口令及确认步骤均校验。群名为管理员备注；没有引入普通 QQ 登录、群列表抓取或扫码入口。
+
+任意页面增删改唤醒词都会更新全局词库；群页只独立保存逐词开关，稳定词 ID 保证改名后保留关闭状态。字面量前缀匹配，不执行用户正则；每词后以空格分隔问题，官方 @ 仍可使用。仅从退役状态恢复原 6 个全局词及 revision=1，未迁移 OneBot 主人、UIN 群授权或逐群开关。原官方主人、两个白名单群、灰名单、入站去重及全部投递/尝试记录保持；模型预算、SQLite 记忆、凭据、限额和共享配置的切换前后哈希均一致。各功能同时受 Node 授权和 Python LangChain 工具范围约束，新增协议参数保留默认兼容。
+
+逐群“早间日报”接入新的官方 `alexbot-group-morning.service` / `.timer`，每日北京时间 07:30，`Persistent=false`；当前两个群均关闭，订阅数 0，下一次调度为 2026-11-04 07:30。只有用户明确在群页开启并保存后，才从下一个 07:30 发送，不能补发停用期间日报。旧全局 `alexbot-morning.service` 仍 masked，旧配置 enabled=false；OneBot 业务、网关、控制、试运行及其日报 service/timer 六项均继续 masked/inactive。当天 08:25 的一次性补发是此前用户单独授权的操作，完成回执 `/var/backups/alexbot-morning-catchup/20261103/completed.json`，当日 claim 保留，不能再次补发。
+
+本机完整 Node 516/516、Python 277/277 通过，包含真实 Node→Python LangChain 调用、新群匹配授权及腾讯 SDK 事件的自定义唤醒词重复投递路径。ECS 仅在独立 MemoryMax=128M、MemorySwapMax=0、CPUQuota=50% cgroup 内通过官方流程三项 Node、两项 Python 专项及只读状态迁移验证，没有运行 Linux 全量回归或 OneBot 发布保护。浏览器独立 fixture 验证全局增删改、跨群开关隔离、改名保留关闭状态及完整群匹配确认流程；随后在正式隧道控制台只读验收真实两群、6 词、开关及快速匹配入口，没有更改线上授权或开关。正式截图在忽略目录 `codex-qq-plugin/test-output/official-console/official-console-live.png` 和 `official-wake-words-live.png`；真实手机新群匹配及首次 07:30 日报尚未触发。
+
+切换前加密备份 `alexbot-20261103T011512763Z.json`，22 文件，SHA256 `884a22fc4a55abe0212cca09c016eeab8a9355ef2ee2542223b65ee90f6d0336`；切换后 `alexbot-20261103T011817559Z.json`，22 文件，SHA256 `158f0140a9491920c4a9a3e54272f2a4726a920eeacc9e058af105e70018d4e3`。云端位于 `/var/backups/alexbot`，本机密文保留于 `.private/migration`，两份均已核对哈希并通过 DPAPI 身份恢复与内存解密验证，没有写出明文。部署、专项、冻结状态、前后备份及最终验收回执在 root 专用 `/var/backups/alexbot-official-console/20261103`，最终回执 `final.json`；旧 release 保留，可只回退代码而不覆盖最新运行状态。
+
+仍使用 `codex/official-bot-rollback-20261103`，OneBot 历史分支保留。只做本地 Git 记录，未更新 GitHub；用户已有的 backup.mjs 修改、暂停的提醒源码及其它未完成工作未提交或部署。下方回滚记录及更早内容为历史，运行状态以上节为准。
+
 ## 2026-11-03 已回滚到 QQ 官方 Bot
 
 按用户“回滚到 qq 官方 bot 的版本，onebot 封号太严重”的明确指令，于 07:44 停止 OneBot 发送、业务、网关、登录控制和相关定时任务。切换前为 ONEBOT_DISCONNECTED、已暂停、当日 0 次发送、无未决投递。已恢复最后一次正式使用官方接入的 `linux-10443702394a`，源码 `e0c356c7828572b78894619ecf5e076009e97bac`，266 个发布文件哈希全部一致。`alexbot.service` 显式 QQ_TRANSPORT=official、enabled/active；PID 105680 于 2026-11-03 07:55:46 CST 启动，19327 实际监听、argv、工作目录 `/var/lib/alexbot`、current 指向和源码先于启动均已核对。本机 127.0.0.1:19327 是 OpenSSH PID 29776，于 07:40:12 CST 启动，没有启动本机 Bot。
