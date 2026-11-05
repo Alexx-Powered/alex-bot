@@ -205,15 +205,15 @@ test('installed dispatcher preserves structured self mentions in all-message eve
     await bot.emit('message',{},event);
     assert.deepEqual(queries,['换算成古月币呢？']);assert.equal(normalized[0].mentioned,true);assert.equal(bot.texts.length,1);
     await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','structured-name',{content:'@亚历克斯 帮助',mentions:[{id:'BOT_SCOPED_SELF',is_you:true,nickname:'亚历克斯'}]}));
-    assert.equal(bot.texts.length,2);assert.match(bot.texts[1].text,/白名单群/);assert.equal(normalized.at(-1).text,'帮助');
+    assert.equal(bot.texts.length,1);assert.equal(bot.media.length,1);assert.equal(normalized.at(-1).text,'帮助');
     await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','native-self-help',{content:`<@!${APP_ID}> 帮助`}));
-    assert.equal(bot.texts.length,3);assert.match(bot.texts[2].text,/白名单群/);assert.equal(normalized.at(-1).mentioned,true);
+    assert.equal(bot.texts.length,1);assert.equal(bot.media.length,2);assert.equal(normalized.at(-1).mentioned,true);
     for(const [index,mentions] of [undefined,[{id:APP_ID,bot:true}],[{id:APP_ID,is_you:false}],[{id:APP_ID,is_you:'true'}],[{id:APP_ID,is_you:1}]].entries()){
       await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','not-self-'+index,{content:'<@!OTHER_PERSON> 你好',mentions}));
       assert.equal(normalized.at(-1).mentioned,undefined);
     }
     await bot.emit('message',{},dispatchedGroup('GROUP_MESSAGE_CREATE','name-alone',{content:'@亚历克斯 你好',mentions:[{nickname:'亚历克斯',bot:true}]}));
-    assert.equal(normalized.at(-1).mentioned,undefined);assert.equal(bot.texts.length,3);assert.deepEqual(queries,['换算成古月币呢？']);
+    assert.equal(normalized.at(-1).mentioned,undefined);assert.equal(bot.texts.length,1);assert.equal(bot.media.length,2);assert.deepEqual(queries,['换算成古月币呢？']);
   }finally{await f.adapter.disconnect();}
 });
 

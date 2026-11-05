@@ -19,6 +19,8 @@ modules=target/'codex-qq-plugin/node_modules'
 if not modules.exists():modules.symlink_to('/opt/alex-bot-runtime/node/node_modules',target_is_directory=True)
 if '--stage-only' not in sys.argv:
     current=Path('/opt/alex-bot/current')
+    from map_review import require_map_review
+    require_map_review(target/'codex-qq-plugin',current/'codex-qq-plugin')
     temporary=Path('/opt/alex-bot/current.next')
     if temporary.is_symlink():temporary.unlink()
     temporary.symlink_to(target,target_is_directory=True);temporary.replace(current)

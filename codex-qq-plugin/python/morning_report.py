@@ -182,7 +182,7 @@ def _summarize(slots, start, end):
 def analyze_morning(packet):
     """Score only future half-hour windows, conservatively reusing hourly samples."""
     try:
-        if not isinstance(packet, dict) or packet.get("city") not in {"beijing", "tianjin"}:
+        if not isinstance(packet, dict) or packet.get("city") not in {"beijing", "tianjin", "guangzhou"}:
             raise ValueError()
         now = _timestamp(packet["now"])
         day = Date.fromisoformat(packet["date"])

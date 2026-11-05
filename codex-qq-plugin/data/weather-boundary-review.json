@@ -1,0 +1,1013 @@
+{
+  "state": "hold",
+  "reviewedRelease": "linux-wxregion-bb1118dc0769",
+  "sourceSha256": "2faac4f6b34386f3d21b6e018cf151f241f00e5c936d44dd17d7d9bfb147fa48",
+  "baseBundleSha256": "e7f5fa39c6fc94b1176bcd070786d3428d19f9accff393b026bcfef1702b2de9",
+  "sourceFeatures": 390,
+  "uniqueTileChunks": 539,
+  "dashedTileChunks": 36,
+  "symbols": {
+    "虚线": 33,
+    "实线": 5,
+    "跳过": 2
+  },
+  "sources": {
+    "MNR": "https://ghzyj.gz.gov.cn/zwgk/newzcfg/ywly/content/post_9466245.html",
+    "STD": "https://bzdt.tianditu.gov.cn/",
+    "XZ": "https://zrzyt.xizang.gov.cn/fw/zyxz/202004/t20200430_139102.html",
+    "IN": "https://www.mfa.gov.cn/web/fyrbt_673021/202403/t20240325_11270445.shtml",
+    "UA": "https://www.mfa.gov.cn/web/fyrbt_673021/jzhsl_673025/202304/t20230424_11064751.shtml",
+    "SO": "https://www.fmprc.gov.cn/wjbzhd/202601/t20260112_11811361.shtml",
+    "CY": "https://www.mfa.gov.cn/ziliao_674904/1179_674909/202111/t20211130_10459117.shtml",
+    "RS": "https://www.mfa.gov.cn/web/wjdt_674879/zcjd/202409/t20240916_11491613.shtml",
+    "SY": "https://www.mfa.gov.cn/zwbd_673032/wjzs/202606/t20260624_11951325.shtml",
+    "ISLANDS": "https://www.mfa.gov.cn/diaoyudao/chn/xwdt/201209/t20120915_8523866.htm",
+    "CN": "https://www.mfa.gov.cn/ziliao_674904/zgdt/202607/t20260722_11989560.shtml",
+    "XJ": "https://xinjiang.tianditu.gov.cn/bzdt_code/bzdt.html",
+    "QH": "https://qinghai.tianditu.gov.cn/qhbzmap/"
+  },
+  "items": [
+    {
+      "neId": 1746705343,
+      "location": "索马里北部",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        1
+      ],
+      "bounds": [
+        47.97819,
+        7.99708,
+        48.93854,
+        11.25844
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "官方立场不足以支持把此岛内或境内分隔线画成国际边界。其他图例和范围仍需样图。",
+      "references": [
+        "SO",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705331,
+      "location": "埃塞俄比亚与索马里交界",
+      "rawClass": "Indefinite (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        2
+      ],
+      "bounds": [
+        41.88404,
+        3.97774,
+        47.97819,
+        7.99708
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705323,
+      "location": "加沙地带周边",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        3
+      ],
+      "bounds": [
+        34.24528,
+        31.20833,
+        34.52557,
+        31.58484
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746709121,
+      "location": "约旦河西岸周边",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        4
+      ],
+      "bounds": [
+        34.87273,
+        31.35132,
+        35.55145,
+        32.53442
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705327,
+      "location": "黎巴嫩南部边区",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        5
+      ],
+      "bounds": [
+        35.10859,
+        33.07571,
+        35.60287,
+        33.27146
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708629,
+      "location": "戈兰高地西缘一带",
+      "rawClass": "Line of control (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        6
+      ],
+      "bounds": [
+        35.78502,
+        32.73493,
+        35.88798,
+        33.41566
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对中方关于戈兰高地的表述，军事线与国界的具体走向仍需样图。",
+      "references": [
+        "SY",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708491,
+      "location": "塞浦路斯岛内",
+      "rawClass": "Line of control (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        7
+      ],
+      "bounds": [
+        32.71271,
+        35.00035,
+        34.00447,
+        35.17312
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "官方立场不足以支持把此岛内或境内分隔线画成国际边界。其他图例和范围仍需样图。",
+      "references": [
+        "CY",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705319,
+      "location": "阿克赛钦西缘一带",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        8
+      ],
+      "bounds": [
+        77.79936,
+        33.38677,
+        78.97692,
+        35.49592
+      ],
+      "fractionInsideOfficialTibet": 0.31087,
+      "finding": "已对照新疆自治区和和田图例。和田图例只列国界，自治区图例另列未定国界，均未给出此源要素与两省区接边的一一对应。",
+      "references": [
+        "XZ",
+        "XJ",
+        "CN",
+        "IN",
+        "MNR"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746709141,
+      "location": "克什米尔东北部",
+      "rawClass": "Line of control (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        9
+      ],
+      "bounds": [
+        75.31926,
+        34.50275,
+        77.04861,
+        35.1099
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705337,
+      "location": "中印边界东段、藏南内侧旧线",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        10,
+        11
+      ],
+      "bounds": [
+        91.63191,
+        27.72968,
+        97.32251,
+        29.38139
+      ],
+      "fractionInsideOfficialTibet": 0.99911,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR",
+        "IN"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708623,
+      "location": "朝鲜半岛军事分界线一带",
+      "rawClass": "Line of control (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        12
+      ],
+      "bounds": [
+        126.63385,
+        37.78185,
+        128.37462,
+        38.62346
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国横图朝鲜半岛段与图例均为黑色点线，类别为军事分界线。原包统一的争议虚线不适用；局地放大后的线形和端点仍待对位。",
+      "references": [
+        "MNR",
+        "CN"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705351,
+      "location": "西撒哈拉境内沙墙一带",
+      "rawClass": "Line of control (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        13,
+        14
+      ],
+      "bounds": [
+        -17.00296,
+        21.42073,
+        -8.68337,
+        27.65645
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705329,
+      "location": "伊莱米三角地带",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        15
+      ],
+      "bounds": [
+        35.26382,
+        4.61985,
+        35.91985,
+        5.4923
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705371,
+      "location": "戈兰高地北侧一带",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        20
+      ],
+      "bounds": [
+        35.60287,
+        33.24061,
+        35.84074,
+        33.41566
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对中方关于戈兰高地的表述，军事线与国界的具体走向仍需样图。",
+      "references": [
+        "SY",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708661,
+      "location": "锡亚琴冰川北缘",
+      "rawClass": "Indefinite (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        124
+      ],
+      "bounds": [
+        76.76687,
+        35.47184,
+        77.79936,
+        35.6617
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746706755,
+      "location": "科索沃与塞尔维亚其他地区之间",
+      "rawClass": "International boundary (verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "实线",
+      "oldTileIds": [
+        160
+      ],
+      "bounds": [
+        20.34437,
+        42.24618,
+        21.75292,
+        43.26108
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "官方立场不足以支持把此岛内或境内分隔线画成国际边界。其他图例和范围仍需样图。",
+      "references": [
+        "RS",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746707747,
+      "location": "圭亚那与委内瑞拉交界",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        288
+      ],
+      "bounds": [
+        -61.39079,
+        5.20203,
+        -59.82893,
+        8.5493
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708757,
+      "location": "克什米尔西南部",
+      "rawClass": "Line of control (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        333
+      ],
+      "bounds": [
+        74.30552,
+        32.31758,
+        75.30365,
+        32.81043
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708045,
+      "location": "摩洛哥与阿尔及利亚西南交界",
+      "rawClass": "Indefinite (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        375,
+        376
+      ],
+      "bounds": [
+        -8.68337,
+        27.65645,
+        -1.27534,
+        32.13
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705335,
+      "location": "马拉维湖东北部",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        480
+      ],
+      "bounds": [
+        33.88882,
+        -11.57723,
+        34.95914,
+        -9.49544
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705295,
+      "location": "珠海与澳门",
+      "rawClass": "International boundary (verify)",
+      "cnField": "Map unit boundary",
+      "oldSymbol": "跳过",
+      "oldTileIds": [],
+      "bounds": [
+        113.47889,
+        22.19554,
+        113.54814,
+        22.24593
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "原国界层已跳过，特别行政区界沿内地共边绘制，仍需相应大比例尺标准行政区域图核线。",
+      "references": [
+        "MNR"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708389,
+      "location": "深圳与香港",
+      "rawClass": "International boundary (verify)",
+      "cnField": "Map unit boundary",
+      "oldSymbol": "跳过",
+      "oldTileIds": [],
+      "bounds": [
+        114.0154,
+        22.51191,
+        114.26603,
+        22.565
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "原国界层已跳过，特别行政区界沿内地共边绘制，仍需相应大比例尺标准行政区域图核线。",
+      "references": [
+        "MNR"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708827,
+      "location": "北海道东北部邻海",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        487
+      ],
+      "bounds": [
+        145.24119,
+        43.09954,
+        145.94017,
+        44.78507
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708403,
+      "location": "阿卜耶伊地区",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        492
+      ],
+      "bounds": [
+        27.8808,
+        9.3261,
+        28.99955,
+        9.61016
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705347,
+      "location": "圭亚那与苏里南南部交界",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        493
+      ],
+      "bounds": [
+        -57.59546,
+        1.94213,
+        -56.4828,
+        3.37711
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746705345,
+      "location": "苏里南与法属圭亚那南部交界",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        494
+      ],
+      "bounds": [
+        -54.61627,
+        2.32678,
+        -54.08214,
+        3.32686
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708787,
+      "location": "克里米亚半岛北部",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Admin-1 boundary",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        496
+      ],
+      "bounds": [
+        33.59414,
+        45.72869,
+        35.00167,
+        46.21957
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "外交部立场可查。该陈述并不提供逐段制图几何和图例；不能据第三方 CN 字段定线。",
+      "references": [
+        "UA",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708603,
+      "location": "锡亚琴冰川西侧甲段",
+      "rawClass": "Indeterminant frontier",
+      "cnField": "Unrecognized",
+      "oldSymbol": "实线",
+      "oldTileIds": [
+        497
+      ],
+      "bounds": [
+        76.76687,
+        35.1099,
+        77.04861,
+        35.6617
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708607,
+      "location": "锡亚琴冰川西侧乙段",
+      "rawClass": "Indeterminant frontier",
+      "cnField": "Unrecognized",
+      "oldSymbol": "实线",
+      "oldTileIds": [
+        498
+      ],
+      "bounds": [
+        77.04861,
+        35.1099,
+        77.79936,
+        35.49592
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708449,
+      "location": "中印边界西部地段 B03",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        499
+      ],
+      "bounds": [
+        79.11688,
+        32.50102,
+        79.49911,
+        33.22525
+      ],
+      "fractionInsideOfficialTibet": 1.0,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR",
+        "IN"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708457,
+      "location": "中印边界西部地段 B04",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        501
+      ],
+      "bounds": [
+        78.48739,
+        31.88026,
+        78.73548,
+        32.23352
+      ],
+      "fractionInsideOfficialTibet": 0.82647,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR",
+        "IN"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708463,
+      "location": "中印边界中部地段 B01",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        503
+      ],
+      "bounds": [
+        78.84293,
+        31.07922,
+        79.37048,
+        31.42622
+      ],
+      "fractionInsideOfficialTibet": 0.99452,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR",
+        "IN"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708469,
+      "location": "中印边界中部地段 B02",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        505
+      ],
+      "bounds": [
+        79.91036,
+        30.56879,
+        80.20713,
+        30.89843
+      ],
+      "fractionInsideOfficialTibet": 0.98597,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR",
+        "IN"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708751,
+      "location": "中不边境 B75 地段",
+      "rawClass": "International boundary (verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "实线",
+      "oldTileIds": [
+        507
+      ],
+      "bounds": [
+        89.79913,
+        28.11753,
+        90.36299,
+        28.31119
+      ],
+      "fractionInsideOfficialTibet": 0.99626,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708779,
+      "location": "中不边境 B76 地段",
+      "rawClass": "International boundary (verify)",
+      "cnField": "Unrecognized",
+      "oldSymbol": "实线",
+      "oldTileIds": [
+        509
+      ],
+      "bounds": [
+        89.02132,
+        27.51497,
+        89.1163,
+        27.62098
+      ],
+      "fractionInsideOfficialTibet": 1.0,
+      "finding": "旧线进入官方西藏省域，排除旧国界画法。替代几何和符号分别审核。",
+      "references": [
+        "XZ",
+        "MNR"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708837,
+      "location": "刻赤海峡一带",
+      "rawClass": "Disputed (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        514
+      ],
+      "bounds": [
+        36.50875,
+        44.95328,
+        36.69444,
+        45.6217
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "外交部立场可查。该陈述并不提供逐段制图几何和图例；不能据第三方 CN 字段定线。",
+      "references": [
+        "UA",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708915,
+      "location": "巴西与乌拉圭交界",
+      "rawClass": "Disputed (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        515
+      ],
+      "bounds": [
+        -56.01844,
+        -31.08084,
+        -55.80569,
+        -30.85381
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746708703,
+      "location": "南巴塔哥尼亚冰原",
+      "rawClass": "Indefinite (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        517
+      ],
+      "bounds": [
+        -73.57625,
+        -49.76535,
+        -73.13527,
+        -49.30066
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "已核对原始种类、坐标和实际成图切段。缺少可判定该段走向和符号的中国政府适用比例尺样图。",
+      "references": [
+        "MNR",
+        "STD"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746709133,
+      "location": "克什米尔西部",
+      "rawClass": "Line of control (please verify)",
+      "cnField": null,
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        525
+      ],
+      "bounds": [
+        73.79449,
+        32.81043,
+        75.31926,
+        34.7654
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    },
+    {
+      "neId": 1746706305,
+      "location": "喀喇昆仑山西北段 B08",
+      "rawClass": "Indefinite (please verify)",
+      "cnField": "International boundary (verify)",
+      "oldSymbol": "虚线",
+      "oldTileIds": [
+        531
+      ],
+      "bounds": [
+        75.90486,
+        35.6617,
+        76.76687,
+        36.38243
+      ],
+      "fractionInsideOfficialTibet": 0.0,
+      "finding": "全国竖图以灰色虚线表示地区界、黑色点线表示印巴停火线，图上另有实际控制区文字。未逐段确认此几何在局地视口的对应及端点。",
+      "references": [
+        "MNR",
+        "CN",
+        "XJ"
+      ],
+      "publicationReview": "pending",
+      "officialSheet": null
+    }
+  ],
+  "regionalTechnicalEvidence": "docs/map-regional-registration-20261104.json",
+  "additionalChecks": [
+    "全球适用比例尺参考样图及各例外地段",
+    "西藏五条记录已与两张全国原图叠合，察隅河段已区分河线和黑墨迹，仍须按各地段核实最终线型",
+    "藏新省界已按三个完整官方要素及第四个要素的西端核对，未覆盖的其他陆地边段仍需核准",
+    "海上十段已按官方竖图逐段提取并与横图比对，点查视口的部分端点差异可见，成图比例尺适用范围有待确认",
+    "台湾省图、附属岛屿及港澳界线的视口和图例",
+    "区域遮罩、国外 ADM1/ADM2 及全球雷达所有实际出图路径"
+  ],
+  "approvedAssetHashes": {}
+}

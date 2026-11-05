@@ -1,8 +1,11 @@
+import {validVideo} from './video-media.mjs';
 import {copyIncomingMedia} from './incoming-media.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
+import { withHeavyWorkGuard } from './heavy-work.mjs';
 import { sanitizeContextText } from './chat-safety.mjs';
-import {recordTiming} from './telemetry.mjs';
+import {recordTiming,setTraceMessage} from './telemetry.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
 import {GROUP_FEATURES,defaultGroupFeatures,basicGroupFeatures,validGroupFeatures,normalizeGroupFeatures,MORNING_PART_FEATURES,MORNING_FEATURE_KEYS,isMorningFeature} from './group-features.mjs';
 import {DEFAULT_WAKE_WORDS,WAKE_WORD_LIMITS,validWakeWords,validDisabledWakeWords,normalizeWakeWord,validWakeWordText,wakeWordKey,parseGroupWake} from './wake-words.mjs';
@@ -23,6 +26,7 @@ const GROUP_CONTEXT_TTL_MS = 30 * 60_000;
 const GROUP_CONTEXT_SIZE = 10;
 const GROUP_CONTEXT_SEEN_LIMIT = 512;
 const MAX_PENDING_INCOMING = 4;
+const MAX_OFFICIAL_COMMANDS = 16;
 const ownerControlCommands = new Set(['/pause', '/status']);
 const contextControl = text => text.startsWith('/') || /\/(?:pair|group-bind|pause|resume|status|notify|help|ping)\b/i.test(text) || ['帮助','菜单'].includes(text);
 function sendingLimits(overrides) {
@@ -194,6 +198,11 @@ export class BridgeCore {
   #limits;
   #groupContexts = new Map();
   #pendingIncoming = 0;
+  #officialTail = Promise.resolve();
+  #officialPending = 0;
+  #officialRequest = new AsyncLocalStorage();
+  #policyChange = new AbortController();
+  #pauseEpoch = 0;
   #groupRestrictions = new Map();
   #groupRevisions = new Map();
   #morningRevisions = new Map();
@@ -246,11 +255,62 @@ export class BridgeCore {
     return kind === 'c2c' ? senderId === this.#state.ownerId : this.groupEnabled(groupId);
   }
 
-  #enqueue(work) {
+  #enqueue(work, measureQueue = true) {
     const queuedAt=performance.now();
-    const pending = this.#tail.then(()=>{recordTiming('core_queue',performance.now()-queuedAt);return work();});
+    const pending = this.#tail.then(()=>{if(measureQueue)recordTiming('core_queue',performance.now()-queuedAt);return work();});
     this.#tail = pending.catch(() => {});
     return pending;
+  }
+
+  #wakeWaitingCommands() {
+    this.#policyChange.abort();
+    this.#policyChange = new AbortController();
+  }
+
+  #commandStop(ticket) {
+    if (!this.#ready) return 'NOT_READY';
+    if (this.#state.paused || this.#pauseRequested || ticket.epoch !== this.#pauseEpoch) return 'PAUSED';
+    if (ticket.groupId !== undefined && (!this.groupEnabled(ticket.groupId) ||
+        this.#groupRevisions.get(ticket.groupId) !== ticket.revision)) return 'GROUP_ACCESS_DENIED';
+    return this.#time() >= ticket.expiresAt ? 'REQUEST_EXPIRED' : null;
+  }
+
+  async #waitForQuota(ticket, retryAt) {
+    while (!this.#commandStop(ticket) && this.#time() < retryAt && retryAt < ticket.expiresAt) {
+      try { await delay(retryAt - this.#time(), undefined, { signal: this.#policyChange.signal }); }
+      catch (error) { if (error.name !== 'AbortError') throw error; }
+    }
+    return retryAt < ticket.expiresAt && !this.#commandStop(ticket);
+  }
+
+  #queueOfficial(ticket, work) {
+    if (this.#officialPending >= MAX_OFFICIAL_COMMANDS) return result(false, 'BUSY');
+    this.#officialPending++;
+    const queuedAt = performance.now();
+    const run = this.#officialTail.then(async () => {
+      // Check the ledger under the same lock as sends. Wait outside that lock
+      // so control operations and active notifications still get a turn.
+      for (;;) {
+        const outcome = await this.#enqueue(() => {
+          const stop = this.#commandStop(ticket);
+          if (stop) return result(false, stop);
+          const now = this.#time();
+          if (this.#budgetCode(now, { reply: true }) === 'RATE_LIMIT_MINUTE') {
+            const attempts = this.#state.attempts.filter(row => row.at > now - 60_000)
+              .map(row => row.at).sort((a,b) => b-a);
+            return {retryAt: attempts[this.#limits.minuteAttempts - 1] + 60_000};
+          }
+          recordTiming('core_queue', performance.now() - queuedAt);
+          return this.#officialRequest.run(ticket, () => withHeavyWorkGuard(() => this.#commandStop(ticket), work));
+        }, false);
+        if (outcome.retryAt === undefined) return outcome;
+        if (!await this.#waitForQuota(ticket, outcome.retryAt)) {
+          return result(false, this.#commandStop(ticket) || 'REQUEST_EXPIRED');
+        }
+      }
+    }).finally(() => { this.#officialPending--; });
+    this.#officialTail = run.catch(() => {});
+    return run;
   }
 
   #canRememberGroup(groupId) {
@@ -318,8 +378,10 @@ export class BridgeCore {
 
   #bindRequest(context, incomingKey, target, groupId, eventKey) {
     let acknowledged = false;
+    const ticket = this.#officialRequest.getStore();
+    if (ticket) Object.defineProperty(context, 'waitForQuota', {value: at => this.#waitForQuota(ticket, at)});
     const revision=this.#groupRevisions.get(groupId);
-    const current=()=>groupId===undefined||this.#groupRevisions.get(groupId)===revision;
+    const current=()=>(!ticket || !this.#commandStop(ticket)) && (groupId===undefined||this.#groupRevisions.get(groupId)===revision);
     if (groupId!==undefined) context.features=structuredClone(this.groupFeatures(groupId));
     if (groupId!==undefined) context.policyRevision=revision||0;
     Object.defineProperties(context, {
@@ -329,7 +391,10 @@ export class BridgeCore {
       progress: { enumerable:false, value:async stage => {
         if(!['campus-fetch','campus-fetch-current'].includes(stage)||acknowledged||!current()||!this.canDeliver({groupId,requiredFeature:'campus'}))return false;
         // Reserve enough capacity for both the acknowledgement and final reply.
-        if(this.#budgetCode(this.#time(),{reply:true,count:2,target:groupId??this.#state.ownerId}))return false;
+        if(this.#budgetCode(this.#time(),{reply:true,count:2,target:groupId??this.#state.ownerId})){
+          // For a queued command the final result takes the last available slot.
+          return Boolean(ticket) && !this.#budgetCode(this.#time(),{reply:true,target:groupId??this.#state.ownerId});
+        }
         acknowledged=true;
         const delivery=await this.#notify({text:stage==='campus-fetch-current'?'正在抓取数据，随后生成当前推荐图':'正在抓取数据',requiredAccess:'white',requiredFeature:'campus',progress:true,
           idempotencyKey:`progress:${incomingKey}:campus-fetch`},target,groupId);
@@ -341,6 +406,7 @@ export class BridgeCore {
 
   #restrictGroup(groupId,access,morningFeatures=MORNING_FEATURE_KEYS){
     this.#groupRevisions.set(groupId,(this.#groupRevisions.get(groupId)||0)+1);
+    this.#wakeWaitingCommands();
     const morning=this.#morningRevisions.get(groupId)||{};
     for (const feature of morningFeatures) morning[feature]=(morning[feature]||0)+1;
     this.#morningRevisions.set(groupId,morning);
@@ -387,6 +453,8 @@ export class BridgeCore {
   }
 
   #storageFailed() {
+    this.#pauseEpoch++;
+    this.#wakeWaitingCommands();
     this.#clearGroupPairing();
     this.#groupContexts.clear();
     this.#state.paused = true;
@@ -447,7 +515,7 @@ export class BridgeCore {
       allowedGroups: this.#state.allowedGroups.map(g=>describeGroup(g,'white')),
       grayGroupCount:this.#state.grayGroups.length,
       grayGroups:this.#state.grayGroups.map(g=>describeGroup(g,'gray')),
-      groupFeatureCatalog:GROUP_FEATURES,
+      groupFeatureCatalog:GROUP_FEATURES.filter(feature=>!feature.hidden),
       groupDefaultFeatures:basicGroupFeatures(),
       wakeWords:structuredClone(this.#state.wakeWords),wakeWordRevision:this.#state.wakeWordRevision,wakeWordLimits:WAKE_WORD_LIMITS,
       pendingGroupPairing: Boolean((this.#groupPairing && now < this.#groupPairing.expiresAt) ||
@@ -687,6 +755,8 @@ export class BridgeCore {
   async setPaused(paused) {
     if (paused === true && this.#ready && this.#state.ownerId) {
       this.#pauseRequested = true;
+      this.#pauseEpoch++;
+      this.#wakeWaitingCommands();
       this.#groupContexts.clear();
     }
     return this.#enqueue(async () => {
@@ -703,7 +773,7 @@ export class BridgeCore {
     });
   }
 
-  async handleMessage(message) {
+  async handleMessage(message, replyExpiresAt) {
     // Capture only normalized scalar fields: a queued caller cannot replace its
     // identity/target while another request is waiting for a model or provider.
     if (message && typeof message === 'object') {
@@ -717,6 +787,8 @@ export class BridgeCore {
         message.senderId === this.#state.ownerId && validId(message.id) &&
         typeof message.text === 'string' && message.text.trim() === '/pause') {
       this.#pauseRequested = true;
+      this.#pauseEpoch++;
+      this.#wakeWaitingCommands();
       this.#groupContexts.clear();
     }
     // Every queued incoming message consumes capacity by default. Only actual
@@ -742,17 +814,23 @@ export class BridgeCore {
         // Ordinary allowed-group chatter never joins the expensive serial queue.
         if (!addressed || !command) return result(true, 'IGNORED');
         if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
+        if(this.groupEnabled(groupId))setTraceMessage(text);
       } else if (!this.#groupPairing) return result(false, 'GROUP_DENIED');
     } else if (this.#ready && this.#state.ownerId && message?.kind === 'c2c') {
       if (message.senderId !== this.#state.ownerId) return result(false, 'SENDER_DENIED');
       countedIncoming = !ownerControlCommands.has(message.text.trim());
       if (countedIncoming && (this.#state.paused || this.#pauseRequested)) return result(false, 'PAUSED');
+      if(!this.#state.incoming.includes(hash(`incoming:c2c:${message.id}`)))setTraceMessage(message.text);
       if(countedIncoming)this.#observe(message,{scope:'c2c',sessionKey:hash('chat:c2c:'+message.senderId),scopeKey:hash('chat-scope-c2c:'+message.senderId),userKey:hash('chat-user:'+message.senderId)});
     }
-    if (countedIncoming && this.#pendingIncoming >= MAX_PENDING_INCOMING) return result(false, 'BUSY');
-    if (countedIncoming) this.#pendingIncoming++;
+    // Only the official adapter supplies the verified passive-reply deadline.
+    // Pairing traffic retains its own small admission bound.
+    const official = !this.#oneBotMode && Number.isSafeInteger(replyExpiresAt) &&
+      (message.kind === 'group' ? Boolean(groupContext) : this.#state.ownerId === message.senderId && message.text.trim() !== '/pause');
+    if (!official && countedIncoming && this.#pendingIncoming >= MAX_PENDING_INCOMING) return result(false, 'BUSY');
+    if (!official && countedIncoming) this.#pendingIncoming++;
     const receivedAt = this.#time();
-    try { return await this.#enqueue(() => this.#caller.run(message.senderId, async () => {
+    const work = () => this.#caller.run(message.senderId, async () => {
       if (this.#oneBotMode && countedIncoming && this.#time() - receivedAt >= 60_000) return result(false,'REQUEST_EXPIRED');
       if (!this.#ready) return result(false, 'NOT_READY');
       if (message?.kind === 'group') return this.#handleGroupMessage(message, groupContext);
@@ -797,6 +875,13 @@ export class BridgeCore {
         return this.#notify({ text: '状态：已配对；发送已启用；支持本人天气查询。发送“帮助”查看命令。', idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
+      if (command === '/help') {
+        const budgetCode=this.#budgetCode(this.#time(),{reply:true,target:senderId});
+        if (budgetCode) return result(false,budgetCode);
+        const {renderHelpImage}=await import('./help-image.mjs');
+        const image=renderHelpImage({features:defaultGroupFeatures('white'),privateChat:true});
+        return this.#notify({text:'私聊使用指南',image,idempotencyKey:`reply:${incomingKey}`},replyTarget);
+      }
       if (this.#commandHandler) {
         const now = this.#time();
         const budgetCode = this.#budgetCode(now, { reply: true, target:senderId });
@@ -811,10 +896,13 @@ export class BridgeCore {
         }
         try { response = await this.#commandHandler(command, context); }
         catch(error) { response = { text: timeoutNotice(error)||'这次处理未完成，请稍后再试。' }; }
-        if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
+        if (response) return this.#notify({ text: response.text, image: response.image, video:response.video, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       return result(true, 'IGNORED');
-    })); } finally { if (countedIncoming) this.#pendingIncoming--; }
+    });
+    if (official) return this.#queueOfficial({expiresAt:replyExpiresAt, epoch:this.#pauseEpoch,
+      groupId:message.groupId, revision:this.#groupRevisions.get(message.groupId)}, work);
+    try { return await this.#enqueue(work); } finally { if (countedIncoming) this.#pendingIncoming--; }
   }
 
   #observe(message,context) {
@@ -867,15 +955,16 @@ export class BridgeCore {
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
     const target = { scope: 'group', targetId: groupId, msgId: id };
     if (command === '/ping') return this.#notify({ text: '连接正常（固定测试回复）', idempotencyKey: `reply:${incomingKey}` }, target, groupId);
-    if (['帮助', '菜单', '/help'].includes(command)) return this.#notify({
-      text: (this.groupAccess(groupId)==='white'?'白名单群':'灰名单群')+'已开放：'+GROUP_FEATURES.filter(f=>this.canUseFeature(groupId,f.key)).map(f=>f.label.replace('本人账户','账户')).join('、')+'。\n直接@机器人，无需前缀；'+
-        this.#wakeWordHelp(groupId)+'\n'+
-        (this.canUseFeature(groupId,'weather')?'发 天气 城市或区县\n':'')+
-        (this.canUseFeature(groupId,'radar')?'发 雷达 地点；雷达目录\n':'')+
-        (this.canUseFeature(groupId,'air')?'发 雾霾 城市或区县\n':'')+
-        '/ping 测试连接；功能由主人在控制台管理。',
-      idempotencyKey: `reply:${incomingKey}`,
-    }, target, groupId);
+    if (['帮助', '菜单', '/help'].includes(command)) {
+      const budgetCode=this.#budgetCode(this.#time(),{reply:true,target:groupId});
+      if (budgetCode) return result(false,budgetCode);
+      const {renderHelpImage}=await import('./help-image.mjs');
+      if (!this.groupEnabled(groupId)||this.#groupRevisions.get(groupId)!==revision) return result(false,'GROUP_ACCESS_DENIED');
+      const image=renderHelpImage({features:this.groupFeatures(groupId),words:this.#enabledWakeWords(groupId).map(word=>word.text)});
+      return this.#notify({
+        image,requiredAccess:'chat',text:'本群使用指南',idempotencyKey:`reply:${incomingKey}`,
+      }, target, groupId);
+    }
     if (this.#commandHandler) {
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
       const now = this.#time();
@@ -895,7 +984,7 @@ export class BridgeCore {
       catch(error) { response = { text: timeoutNotice(error)||'这次处理未完成，请稍后再试。' }; }
       if (this.#groupRevisions.get(groupId)!==revision) return result(false,'GROUP_ACCESS_DENIED');
       if(response?.memoryReset===true)this.#groupContexts.delete(groupId);
-      if (response) return this.#notify({ text: response.text, image: response.image, ...(response.richMedia===true?{richMedia:true}:{}),requiredAccess:response.requiredAccess,requiredFeature:response.requiredFeature,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
+      if (response) return this.#notify({ text: response.text, image: response.image, video:response.video, ...(response.richMedia===true?{richMedia:true}:{}),requiredAccess:response.requiredAccess,requiredFeature:response.requiredFeature,sensitive:response.sensitive, idempotencyKey: `reply:${incomingKey}` }, target, groupId);
     }
     return result(true, 'IGNORED');
   }
@@ -1002,17 +1091,21 @@ export class BridgeCore {
   }
 
   async #notify(input, replyTarget, groupId, proactiveGroup = false) {
+    const ticket = this.#officialRequest.getStore();
+    const stop = ticket && this.#commandStop(ticket);
+    if (stop) return result(false, stop);
     if (!this.#ready) return result(false, 'NOT_READY');
     if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
     if (groupId !== undefined) {
       if (!validGroupId(groupId) || this.groupAccess(groupId)===null) return result(false, 'GROUP_DENIED');
-      if(!this.#groupCanDeliver(groupId,input?.requiredAccess||(input?.image?'white':'chat'),input?.requiredFeature,proactiveGroup))return result(false,'GROUP_ACCESS_DENIED');
+      if(!this.#groupCanDeliver(groupId,input?.requiredAccess||((input?.image||input?.video)?'white':'chat'),input?.requiredFeature,proactiveGroup))return result(false,'GROUP_ACCESS_DENIED');
       if (!proactiveGroup && (replyTarget?.scope !== 'group' || replyTarget.targetId !== groupId || !validId(replyTarget.msgId))) return result(false, 'GROUP_REPLY_TARGET_INVALID');
     }
-    const { text, idempotencyKey, image } = input ?? {};
-    if (typeof text !== 'string' || (text.trim().length === 0 && image === undefined) || text.length > CORE_LIMITS.textLength || !validId(idempotencyKey)) {
+    const { text, idempotencyKey, image, video } = input ?? {};
+    if (typeof text !== 'string' || (text.trim().length === 0 && image === undefined && video === undefined) || text.length > CORE_LIMITS.textLength || !validId(idempotencyKey)) {
       return result(false, 'INVALID_INPUT');
     }
+    if(video!==undefined&&(!validVideo(video)||image!==undefined||input?.richMedia))return result(false,'INVALID_INPUT');
     if (image !== undefined && (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 || !['image/png','image/jpeg'].includes(image.mimeType))) return result(false, 'INVALID_INPUT');
     if (input?.richMedia!==undefined && (typeof input.richMedia!=='boolean'||(input.richMedia&&(!image||!text.trim())))) return result(false, 'INVALID_INPUT');
     const key = hash(`outgoing:${idempotencyKey}`);
@@ -1042,7 +1135,7 @@ export class BridgeCore {
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
     let failure = null, receiptHash;
     try {
-      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}) });
+      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
       if (response?.ok === false) throw response;
       if (this.#oneBotMode) {
         if (response?.ok !== true || !/^[a-f0-9]{64}$/.test(response.receiptHash ?? '')) throw Error('ONEBOT_DELIVERY_UNKNOWN');
@@ -1056,6 +1149,8 @@ export class BridgeCore {
     record.code = failure?.code ?? 'SENT';
     finished.lastDeliveryCode = record.code;
     if (failure?.pause) {
+      this.#pauseEpoch++;
+      this.#wakeWaitingCommands();
       this.#clearGroupPairing();
       this.#groupContexts.clear();
       finished.paused = true;
@@ -1069,9 +1164,9 @@ export class BridgeCore {
       return this.#storageFailed();
     }
     if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress) this.#rememberGroup(groupId, {
-      key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,
+      key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: video ? '[已发送动态天气视频]' : image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,
     });
-    if(failure?.timeoutText&&replyTarget&&image){
+    if(failure?.timeoutText&&replyTarget&&(image||video)){
       // One separate text notice only when no original message was submitted.
       // Never resend an image or send again after uncertain submission.
       const notice=await this.#notify({text:failure.timeoutText,idempotencyKey:'timeout-notice:'+key,requiredAccess:input?.requiredAccess,requiredFeature:input?.requiredFeature},replyTarget,groupId,proactiveGroup);

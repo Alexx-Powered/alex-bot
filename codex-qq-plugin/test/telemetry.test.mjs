@@ -18,7 +18,7 @@ async function fixture(t,options={}){
   return {home,file,telemetry,requests,settle};
 }
 
-test('REST payload and local record contain only allowlisted metrics, never chat, keys, IDs, config or provider errors',async t=>{
+test('unadmitted content and arbitrary metrics, output, IDs and credentials never become remote inputs or errors',async t=>{
   const f=await fixture(t),secret='private-content-never-upload';
   const result=await f.telemetry.run({scope:'group',access:'gray',senderId:secret,sessionKey:secret,config:{apiKey:secret}},async()=>{
     await measureSpan('agent',async()=>{
@@ -34,13 +34,15 @@ test('REST payload and local record contain only allowlisted metrics, never chat
   for(const request of f.requests){
     assert.equal(request.headers['x-api-key'],config.apiKey);assert.equal(request.headers['x-tenant-id'],config.workspaceId);
     assert.equal(request.redirect,'error');assert.ok(request.signal instanceof AbortSignal);
-    const body=JSON.parse(request.body);assert.deepEqual(body.inputs,{});assert.deepEqual(body.outputs,{});
+    const body=JSON.parse(request.body);assert.deepEqual(body.inputs,{event:'qq_event',scope:'group',access:'gray'});assert.deepEqual(body.outputs,{});
     assert.equal(body.session_name,config.project);assert.ok(!request.body.includes(secret));assert.ok(!request.body.includes(config.apiKey));
     for(const field of ['serialized','attachments','events'])assert.equal(body[field],undefined);
     assert.deepEqual(Object.keys(body.extra),['metadata']);
   }
-  const model=JSON.parse(f.requests[1].body);assert.equal(model.name,'router_model');assert.equal(model.error,'SPAN_FALLBACK');
-  assert.equal(model.parent_run_id,JSON.parse(f.requests[0].body).id);
+  const agent=JSON.parse(f.requests[1].body),model=JSON.parse(f.requests[2].body);
+  assert.equal(agent.name,'agent');assert.equal(model.name,'router_model');assert.match(model.error,/备用路径.*router_model/);
+  assert.equal(agent.parent_run_id,JSON.parse(f.requests[0].body).id);assert.equal(model.parent_run_id,agent.id);
+  assert.ok(model.dotted_order.startsWith(agent.dotted_order+'.'));
   assert.deepEqual(model.usage_metadata,{input_tokens:20,output_tokens:7,total_tokens:27,input_token_details:{cache_read:3}});
   assert.ok(!JSON.stringify(status).includes(secret));assert.ok(!JSON.stringify(status).includes(config.apiKey));
   const saved=await fs.readFile(f.file,'utf8');assert.ok(!saved.includes(secret));assert.ok(!saved.includes(config.apiKey));

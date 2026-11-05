@@ -1,3 +1,5 @@
+import {validVideo} from './video-media.mjs';
+import {measureSpan} from './telemetry.mjs';
 import {incomingMedia} from './incoming-media.mjs';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 
@@ -212,7 +214,7 @@ export class QQAdapter {
         if (!active() || this.#current.state !== 'connected') return;
         const normalized = this.#normalize(message);
         if (!normalized) return;
-        try { await this.#onMessage(normalized); } catch {
+        try { await this.#onMessage(normalized.message, normalized.expiresAt); } catch {
           if (active() && this.#current.state !== 'blocked') this.#emitStatus(this.#current.state, 'QQ_MESSAGE_HANDLER_FAILED');
         }
       });
@@ -302,7 +304,7 @@ export class QQAdapter {
     // Ignored here means no wake-up; the core may still retain ordinary group
     // background. It does not claim a business action or a successful QQ reply.
     if (mention) mention.diagnostic.decision = addressed ? 'accepted' : 'ignored';
-    return {
+    const normalized = {
       kind: scope,
       ...(isGroup ? { groupId: targetId } : {}),
       ...(mention?.mentioned === true ? { mentioned: true } : {}),
@@ -312,6 +314,7 @@ export class QQAdapter {
       ...(media.length?{media}:{}),
       replyTarget: { scope, targetId, msgId: message.messageId },
     };
+    return { message: normalized, expiresAt: this.#observed.get(key).expiresAt };
   }
 
   #target(ownerId, replyTarget, groupId, proactiveGroup = false) {
@@ -334,10 +337,11 @@ export class QQAdapter {
     return target;
   }
 
-  async send({ ownerId, text, replyTarget, image, groupId, proactiveGroup = false, requiredAccess = 'chat', richMedia = false } = {}) {
+  async send({ ownerId, text, replyTarget, image, video, groupId, requiredFeature, proactiveGroup = false, requiredAccess = 'chat', richMedia = false } = {}) {
     if (!isId(ownerId)) throw new QQAdapterError('QQ_OWNER_INVALID');
     if (typeof text !== 'string' || text.length > MAX_TEXT_LENGTH ||
-        (image === undefined && !text.trim())) throw new QQAdapterError('QQ_TEXT_INVALID');
+        (image === undefined && video === undefined && !text.trim())) throw new QQAdapterError('QQ_TEXT_INVALID');
+    if(video!==undefined&&(!validVideo(video)||image!==undefined||richMedia))throw new QQAdapterError('QQ_VIDEO_INVALID');
     if(typeof richMedia!=='boolean'||(richMedia&&(image===undefined||!text.trim())))throw new QQAdapterError('QQ_TEXT_INVALID');
     if (!this.#bot || this.#current.state !== 'connected') throw new QQAdapterError('QQ_NOT_CONNECTED');
     // Only BridgeCore's explicit local broadcast method sets proactiveGroup;
@@ -350,24 +354,24 @@ export class QQAdapter {
     const wireTarget = authorizedTarget.scope === 'group'
       ? { scope: 'group', targetId: authorizedTarget.targetId }
       : authorizedTarget;
-    const fileData = image === undefined ? null : imageBase64(image);
+    const fileData = video!==undefined?video.buffer.toString('base64'):image === undefined ? null : imageBase64(image);
     const bot = this.#bot;
     const generation = this.#generation;
     let phase = fileData === null ? 'send' : 'upload';
     let messageAttempted = false;
     try {
-      if (this.#canSend({groupId,proactiveGroup,requiredAccess}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
+      if (this.#canSend({groupId,proactiveGroup,requiredAccess,...(requiredFeature?{requiredFeature}:{})}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
       if (fileData !== null) {
         // SDK 1.0.5 uploadMedia/sendImage have a built-in two-retry policy and
         // may select chunked upload. Its public api.post -> ApiClient.request
         // path makes one request, with the same token manager and fixed origin.
         // srv_send_msg=false is essential: upload must not send a message.
-        const upload = await bot.api.post(`/v2/${authorizedTarget.scope === 'group' ? 'groups' : 'users'}/${authorizedTarget.targetId}/files`, {
-          file_type: 1,
+        const upload = await measureSpan('qq_media_upload',()=>bot.api.post(`/v2/${authorizedTarget.scope === 'group' ? 'groups' : 'users'}/${authorizedTarget.targetId}/files`, {
+          file_type: video?2:1,
           file_data: fileData,
           srv_send_msg: false,
-          ...(authorizedTarget.scope === 'group' ? { file_name: image.mimeType === 'image/png' ? 'weather.png' : 'weather.jpg' } : {}),
-        });
+          ...(authorizedTarget.scope === 'group' ? { file_name: video?'weather.mp4':image.mimeType === 'image/png' ? 'weather.png' : 'weather.jpg' } : {}),
+        }));
         if (typeof upload?.file_info !== 'string' || !upload.file_info.trim() || upload.file_info.length > 65_536) {
           throw new QQAdapterError('QQ_UPLOAD_RESPONSE_INVALID');
         }
@@ -378,14 +382,14 @@ export class QQAdapter {
         // Upload can take time. Recheck the original local authorization for
         // either scope before sending; expiry or reconnect always stops delivery.
         if (authorizedTarget.msgId) this.#target(ownerId, authorizedTarget, groupId);
-        if (this.#canSend({groupId,proactiveGroup,requiredAccess}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
+        if (this.#canSend({groupId,proactiveGroup,requiredAccess,...(requiredFeature?{requiredFeature}:{})}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
         messageAttempted = true;
         // Opt-in rich media carries content + media in ONE message. Legacy
         // weather/classroom image-only callers keep their preceding behavior.
-        await bot.send({ target: wireTarget, msgType: 7, ...(richMedia?{content:text}:{}), media: { file_info: upload.file_info } });
+        await measureSpan('qq_message_submit',()=>bot.send({ target: wireTarget, msgType: 7, ...(richMedia?{content:text}:{}), media: { file_info: upload.file_info } }));
       } else {
         messageAttempted = true;
-        await bot.sendText(wireTarget, text);
+        await measureSpan('qq_message_submit',()=>bot.sendText(wireTarget, text));
       }
       // Upload success alone never reaches this return. Neither phase retries.
       return { ok: true };

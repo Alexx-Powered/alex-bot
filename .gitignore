@@ -21,6 +21,10 @@
 **/test-output/
 **/output/
 *.zip
+!/codex-qq-plugin/data/weather-map.zip
+!/codex-qq-plugin/data/weather-region-masks.zip
+**/.ifs-runtime/
+**/python/weather-video/
 /backups/
 /.agents/
 

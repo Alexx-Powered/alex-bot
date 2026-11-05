@@ -1,14 +1,58 @@
-// Performance-only diagnostics. Message bodies, identities, settings and errors
-// never enter a trace. LangSmith delivery runs separately from QQ requests.
+// Local history is metrics only. Remote-only inputs and diagnostic messages
+// live in memory until this run is exported or dropped.
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {randomUUID} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {atomicJson} from './storage.mjs';
+import {traceMessage,failureDetail} from './trace-diagnostics.mjs';
 
 const activeTrace=new AsyncLocalStorage();
+export const hasActiveTrace=()=>Boolean(activeTrace.getStore()&&!activeTrace.getStore().closed);
+const activeSpan=new AsyncLocalStorage();
+const remoteDetails=new WeakMap();
+const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request']);
 const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send']);
+export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
+for(const name of [...videoWorkerStages,'weather_video','resolve_location','heavy_queue','video_cache_hit','video_read_mp4',
+  'video_download_slowest','video_decode_slowest','weather_fetch','air_fetch','weather_render','radar_query','qq_media_upload','qq_message_submit'])STAGES.add(name);
+export function setTraceOperation(name,onlyIfUnnamed=false){
+  const trace=activeTrace.getStore();
+  if(trace&&!trace.closed&&(!onlyIfUnnamed||!trace.operation||trace.operation==='agent.request')&&OPERATIONS.has(name))trace.operation=name;
+}
+export function setTraceMessage(text){
+  const trace=activeTrace.getStore();
+  if(trace&&!trace.closed)trace.message=traceMessage(text);
+}
+// Business inputs are projected explicitly. A worker packet can also contain
+// credentials, coordinates, target IDs and chat history; never spread it here.
+export function setTraceParameters({city,layer,hours,day,provider}={}){
+  const trace=activeTrace.getStore();
+  if(!trace||trace.closed)return;
+  const fields={};
+  if(typeof city==='string'&&city.length<=60&&/^[\p{L}\p{N} ·（）()_.,'’-]+$/u.test(city)&&traceMessage(city)===city)fields.city=city;
+  if(['cloud','cloud_cover','pm25','temperature','precipitation'].includes(layer))fields.layer=layer;
+  if([6,24,48].includes(hours))fields.hours=hours;
+  if(['today','tomorrow'].includes(day))fields.day=day;
+  if(['openai','deepseek','claude','gemini','kimi','liang'].includes(provider))fields.provider=provider;
+  Object.assign(trace.parameters,fields);
+}
+function diagnostic(trace,stage,error,fallback=false){
+  // Only inherit a cause observed in this request, even when an exception
+  // instance is reused by different queued or concurrent callers.
+  const reusable=error!==null&&typeof error==='object';
+  const detail=(reusable&&trace.causes.get(error))||failureDetail(stage,error,fallback);
+  if(reusable)trace.causes.set(error,detail);
+  return detail;
+}
+export function recordRequestFailure(error,stage='agent'){
+  const trace=activeTrace.getStore();
+  if(!trace||trace.closed||!STAGES.has(stage))return;
+  const detail=diagnostic(trace,stage,error);
+  const cause=detail.code&&trace.spans.findLast(span=>span.status==='error'&&remoteDetails.get(span)?.failure?.code===detail.code&&span.name!=='worker_total');
+  trace.failure=cause?remoteDetails.get(cause).failure:detail;
+}
 const TOKEN_KEYS=['inputTokens','outputTokens','cachedInputTokens'];
 const ENDPOINTS=new Set(['https://api.smith.langchain.com','https://eu.api.smith.langchain.com']);
 const UUID=/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i;
@@ -39,16 +83,50 @@ function clockValue(clock){let value;try{value=clock();}catch{}return numeric(va
 function addSpan(trace,name,durationMs,metrics={},status='ok',startTime,endTime){
   if(!trace||trace.closed||!STAGES.has(name)||!numeric(durationMs)||trace.spans.length>=MAX_SPANS)return;
   const end=timeValue(trace.now);
-  trace.spans.push({id:randomUUID(),name,startTime:startTime??new Date(Math.max(0,end-durationMs)).toISOString(),endTime:endTime??new Date(end).toISOString(),durationMs:round(durationMs),ms:round(durationMs),status,...tokenFields(metrics)});
+  const scope=activeSpan.getStore();
+  const row={id:randomUUID(),...(scope?.trace===trace?{parentId:scope.id}:{}),name,startTime:startTime??new Date(Math.max(0,end-durationMs)).toISOString(),endTime:endTime??new Date(end).toISOString(),durationMs:round(durationMs),ms:round(durationMs),status,...tokenFields(metrics)};
+  if(['video_download_slowest','video_decode_slowest'].includes(name)&&Number.isSafeInteger(metrics.calls)&&numeric(metrics.calls,4096)&&numeric(metrics.workMs)){
+    row.calls=metrics.calls;row.workMs=round(metrics.workMs);
+  }
+  remoteDetails.set(row,{inputs:{...trace.parameters},...(status!=='ok'?{failure:diagnostic(trace,name,metrics.error??metrics,status==='fallback')}:{})});
+  trace.spans.push(row);return row;
 }
 
-export async function measureSpan(name,fn){
+export function beginSpan(name,startedAtMs){
   const trace=activeTrace.getStore();
-  if(!trace||trace.closed||!STAGES.has(name))return fn();
-  const start=clockValue(trace.clock),wall=new Date(timeValue(trace.now)).toISOString();
-  let status='ok';
-  try{return await fn();}catch(error){status='error';throw error;}
-  finally{addSpan(trace,name,Math.max(0,clockValue(trace.clock)-start),{},status,wall,new Date(timeValue(trace.now)).toISOString());}
+  if(!trace||trace.closed||!STAGES.has(name))return null;
+  const start=clockValue(trace.clock),now=timeValue(trace.now);
+  const started=numeric(startedAtMs,8e15)&&startedAtMs>=Date.parse(trace.startTime)-1000&&startedAtMs<=now?startedAtMs:now;
+  const wall=new Date(started).toISOString();
+  const span=addSpan(trace,name,0,{},'ok',wall,wall);
+  if(!span)return null;
+  return {run:fn=>activeTrace.run(trace,()=>activeSpan.run({trace,id:span.id},fn)),end(status='ok',ms,error,detail){
+    if(trace.closed)return;
+    const end=timeValue(trace.now),reported=numeric(ms)&&started+ms<=end+100;
+    span.status=status;span.durationMs=span.ms=round(reported?ms:Math.max(0,clockValue(trace.clock)-start));
+    span.endTime=new Date(reported?started+ms:end).toISOString();
+    if(status!=='ok')remoteDetails.get(span).failure=detail??diagnostic(trace,name,error,status==='fallback');
+  }};
+}
+export async function measureSpan(name,fn){
+  const span=beginSpan(name);if(!span)return fn();
+  const trace=activeTrace.getStore();
+  let failure;
+  try{
+    const result=await span.run(fn);
+    if(name==='agent'&&result?.text&&!result.image&&!result.video&&/^(?:video\.|weather\.)/.test(trace.operation||'')){
+      // Weather can legitimately return a partial chart after a source fails.
+      // A text-only reply after a failed media stage is the handled failure.
+      const stage=trace.spans.findLast(s=>s.status==='error'&&['resolve_location','weather_video','radar_query','weather_render','weather_fetch','air_fetch'].includes(s.name));
+      if(stage)trace.failure??=remoteDetails.get(stage)?.failure;
+    }
+    return result;
+  }catch(error){failure=diagnostic(trace,name,error);throw error;}
+  finally{
+    if(name==='agent')failure??=trace.failure;
+    span.end(failure?'error':'ok',undefined,undefined,failure);
+    if(failure&&(name==='agent'||name==='qq_send'))trace.failure=failure;
+  }
 }
 
 export function recordTiming(name,ms,metrics={}){
@@ -71,9 +149,10 @@ function safeSavedTrace(value){
   const spans=[];
   for(const row of Array.isArray(value.spans)?value.spans.slice(0,MAX_SPANS):[]){
     if(!row||!UUID.test(row.id??'')||!STAGES.has(row.name)||!ISO.test(row.startTime??'')||!ISO.test(row.endTime??'')||!numeric(row.durationMs)||!['ok','error','fallback'].includes(row.status))continue;
-    spans.push({id:row.id,name:row.name,startTime:row.startTime,endTime:row.endTime,durationMs:row.durationMs,ms:row.durationMs,status:row.status,...tokenFields(row)});
+    spans.push({id:row.id,...(spans.some(s=>s.id===row.parentId)?{parentId:row.parentId}:{}),name:row.name,startTime:row.startTime,endTime:row.endTime,durationMs:row.durationMs,ms:row.durationMs,status:row.status,...tokenFields(row),
+      ...(Number.isSafeInteger(row.calls)&&numeric(row.calls,4096)&&numeric(row.workMs)?{calls:row.calls,workMs:row.workMs}:{})});
   }
-  return {id:value.id,startTime:value.startTime,endTime:value.endTime,durationMs:value.durationMs,totalMs:value.durationMs,status:value.status,...contextFields(value),spans};
+  return {id:value.id,startTime:value.startTime,endTime:value.endTime,durationMs:value.durationMs,totalMs:value.durationMs,status:value.status,...contextFields(value),...(OPERATIONS.has(value.operation)?{operation:value.operation}:{}),spans};
 }
 const percentile=(values,p)=>values.length?values.slice().sort((a,b)=>a-b)[Math.min(values.length-1,Math.ceil(values.length*p)-1)]:null;
 function summary(recent){
@@ -91,14 +170,22 @@ function destination(config){
   if(workspaceId!==''&&(typeof workspaceId!=='string'||!UUID.test(workspaceId)))throw Error('LANGSMITH_CONFIG_INVALID');
   return {endpoint,apiKey:config.apiKey,project:config.project,workspaceId};
 }
-function runPayload(trace,span,project){
+function runPayload(trace,span,project,orders,request){
   const row=span??trace;
   const metrics=tokenFields(row);
   const metadata={...contextFields(trace),duration_ms:row.durationMs,status:row.status,...metrics};
   const segment=run=>run.startTime.replace(/[-:.]/g,'').replace(/Z$/,'000Z')+run.id;
-  const rootOrder=segment(trace),dottedOrder=span?rootOrder+'.'+segment(span):rootOrder;
-  const result={id:row.id,trace_id:trace.id,dotted_order:dottedOrder,...span?{parent_run_id:trace.id}:{},name:span?span.name:'qq.response',run_type:span&&['router_model','chat_model'].includes(span.name)?'llm':span?.name==='tool'?'tool':'chain',session_name:project,inputs:{},outputs:{},start_time:row.startTime,end_time:row.endTime,extra:{metadata}};
-  if(row.status==='error'||row.status==='fallback')result.error=span?row.status==='fallback'?'SPAN_FALLBACK':'SPAN_FAILED':'REQUEST_FAILED';
+  if(span?.calls!==undefined){metadata.calls=span.calls;metadata.total_work_ms=span.workMs;}
+  const parent=span?.parentId??trace.id;
+  const dottedOrder=span?orders.get(parent)+'.'+segment(span):segment(trace);
+  orders.set(row.id,dottedOrder);
+  const detail=span?remoteDetails.get(span):request;
+  const params=detail.inputs;
+  const showMessage=!span||['agent','router_model','chat_model'].includes(span.name)||!Object.keys(params).length;
+  const inputs={...(showMessage&&request.message!==undefined?{message:request.message}:{}),...params};
+  if(!Object.keys(inputs).length)Object.assign(inputs,{event:trace.synthetic?'monitoring_test':'qq_event',...contextFields(trace)});
+  const result={id:row.id,trace_id:trace.id,dotted_order:dottedOrder,...span?{parent_run_id:parent}:{},name:span?span.name:'qq.'+(trace.operation??'response'),run_type:span&&['router_model','chat_model'].includes(span.name)?'llm':span?.name==='tool'?'tool':'chain',session_name:project,inputs,outputs:{},start_time:row.startTime,end_time:row.endTime,extra:{metadata}};
+  if(detail.failure)result.error=detail.failure.message;
   if(numeric(metrics.inputTokens,1e12)&&numeric(metrics.outputTokens,1e12))result.usage_metadata={input_tokens:metrics.inputTokens,output_tokens:metrics.outputTokens,total_tokens:metrics.inputTokens+metrics.outputTokens,...numeric(metrics.cachedInputTokens,metrics.inputTokens)?{input_token_details:{cache_read:metrics.cachedInputTokens}}:{}};
   return result;
 }
@@ -129,18 +216,22 @@ export class Telemetry{
   }
   async run(context,fn){
     const start=clockValue(this.#clock);
-    const trace={id:randomUUID(),startTime:new Date(timeValue(this.#now)).toISOString(),...contextFields(context),spans:[],now:this.#now,clock:this.#clock,closed:false};
+    const trace={id:randomUUID(),startTime:new Date(timeValue(this.#now)).toISOString(),...contextFields(context),spans:[],parameters:{},causes:new WeakMap(),now:this.#now,clock:this.#clock,closed:false};
     let status='ok',outcome;
-    try{outcome=await activeTrace.run(trace,fn);return outcome;}catch(error){status='error';throw error;}
+    try{outcome=await activeTrace.run(trace,fn);return outcome;}catch(error){trace.failure=diagnostic(trace,'qq.response',error);throw error;}
     finally{
       trace.closed=true;
+      if(!trace.failure&&outcome?.ok===false&&trace.message&&!['DUPLICATE','IGNORED','PAUSED','GROUP_ACCESS_DENIED','GROUP_DISABLED'].includes(outcome.code)){
+        trace.failure=failureDetail('qq.response',outcome);
+      }
+      if(trace.failure)status='error';
       if(!(status==='ok'&&outcome?.code==='IGNORED'&&!trace.spans.some(s=>s.name==='agent'||s.name.startsWith('worker_')))){
       const duration=round(Math.min(86_400_000,Math.max(0,clockValue(this.#clock)-start)));
-      const record={id:trace.id,startTime:trace.startTime,endTime:new Date(timeValue(this.#now)).toISOString(),durationMs:duration,totalMs:duration,status,...contextFields(trace),spans:trace.spans};
+      const record={id:trace.id,startTime:trace.startTime,endTime:new Date(timeValue(this.#now)).toISOString(),durationMs:duration,totalMs:duration,status,...contextFields(trace),...(trace.operation?{operation:trace.operation}:{}),spans:trace.spans};
       this.#recent.unshift(record);this.#recent=this.#recent.slice(0,MAX_RECENT);
       this.#schedulePersist();
       if(this.#queue.length+this.#inFlight>=MAX_PENDING){this.#remote.dropped++;this.#remote.lastCode='QUEUE_FULL';}
-      else{this.#queue.push(record);if(!this.#busy){this.#busy=true;setImmediate(()=>this.#drain());}}
+      else{this.#queue.push({record,detail:{message:trace.message,inputs:trace.parameters,failure:trace.failure}});if(!this.#busy){this.#busy=true;setImmediate(()=>this.#drain());}}
       }
     }
   }
@@ -167,7 +258,8 @@ export class Telemetry{
   async #drain(){
     try{
       for(;;){
-        const trace=this.#queue.shift();if(!trace)break;
+        const queued=this.#queue.shift();if(!queued)break;
+        const {record:trace,detail}=queued;
         this.#inFlight=1;
         let config;
         try{config=destination(await this.#configStore?.read());}
@@ -175,8 +267,9 @@ export class Telemetry{
         this.#remote.enabled=Boolean(config);
         if(!config){this.#remote.lastCode='DISABLED';continue;}
         try{
+          const orders=new Map();
           for(const span of [null,...trace.spans]){
-            await this.#post(config,runPayload(trace,span,config.project));this.#remote.sentRuns++;
+            await this.#post(config,runPayload(trace,span,config.project,orders,detail));this.#remote.sentRuns++;
           }
           this.#remote.sent++;this.#remote.lastCode='SENT';
         }catch(error){this.#remote.failed++;this.#remote.lastCode=error?.message==='LANGSMITH_TIMEOUT'?'LANGSMITH_TIMEOUT':error?.message==='LANGSMITH_AUTH_FAILED'?'LANGSMITH_AUTH_FAILED':error?.message==='LANGSMITH_RATE_LIMITED'?'LANGSMITH_RATE_LIMITED':error?.message==='LANGSMITH_HTTP_ERROR'?'LANGSMITH_HTTP_ERROR':'LANGSMITH_NETWORK_ERROR';}

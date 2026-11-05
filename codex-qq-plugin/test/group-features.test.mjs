@@ -23,6 +23,18 @@ async function fixture({handler,observe,features}={}) {
   return {core,sent,saved:()=>structuredClone(saved)};
 }
 
+test('hidden feature retains saved permission and stays out of the displayed catalog',async()=>{
+  for(const budget of [false,true]){
+    const f=await fixture({features:{...basicGroupFeatures(),budget}});
+    assert.equal(f.core.status().groupFeatureCatalog.some(item=>item.key==='budget'),false);
+    assert.equal(f.core.status().allowedGroups[0].features.budget,budget);
+    const features={...f.core.status().allowedGroups[0].features,conversion:false};
+    await f.core.setGroupFeatures({groupKey,features,enabled:true});
+    assert.equal(f.core.canUseFeature(groupId,'budget'),budget);
+    assert.equal(f.saved().allowedGroups[0].features.budget,budget);
+  }
+});
+
 test('per-group switches persist, reject malformed masks and leave legacy defaults intact',async()=>{
   const f=await fixture();
   const features={...basicGroupFeatures(),weather:true,chat:false};

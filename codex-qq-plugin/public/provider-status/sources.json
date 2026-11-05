@@ -1,0 +1,51 @@
+{
+  "retrieved": "2026-11-03",
+  "assets": [
+    {
+      "provider": "openai",
+      "file": "openai.png",
+      "source": "https://storage.googleapis.com/incident-io-status-page-logos/01H537TKYPX5W42WRCKR1AGPFT/openai-1/v0bc3jd3.png",
+      "sha256": "0b77914318c4078fa0f682597e837f887e13e4f9b3e868f9b07bb0701c25983c",
+      "size": [
+        512,
+        512
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "file": "deepseek.png",
+      "source": "https://www.deepseek.com/favicon.ico",
+      "sha256": "cba0168e484cf74016847e09aff47c839f4198000a52f19e76f44a73dafe24e4",
+      "size": [
+        225,
+        225
+      ]
+    },
+    {
+      "provider": "gemini",
+      "file": "gemini.png",
+      "source": "https://www.gstatic.com/lamda/images/gemini_sparkle_4g_512_lt_f94943af3be039176192d.png",
+      "sha256": "5e7cfecaa53f4f65a313fe89b0f389548126544a78fad8489510c70ae641a4a1",
+      "size": [
+        512,
+        512
+      ]
+    },
+    {
+      "provider": "claude",
+      "file": "claude.svg",
+      "source": "https://claude.com/icon.svg",
+      "sha256": "b150888bc7257af83e3b85d3c2be4294f88986026f8168f6c12fc1fde6697350"
+    },
+    {
+      "provider": "kimi",
+      "file": "kimi.png",
+      "source": "https://www.kimi.com/pwa-192.png",
+      "sha256": "6c14f9c3062e953b3ed57ae3e19db931c1c1bba38d4d8d55550544f31d55e469",
+      "size": [
+        192,
+        192
+      ]
+    }
+  ]
+}

@@ -1,3 +1,292 @@
+## 2026-11-05 19:53 CST 展示整理与 GitHub 同步
+
+官方 QQ 已切换至 `linux-readme-b4c668602147`，前版 `linux-trace-input-0e655ba873c2`。ECS 19327 实际监听 PID 130254，19:53:03 CST 启动，入口为 `/opt/alex-bot/releases/linux-readme-b4c668602147/codex-qq-plugin/src/server.mjs`。1317 个文件哈希、官方连接、发送未暂停、未决投递为零及早报定时器 active 均已核对；本机 19327 为 ssh.exe PID 42844，09:30:05 启动，隧道 health 和新版页面回读正常。
+
+按用户要求移除指定功能在帮助图、控制台目录、可见开关、指南、架构文档与 README 中的展示，保留后端工具和已有权限。群页保存及基础预设在隐藏权限原值为真、为假时均保持原值；模型能力介绍不主动提及。根 AGENTS.md 已写入后续开发约定。根 README 与主服务 README 按当前官方版重写，加入实际天气和视频帧、服务状态卡、演示控制台及按权限生成的帮助图；采集日期和演示数据性质记于 `docs/images/README.md`。
+
+本机 580 项 Node、351 项 Python 离线回归通过；补充提示调整后 50 项 agent 测试通过。隔离浏览器验证两种权限值的开关和预设保存；ECS 在 128 MiB、无 swap、50% CPU 独立单元内通过地图检查和 4 项专项。本次不发送验收 QQ 消息，不改地图资产，OneBot 退役单元仍 masked。
+
+切换前 22 文件加密备份 `/var/backups/alexbot/alexbot-20261105T115303419Z.json`，SHA256 `afcefbaed67d9855b0cd70931d8875a96ebc70d45a7714c9a474b4ad019db32e`。发布凭证位于 `/var/backups/alexbot-readme/b4c668602147/`。发送尝试 23 → 23，投递账本、模型用量、授权和定时订阅保持。
+
+本次用户明确要求更新 GitHub；提交涵盖当前正式功能、必要地图/素材、测试及文档。未完成的提醒源码、Workbench 运行文件、个人原始素材、凭据与测试输出不纳入发布。
+
+## 2026-11-05 09:58 CST LangSmith 消息原文与错误原因
+
+官方 QQ 已从 `linux-video-command-0755dad5e0ee` 切换至 `linux-trace-input-0e655ba873c2`。ECS 的 19327 实际监听 PID 为 127037，09:58:46 CST 启动，入口解析到 `/opt/alex-bot/releases/linux-trace-input-0e655ba873c2/codex-qq-plugin/src/server.mjs`。已核对官方连接、启动参数、1317 个文件哈希和本机 SSH 隧道 PID 42844。健康端点和新控制台说明均已从本机隧道访问成功。
+
+用户选择在远端 Input 显示触发请求的本条 QQ 原文。采集发生在校验主人或群授权、群唤醒之后，适用于普通聊天和工具请求。原生 @ 按官方接入层解析，文本唤醒词保留。可识别的凭据和口令遮盖，未唤醒的群消息不进入追踪。用于远端上报的原文仅在内存队列内传递，本地性能历史只存统计。失败步骤与根请求显示已判定的阶段、错误码、原因和可用的 HTTP 状态。备用源恢复成功或天气图包含部分可用数据时，子步骤保留故障，根请求按实际结果记录。
+
+本机 Node 578、Python 351 项通过，含真实 LangChain 跨进程调用。ECS 在 128 MiB、无 swap、50% CPU 的独立单元内串行通过地图检查和 34 项专项。已从实际 LangSmith 项目回读正式进程自检和合成群请求，共核对 6 条 run。定位失败的根请求与子步骤均显示 `resolve_location · LOCATION_NOT_FOUND · 未找到请求的地点`。测试投递使用替身，未向 QQ 发消息。[线上定位失败样本](https://smith.langchain.com/o/3707f35c-ae6a-4767-9f01-d3163744c0a8/projects/p/5ad05292-b99b-4d4b-851d-ecbc77f6f1db/r/8018afa2-39d5-4d7f-aec9-2bccf8e4bbfc?trace_id=8018afa2-39d5-4d7f-aec9-2bccf8e4bbfc)
+
+切换前的 22 文件加密备份为 `/var/backups/alexbot/alexbot-20261105T015846056Z.json`，SHA256 为 `e8732069b80a36de10beaa5169fe14f229768cf902bed9dedb596af95dcd5965`。发布及云端回读凭证位于 `/var/backups/alexbot-trace-input/0e655ba873c2/`。当日发送尝试于切换前后均为 4，未决投递为 0。
+
+## 2026-11-04 19:52 CST 动态云图时长解析与简略预报
+
+官方 QQ 已切换至 `linux-video-command-0755dad5e0ee`，上版为 `linux-ifs-parallel-3fb36018ac63`。19327 实际监听 PID 123473，19:52:11 CST 启动，源码入口为 `/opt/alex-bot/releases/linux-video-command-0755dad5e0ee/codex-qq-plugin/src/server.mjs`。本机 19327 SSH 隧道 PID 46360，健康检查与官方连接已核对。
+
+旧固定命令把图层后的 `48h` 并入地点。现在 `大肥鱼 发 动态云图48h 北京` 解析为北京坐标，`大肥鱼 发 动态云图48h 华北` 解析为区域 `cn-north`，时长均为 48 小时。固定指令及自然语言快捷路由支持相应后置写法。ECS 独立 128 MiB、无 swap、50% CPU 的正常生成入口分别用了 39.25 秒和 47.56 秒，均返回原始格点的 142 帧 H.264 成片。实际群权限继续在执行前检查。定位前即记录视频业务名。
+
+对用户保存的广东 24 小时降水视频，按其 11 月 4 日 19 时至次日 18 时的有效时次重建。旧的 15×15 点位备用路径生成的 2,999,344 字节 MP4 与 QQ 保存件逐字节相同，SHA256 为 `55758ae9d86203f5dfdefe7275cf312a8f7e5717e63807d33edb2e1d9228569b`。同一时次 00 UTC 起报的原始格点重建件 SHA256 为 `0cc50c2a3f9f2444a2deac932436bc9acb95f4b84e39f7e81732353d80617ac3`。两段各 139 帧。备用点位成片现标“简略版”，跳过成片缓存，以便下次重新获取原始格点。历史卫星与旧版可选字段协议兼容。
+
+本机 574 项 Node、349 项 Python 回归通过。已核验 1314 个发布文件，正式服务连接正常，投递计数 30 → 30。加密备份 `/var/backups/alexbot/alexbot-20261104T115210969Z.json`，验收回执位于 `/var/backups/alexbot-video-command/0755dad5e0ee/`。
+
+## 2026-11-04 19:24 CST ECMWF 同源并行下载
+
+官方 QQ 生产版本为 `linux-ifs-parallel-3fb36018ac63`，上版为 `linux-ifs-fa36b830eabd`。ECS 19327 实际监听 PID 123008，19:24:06 CST 启动，入口实路径 `/opt/alex-bot/releases/linux-ifs-parallel-3fb36018ac63/codex-qq-plugin/src/server.mjs`。本机 SSH 隧道 PID 46360，控制台健康检查已回读。
+
+IFS 云量、温度和降水从同一 Open-Meteo 公共 S3 起报文件取数，32 路下载和 16 KiB 分块。CAMS 继续使用原有 8 路配置。若 IFS 原始文件不可用，原有同模型点位降级路径仍可用。没有启用基于测速的镜像轮换。ECS 也实际比对过 ECMWF 主站与 AWS、Azure、Google 对同一公开 GRIB2 降水场的响应。四者返回相同样本，此公开产品的相邻预报时次间隔三小时。[ECMWF 公开参数与预报时次](https://www.ecmwf.int/en/forecasts/datasets/open-data)
+
+冷读取对照锁定 11 月 4 日 00 UTC 起报、华东同一视口和 48 个相同时次。8 路、32 KiB 在两轮 30 秒与 42 秒预算内未取全。32 路、16 KiB 三轮分别为 18.87、19.18、16.63 秒，输出哈希一致。南京温度从 26.76 秒降至 7.56 秒，云量从 22.64 秒降至 8.49 秒，两项的新旧格点各自一致。本机 Python 349 项、Node 573 项全过。ECS 独立 128 MiB、无 swap、50% CPU 的串行专项 12 项及地图核验通过。正式 LangChain 视频入口生成华东 48 小时降水，用时 50.45 秒，其中原始格点 20.62 秒、绘帧 14.28 秒、编码 13.11 秒。成片共 142 帧、3,069,398 字节，格点 SHA256 为 `32000a21563acf368ad0b1e2fefb9a9f8fd299b77b4a587fb556599258035d16`，与测试基线完全一致。此项验收不向 QQ 发消息。
+
+切换前加密备份 `/var/backups/alexbot/alexbot-20261104T112406562Z.json`。已校验 1314 个发布文件。正式通道已连接，发送开启，不确定投递为零，早报定时器 active。部署记录与逐次实测在 `/var/backups/alexbot-ifs-parallel/3fb36018ac63/`。
+
+## 2026-11-04 18:03 CST 官方天气切换至 ECMWF IFS 和 CAMS 格点
+
+ECS 当前发布为 `linux-ifs-fa36b830eabd`，上版为 `linux-videospeed-7dd941a45198`。官方 Bot 实际监听 19327 的 PID 为 121839，18:03:07 CST 启动，源码实路径为 `/opt/alex-bot/releases/linux-ifs-fa36b830eabd/codex-qq-plugin`。本机 SSH 隧道 PID 为 46360，通过隧道回读的群控制台和指南均为新版。
+
+云量、温度、降水从 Open-Meteo 的公开对象存储读取 ECMWF IFS 格点。PM2.5 使用 CAMS，完整处于欧洲产品范围内的视口取欧洲产品，其余取全球产品。按起报时次、小时轴、单位和网格坐标校验，按视口并行读取并复用已获取的时序。原始文件不可用时整段改查同模型的点位接口。两日天气也使用 ECMWF IFS。天气视频默认 24 小时，可选 48 小时。历史卫星观测通过显式历史指令查询。控制台和按权限生成的帮助图区分预报与观测，用户画面省略空间分辨率数字。
+
+本机 Python 349 项、Node 573 项全部通过。真实固定指令经过 Node、LangChain 和编码器。ECS 在 128 MiB、无 swap、50% CPU 的独立单元内完成地图核验和 11 项专项。南京 24 小时云图首次生成 42.70 秒，其中取数 14.75 秒、渲染 12.23 秒、编码 13.49 秒。同一批次扩展到 48 小时的取数耗时 1.43 秒。华北 48 小时 PM2.5 首次生成 37.05 秒。广州两日天气、CAMS 空气质量和帮助目录已用正式服务的网络配置验证。验收未向 QQ 投递测试消息。
+
+发布时核验 1314 个文件，包括同发布隔离的二进制依赖。加密备份 `/var/backups/alexbot/alexbot-20261104T100307566Z.json`。发布回执与耗时明细位于 `/var/backups/alexbot-ifs/fa36b830eabd/`。官方通道已连接、发送已启用，投递计数 24 → 24，早报定时器 active。
+
+## 2026-11-04 17:16 CST 天气视频响应提速
+
+官方 QQ 服务已从 `linux-tracestages-16e38c41aac5` 切换到 `linux-videospeed-7dd941a45198`，19327 实际监听 PID 121212，17:16:01 CST 启动，本机 SSH 隧道 PID 46360。GDPS 逐小时格点使用 8 路并行和任务级 HTTPS 连接池。温度、降水及 PM2.5 的 225 个坐标分三批并行获取并按原位置组帧。历史卫星云图保留 4 路取数并复用连接。指令继续按 FIFO 单条处理。成片缓存最多 4 个、合计最多 16 MiB，按新鲜度及预报窗口失效。磁盘空间充足时以无损 RLE TGA 暂存帧，编码前还原为 RGB24；空间较少时沿用 PNG。
+
+ECS 在独立 128 MiB、无 swap、50% CPU 条件下对照同一时次南京 24 小时云图，未命中成片缓存。生成耗时 62.548→32.692 秒，GDPS 取数 11.132→3.666 秒，渲染并写帧 32.341→12.001 秒，H.264 编码 16.904→14.816 秒。两个 MP4 同为 139 帧、3,008,069 字节，SHA256 均为 `71ef346fdadde44f173c42ddc75e567e928d12ccab748cb2789a206fe1d62443`。温度实查 225 个点、24 个时次，3 路并发用时 2.155 秒。性能回执在 `/var/backups/alexbot-videospeed/7dd941a45198/performance.json`。生产服务使用原有 MemoryHigh=1200M、MemoryMax=1500M。上线前服务 cgroup 的 high、max、oom、oom_kill 计数均为零。
+
+本机 Python 345 项、Node 572 项通过，ECS 串行专项 27 项及地图核验通过。364 个发布文件哈希核验通过，官方连接正常，定时器 active，投递计数 23→23。加密备份 `/var/backups/alexbot/alexbot-20261104T091601426Z.json`。本轮未向 QQ 发送测试消息。
+
+## 2026-11-04 16:47 CST LangSmith 天气视频分段
+
+生产版 `linux-tracestages-16e38c41aac5`，ECS 19327 实际监听 PID 120767，16:47:06 CST 启动，官方 QQ 在线，本机 SSH 隧道 PID 46360。新请求按业务命名，视频拆分排队、取数、最慢下载及解码、逐帧绘制及写盘、FFmpeg 编码、成片读取；QQ 媒体上传与最终消息提交分别计时。GDPS 回退、缓存命中及超时路径可辨别。阶段计时在原进程采集，完成或失败后异步上报。只传白名单名称、计时、状态和计数。
+
+真实南京 24 小时云图本机生成 3,008,014 字节，耗时 33.70 秒。LangSmith 合成样例 `c05911fb-68e0-43e3-b7f6-87059946b109` 已逐项回读并核对 13 个 run 的父子关系。该样例没有 QQ 投递。Node 本机 571 项、Python 专项 42 项通过；ECS 串行专项 22 项及地图校验通过。362 项源码哈希通过，投递计数 23→23，加密备份 `/var/backups/alexbot/alexbot-20261104T084706326Z.json`。
+
+## 2026-11-04 16:28 CST 预报云图区域格点
+
+24/48 小时云量视频优先使用加拿大气象局 MSC GeoMet 的 GDPS 15 km 总云量。每幅图锁定同一起报批次，核验逐小时预报时次、EPSG:3857、原视口范围和有效百分比。新源取数失败时整段回退原 ECMWF IFS 0.25°，图内标注实际来源。南京视口从 15×15 提升到 38×38。真实同时次对照及完整样片见 `codex-qq-plugin/test-output/cloud-hd/compare.png` 和 `nanjing-hd.mp4`。
+
+生产版本 `linux-cloudhd-594b4ad2e8ca`，19327 实际监听 PID 120387，16:28:19 CST 启动，本机 SSH 隧道 PID 46360。地图几何、底图、文字布局文件哈希与前版一致。ECS 在 128 MiB / 无 swap / 50% CPU 限制下用 16.9 秒取齐南京 48 个小时的 GDPS 栅格，地图和队列之前的发布基线保留。本机回归 35 项通过，云端 7 项专项及地图发布核验通过。官方 QQ 在线，投递计数 22→22。备份 `/var/backups/alexbot/alexbot-20261104T082819529Z.json`。
+
+## 2026-11-04 16:16 CST 预报云图配色
+
+官方通道已切至 `linux-cloudcolor-c4e0e8a359db`。24/48 小时总云量预报的五个色标改为灰金、灰褐、中性灰、银灰和灰白。与前一版比对，天气渲染器仅替换五个 RGB 值，地图资产与卫星观测路径一致。南京真实预报样片为 1080×1080、139 帧，位于 `codex-qq-plugin/test-output/cloud-colors/nanjing-clouds.mp4`。本机天气视频与底图专项 23 项通过，ECS 地图校验和 4 项专项通过。19327 监听 PID 120221，16:16:06 CST 启动，本机 SSH 隧道 PID 46360；官方连接正常，定时器 active，投递计数 21→21。加密备份为 `/var/backups/alexbot/alexbot-20261104T081606927Z.json`。
+
+## 2026-11-04 16:07 CST 官方 QQ 指令队列
+
+ECS 已从 `linux-cloudroute-7b8c0845082f` 切换到 `linux-cmdqueue-033f520c3479`。官方私聊命令和已唤醒的授权群命令共享 FIFO，同时仅执行一条，最多接纳 16 条（含执行中）。达到发送或本地模型分钟额度时等待名额释放。沿用原事件的 5 分钟回复有效期，过期丢弃；暂停或群权限变更使对应旧队列项失效。队列只存在内存中。后台渲染单槽排队，已移除等待 60 秒即取消的规则。
+
+本机 Node 回归 570 项、ECS 串行队列和模型额度专项 18 项通过。359 项文件哈希核验通过。19327 的 ECS 实际监听 PID 119964，16:07:45 CST 启动，本机 SSH 隧道 PID 46360。官方通道已连接并恢复至切换前未暂停状态，定时器 active，投递账本计数 21→21。加密备份 `/var/backups/alexbot/alexbot-20261104T080745548Z.json` 共 22 项，发布凭据与验证记录位于 `/var/backups/alexbot-cmdqueue/033f520c3479`。本轮验证使用模拟消息，未向 QQ 投递测试消息。
+
+## 2026-11-04 15:52 CST 云图固定指令修复
+
+QQ 固定视频指令改为原样转交 WeatherCommands，保留云图模式和预报时长。ECS 版本 `linux-cloudroute-7b8c0845082f`，监听 PID 119625，官方通道在线。云端视频路由 9 项通过。备份 `/var/backups/alexbot/alexbot-20261104T075238132Z.json`。
+
+## 2026-11-04 15:49 CST 默认预报云图与视频标题
+
+官方通道已切换至 `linux-cloudcast-7e70d2f09ce6`，19327 实际监听 PID 119484。视频主标题显示地名，副标题显示时长和图层。普通云图使用 ECMWF 总云量预报，固定指令“发 历史云图 地点”使用葵花最近六小时观测。ECS 在 128 MiB 限额内验证南京 48 小时云图，共 142 帧，3080515 字节。358 项哈希通过，官方连接正常，备份 `/var/backups/alexbot/alexbot-20261104T074909629Z.json`。
+
+## 2026-11-04 15:42 CST 动态预报可选 48 小时
+
+官方通道上线 `linux-wx48-ec26bd298926`，19327 监听 PID 119334。固定指令与自然语言工具支持 PM2.5、降水、温度的 48 小时预报。默认 24 小时，云图保持近 6 小时。北京 PM2.5 在 ECS 128 MiB、无 swap、50% CPU 限额下实测 48 时次、142 帧、3060435 字节，耗时约 69 秒。358 个源码哈希验证通过，连接及定时器正常，备份 `/var/backups/alexbot/alexbot-20261104T074201470Z.json`。
+
+## 2026-11-04 15:30 CST 地图确认版上线
+
+用户审核通过 A、B、C01–C10 和 D 的全部条目，指定 FID 368 沿察隅河走向。已逐点比对其编译线段与官方源要素，移除视频校核稿提示。审核范围与地图哈希存于 `codex-qq-plugin/docs/map-owner-confirmation-20261104.json`。ECS 切换至 `linux-wxconfirmed-d6240c201ba7`，19327 监听 PID 119141，15:30:57 CST 启动，官方通道已连接。358 项文件哈希及 3 项云端专项通过，定时器 active，投递计数 16→16。备份 `/var/backups/alexbot/alexbot-20261104T073056928Z.json`。
+
+## 2026-11-04 14:14 CST 地图版本上线
+
+按用户确认放行此版本的地图资产哈希，技术核查清单保留。ECS 已切换至 `linux-wxmap-62fc72e4f7e0`，19327 实际监听 PID 118422，14:14:35 CST 启动，官方通道已连接、未暂停。357 个源码文件校验通过，限额专项 3 项通过，定时器 active。切换前后投递计数均为 15，配置、授权和投递账本已核对。备份为 `/var/backups/alexbot/alexbot-20261104T061435749Z.json`，22 项，SHA256 `c4a89c7ccb34aaf440ebf6085186385a28c09f65b87b7ffc98e9e7f982812ea7`。沿用用户接受的内部校核稿图面。
+
+## 2026-11-04 13:57 CST 藏新接边、克什米尔及海上有关线段
+
+新增青海天地图治多县 1∶155 万、玉树州 1∶225 万和新疆有关地州、县图，与西藏政府 FileGDB、自然资源部监制的全国横竖图逐段比对。藏新共边由三个完整源要素和 FID 196 的西端组成。按实际 9 个共边线块反查，最细 1080 视口的 P95 为 1.31 像素，最大 4.71，新疆全景中最大约 0.81。察隅河的特殊画法单独处理，没有用整条矢量的 RuleID 推断定界状态。
+
+本地候选已渲染东海、南海共 10 个各含 4 个原图笔段的符号，克什米尔地区界 47 个短划、印巴停火线 81 个点。清除了与这里表示冲突的下一级外部行政标签和共边，并将冲绳县的省级标签移回本岛。原图像素复算 650 个顶点。横竖原图在最细视口有可见差异，逐段数值见 `codex-qq-plugin/docs/map-regional-registration-20261104.md`。37 项 Python 和 9 项 Node 专项通过。四个实查视频及其解码回执位于 `codex-qq-plugin/test-output/cn-map/registration/final-clips/`。
+
+用户确认用途包括公开群、频道和对外发布，没有成品审核材料。部署授权延续，实际公开使用条件待落实。只读核实 ECS 仍为 `linux-wxregion-bb1118dc0769`，19327 监听 PID 117628，11:44:01 CST 启动。用现行 17 个文件哈希核对的镜像与本地候选的 19 个地图文件比较，有 11 项变化，发布检查仍为 `MAP_PUBLICATION_ON_HOLD`。原有官方 QQ 服务继续使用旧图。
+
+## 2026-11-04 12:48 CST 官方原图对照，地图待核
+
+用户已授权核实修正后直接上线，并确认没有覆盖此项目成图的现成审核材料。对照了外交部提供的两张自然资源部监制中国全图、西藏自治区原始矢量及政区简图、新疆 2026 目录中的自治区、和田、喀什原件，以及阿里云发布的四份高德来源 GeoJSON。分清克什米尔地区界、印巴停火线、朝鲜半岛军事分界线和新疆各幅图例。全国图显示东海与南海有关线段，本地候选仍缺经核实的局地几何。其余世界例外地段需相应图幅。详见 `codex-qq-plugin/docs/map-boundary-audit-20261104.md` 及与之同步的 40 项清单。
+
+本地台湾省区域视频在福建海岸补标有行政代码的莆田市，岛屿位置使用单独符号并加入图例。34 项 Python 专项和 9 项 Node 专项通过，真实固定指令生成的 1080×1080 MP4 完整解码 139 帧。样片、官方图件和逐文件哈希回执位于 `codex-qq-plugin/test-output/cn-map/crosscheck/`。
+
+已独立只读核实 ECS 运行 `linux-wxregion-bb1118dc0769`，19327 的实际监听 PID 117628，11:44:01 CST 启动。以哈希一一匹配的现行 17 个地图文件与候选 18 个文件运行发布检查，10 个文件新增或有改动，检查因实际地图未核项而阻止切换。线上仍可能发送旧底图。
+
+## 2026-11-04 地图校核稿，暂缓发布
+
+用户明确要求维持线上现状，只暂缓新版地图。线上版本仍以 11:44 的正式发布记录为准。本节为本地工作，没有切换 ECS 或投递 QQ。严格遵照中国政府国界、行政区划和地名口径的规则已写入根目录 `AGENTS.md`。
+
+比对了在用底图的原始 390 个要素、539 个去重折线片段。全部 36 个旧虚线片段对应 33 个源要素，另查 5 个实线要素和 2 个被跳过的港澳记录。逐条证据及未核事项见 `codex-qq-plugin/docs/map-boundary-audit-20261104.md` 与 `codex-qq-plugin/data/weather-boundary-review.json`。已有 5 条西藏官方图层几何记录，但总称“国界”不能证明定界状态，两条 RuleID 为空。本地用紫色参考线呈现。全球适用比例尺样图、海上有关线段和最终符号仍有未决项，发布检查应为 `MAP_PUBLICATION_ON_HOLD`。
+
+本地校核稿已更正西藏遮罩及境外次级界线叠加，在台湾省图中分别表示台北和其余五个规定的地级行政中心，并标出钓鱼岛、赤尾屿。各省级视口可放下内地 333 个地级行政单位及台湾省六个规定行政中心。全球雷达草稿不再请求带未核政治界线的外部底图瓦片。预览和逐省排版、境外线片段检查在 `codex-qq-plugin/test-output/cn-map/`。不要把这批工作区文件作为已获准发布的素材。
+
+## 2026-11-04 11:44 CST 动态天气视频支持气象大区和省区
+
+官方版 `linux-wxregion-bb1118dc0769` 已从 `linux-hdwx-ee43f7257eec` 发布。18 个发布文件，352 个源码哈希核验通过。ECS 19327 监听 PID `117628`，11:44:01 CST 启动，入口 `/opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，cwd 为 `/var/lib/alexbot`，使用官方通道。Windows SSH 隧道 PID `46360`、11:06:30 启动，发布后已从实际转发端口访问服务。
+
+云图、PM2.5、降水、温度共用中国气象局十个一级地区和 34 个省级行政区。内蒙古、西藏、新疆同时属于两级，目录去重后为 41 个取景范围。固定命令精确匹配区域别名，自然语言保留区域名称。单查新疆显示全区，具体地名沿用地点解析。按同版 CTAmap 边界取景，卫星按视口选层裁切，模型在对应范围内布设 225 个采样点。区域内标注成员省区，外部保留较淡的天气背景。地区遮罩与 65 个成员标签在相应范围内逐项核对通过。
+
+本机 Python 24 项、Node 79 项回归通过。四类实查视频完整解码，自然语言“想看新疆未来24小时的气温变化视频”通过实际 Node → Python LangChain → 区域工具 → MP4 链路。ECS 串行专项 4 项 Python、8 项 Node 通过，128 MiB、swap 0、CPU 50%。最终华东云图 36 个观测、138 帧，生成加完整解码 96.36 秒。新疆温度 24 个预报时次、139 帧，用时 77.02 秒。主机可用内存最低 804 MiB。用户已在主人 QQ 私聊发送“看看新疆的动态温度”，确认收到新疆全区视频。
+
+切换前冻结核对，配置、授权、订阅、投递账本均保留，attempts 14→14。官方连接在线、未暂停、不确定投递 0，07:30 定时器 active，退役单元 masked。发布后主服务快照为 191.2 MiB，memory.events 全零。备份 `/var/backups/alexbot/alexbot-20261104T034401832Z.json`，22 文件，SHA256 `c3f55c92eece58159355bbb57d8dbc52998f8e633cf33d4fa4b29c1a0386b3ab`。云端审计 `/var/backups/alexbot-wxregion/20261104/`，本机样片与回执在 `codex-qq-plugin/test-output/region-video/`。保留旧生产源码，没有推送 GitHub。
+
+本机已核对密文备份 SHA256，使用 DPAPI 在内存验证 22 项文件可恢复。最终回执已核对云端哈希，并归档至 `test-output/region-video/release/receipts/`。
+
+## 2026-11-04 11:13 CST 高清动态天气视频与市省共边
+
+正式发布 `linux-hdwx-ee43f7257eec`，基于 `linux-vmap-8b3903e3ab32`。官方 19327 实际监听 PID 为 `117007`，启动于 11:13:14 CST。已核对入口 `/opt/alex-bot/current/codex-qq-plugin/src/server.mjs`、cwd `/var/lib/alexbot`、`QQ_TRANSPORT=official`、进程启动时间及 348 个源码哈希。本机受限 SSH 隧道已恢复并验证，19327 监听 PID 为 `46360`，11:06:30 启动。
+
+四类视频均为 1080×1080、12 fps。葵花 B13 近六小时收录可用的十分钟观测，完整 37 个时次对应 145 帧，缺测处直接跳时。温度、降水、PM2.5 用 15×15 个采样点和 24 个逐小时时次，过渡后各为 139 帧。逐帧绘图与单线程 H.264 编码分进程运行，释放绘图内存后按连续文件编号编码，返回前核对 MP4 样本表。实测广州降水第 137 帧曾超过 160 MiB 临时磁盘上限，现设为 512 MiB，每次写入预留 128 MiB 磁盘，结束清理。成品仍限 4 MiB。
+
+中国市级原始多边形只提取相邻行政单位的共边，跨省沿同一几何加粗。对原始坐标独立复算的 24,217 段跨省级共边全部吻合，含深港、珠澳，无遗漏、额外线段或重复细描。海外有 ADM2 资料的区域按当地 ADM1 归属决定共边线宽。离线水域加深填色，无蓝色岸线描边，陆地保留浅地势阴影。构建来源与哈希见两份地图 NOTICE。
+
+本机 Python 12 项、Node 52 项通过，温度、降水和 PM2.5 的实际指令返回无附文 MP4 并各解码 139 帧。ECS 限 128 MiB、swap 0、CPU 50% 的串行专项通过 10 项 Python、6 项 Node。真实生成加完整解码耗时约为广州降水 63 秒、广州 PM2.5 64 秒、广州云图 72 秒、苏州温度 53 秒。此次云图有 36 个有效观测、138 帧，其余三项各 24 个时次、139 帧。专项 cgroup 采样最高 128 MiB，主机可用内存最低 691 MiB，保留生产内存上限。用户已确认在主人 QQ 私聊发送 `发 动态温度 苏州` 后收到视频，全屏可分辨太湖边缘和苏浙省界。
+
+切换时配置、群授权、词库、早报订阅和投递账本通过冻结前后校验，attempts 为 10→10。正式连接在线、未暂停、不确定投递为 0，07:30 定时器 active，退役单元均 masked。切换后快照中主服务约 325 MiB，memory.events 全零。加密备份 `/var/backups/alexbot/alexbot-20261104T031314671Z.json`，22 文件，SHA256 `19b2369de473a9dfa34355c51f2ebdf35b92de4ebeef2b9f66496f4094d55019`。本机已留密文并用 DPAPI 在内存验证可恢复。云端审计 `/var/backups/alexbot-hdwx/20261104/`，本机样片、坐标核对和回执在 `codex-qq-plugin/test-output/hd-map/`。旧生产 release 保留，回退只切换源码并保全最新状态。未推 GitHub。
+
+## 2026-11-03 23:43 CST：动态视频行政底图与配色更新
+
+用户要求补行政区划，并采用与 Windy 类似的配色。已部署 `linux-vmap-8b3903e3ab32`，基于 `linux-video-3464a6783dff`，7 文件补丁，343 项源码哈希通过。实际 19327 PID `113684`，启动 `2026-11-03 23:43:48 CST`，入口 `/opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，cwd `/var/lib/alexbot`，官方通道 connected、未暂停、不确定投递 0。本机 SSH PID `40880`、09:20:05 启动及转发目标已重新核验。
+
+四种视频共用离线国界/省州界/海岸线、中文优先的省州名与主要城市名；按重要性筛选并避让标题、时间轴、查询点和其他标签，香港澳门不叠加过密的区级细分。底图取自固定 Natural Earth 提交 `ca96624a56bd078437bca8184e78163e5039ad19`，来源和哈希见 `data/weather-map-NOTICE.json`。约 2.87 MB 的 ZIP 分为 451 个 10° 小块，只读取当前视口；边界与文字超采样预绘一次后复用，运行时不再访问地图服务，无新增 GIS 依赖。
+
+温度、PM2.5、降水使用参考 Windy 实际温度图和 UI/UX Pro Max 地图可读性建议独立选定的连续气象色阶；未接入 Windy 数据或瓦片，卫星保持原始灰度。数值先插值再映射颜色，图例共用相同色阶，缺测影响范围保持灰色。画面仍 720×720 全幅，标题、色标、北京时间和时间轴均在画面内；Node 协议、权限、数据来源和窗口未改。详见 `codex-qq-plugin/docs/weather-video.md`。
+
+本机 9 项地图/视频测试通过，温度/PM2.5/降水实查与视频预览通过；本机一次云图请求遇到 `VIDEO_SOURCE_UNAVAILABLE`，未记作成功。ECS 串行 128 MiB / swap 0 / CPU 50% 专项 7 项及真实温度、云图生成/完整解码均通过，生成含解码约 10.40 秒与 24.95 秒，采样最高 118.4 MiB，主机可用内存最低 798 MiB。Linux 首帧已目视核对。生产内存上限不变，发布后约 184 MiB，memory.events 全零。本次未主动发 QQ；前版温度视频真实 QQ 接收/播放验收见下节。
+
+切换前暂停排空并备份最新状态，配置/账本/名单/词库/订阅均保留，attempts 38→38，07:30 定时器 active，退役 OneBot/旧早报保持 masked。备份 `/var/backups/alexbot/alexbot-20261103T154348159Z.json`，22 文件，SHA256 `71cbff5658e7e0f34aee73ead42a3fb1fa46f0178fa6fcf993e1d2b46ea88312`；本机 `.private/migration/` 留密文并已 DPAPI 内存验证可恢复，无明文落盘。远端审计 `/var/backups/alexbot-vmap/20261103/`，本机预览、来源文件、补丁和回执在 `codex-qq-plugin/test-output/video-map/`。旧 release 保留，回退只换源码、不覆盖最新状态。未推 GitHub。
+
+## 2026-11-03 22:49 CST：四类动态天气视频上线
+
+用户确认全幅预览并明确要求上线。已发布 `linux-video-3464a6783dff`，基于 `linux-caption-9feec8c75a54`，22 文件补丁；337 项源码哈希通过。实际 19327 监听 PID `113224`，启动 `2026-11-03 22:49:36 CST`，argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，cwd `/var/lib/alexbot`，`QQ_TRANSPORT=official`，connected、未暂停、不确定投递 0。本机仍为 SSH PID `40880`，09:20:05 启动，转发目标已核验。
+
+新增 `发 动态云图/PM2.5/降水/温度 地点`，固定命令不调用模型；自然语言由受限 Python LangChain 工具处理。云图为葵花卫星近 6 小时红外观测，其他三项为未来 24 个逐小时时次的 CAMS/ECMWF 区域采样预报；云图主要覆盖东亚和西太平洋，不声称全球覆盖。720×720 全幅地图，标题、色标、北京时间和时间轴均叠在画面内，成功只发 MP4。四项加入按权限生成的帮助图；PM2.5 使用 air，其余使用 weather。不能静默替换超范围日期；自然语言生成天气视频不再误判为附件读取。详见 `codex-qq-plugin/docs/weather-video.md`。
+
+Node 只处理路由、校验和官方媒体发送，Python 独立 worker 逐帧编码，单线程 H.264，成品上限 4 MiB；共用重任务串行队列、5 分钟单条缓存，空闲退出。官方上传 `file_type=2, srv_send_msg=false`，随后单次发送媒体，无自动重试；保留权限撤销、账本、暂停及投递不确定性处理。依赖固定 `imageio-ffmpeg==0.6.0`；Linux wheel SHA256 `c7e46fcec401dd990405049d2e2f475e2b397779df2519b544b8aab515195282`，已由本机 HTTPS 官方 PyPI 下载核验并逐文件比对 ECS 12 个安装文件。云端直连官方包下载慢，已停止该独立校验进程，未影响正式服务。
+
+本机 Node 133、Python 62 项相关回归通过，包含真实 LangChain 工具路由、固定命令权限、输入边界和视频发送。实际 Node→Python→LangChain→公开天气源→MP4 已在本机验证。ECS 仅串行专项，128 MiB / swap 0 / CPU 50%：Python 3 项、Node 5 项及四种真实视频生成/完整解码全部通过。广州温度约 12.51 秒、PM2.5 15.11 秒、降水 16.71 秒、云图 34.01 秒；生成与解码均包含在该耗时内，QQ 上传不包含。采样峰值最高 128.0 MiB、主机可用内存最低 699 MiB，未放宽生产 1500 MiB 上限；发布后主服务约 191 MiB。Linux 首帧已目视核对，预览和数据回执在 `codex-qq-plugin/test-output/weather-video/`。用户随后确认：主人 QQ 私聊发送“发 动态温度 广州”后已收到视频，并能正常播放。温度视频的实际 QQ 投递与客户端播放验收通过；其余三项已完成服务器生成/解码验证，未声称逐项客户端验收。
+
+切换前已暂停排空、加密备份，再替换源码并重启唯一官方服务；账本、名单、词库、配置、07:30 订阅及 claim 保持，attempts 36→36，定时器 active，退役 OneBot/旧早报保持 masked。备份 `/var/backups/alexbot/alexbot-20261103T144936167Z.json`，22 文件，SHA256 `6e11024a24865aae374c3a5870ee3586120100adde39ecc2b902c460a1508410`；本机 `.private/migration/` 已留密文并 DPAPI 内存验证可恢复、无明文落盘。远端审计 `/var/backups/alexbot-video/20261103/`，本机补丁/部署脚本在 `codex-qq-plugin/test-output/weather-video/release/`。旧 release 保留；不覆盖最新运行状态回滚，不启用 OneBot。未主动发送测试 QQ，未推送 GitHub。
+
+## 2026-11-03 21:32 CST：天气成功只发图
+
+用户要求不附带文字。已部署 `linux-caption-9feec8c75a54`，基于 `linux-places-a3ab366e73e4`，4 文件补丁。天气今日/明日、空气和带图 local_weather_briefing 成功时不再附带说明/部分超时文字；缺测仍在图内显示，完全失败或地名歧义保留文字提示。地图署名移入天气图底部/空气图副标题。无模型调用变化。
+
+本地16项回归通过；ECS 128MiB/swap0/CPU50% 验证实际返回 text 为空，包括携带 locationNote/timeoutNotice 的模拟成功结果。实际19327 PID112305，启动21:32:35 CST，源码 `/opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，cwd `/var/lib/alexbot`，official connected，未暂停，不确定投递0，331源码哈希通过；本机隧道PID40880。配置/账本/群权限/订阅保持，attempts34→34，定时器active，退役服务masked。
+
+备份 `/var/backups/alexbot/alexbot-20261103T133235547Z.json`，22文件，SHA256 `c2a30425b0c6b063476450e0c02d0cfa2c7b1964bc75af739458f16855e3f20f`。发布记录 `codex-qq-plugin/test-output/image-only/release/`，远端审计 `/var/backups/alexbot-caption/20261103/`。未发测试QQ，未推GitHub。
+
+## 2026-11-03 21:28 CST：天气地点搜索增强已上线
+
+- 用户要求增强景点、山峰、徒步路线、村庄搜索，接受代表坐标。发布 `linux-places-a3ab366e73e4`，基于 `linux-status-57b98ae79662`；331 个源码哈希通过。实际 19327 PID 112165，21:28:53 CST 启动，argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，cwd `/var/lib/alexbot`，QQ_TRANSPORT=official，connected、未暂停、不确定投递 0。
+- 本机 19327 确认 SSH PID 40880，启动 09:20:05。权限、词库、配置、账本和早报订阅保持；attempts 33→33，07:30 timer active，OneBot/旧早报 masked。
+- 保留原 3577 行行政地名库，增加 `data/outdoor-locations.json` 10 条有来源的代表点/别名。珠峰映射峰顶，武功山映射金顶，四姑娘山映射幺妹峰；麦理浩径采用标注的北潭涌代表点；雨崩上/下村保留歧义，不自动取首项。
+- 新 `python/outdoor_places.py` 受限 LangChain Tool，固定 Photon HTTPS 源、无模型/Key、7 秒网络超时、512KiB 响应上限、拒绝重定向和任意字段。Node 仅桥接/缓存/排队，单进程串行启动、11 秒上限、队列最多4，同请求合并、正缓存24h/未找到10min。过滤商铺、车站、普通道路；步道结果标注代表点，多候选要求选择。没有村庄不会换成县城。公共源覆盖有限且无 SLA。
+- 本地29项Node+19项Python相关测试通过，包含真实跨语言LangChain边界和坐标传递。ECS以128MiB/swap0/CPU50%串行验证7项Python及真实Node→Python→Photon；珠峰、海淀、措玉村、麦理浩径均成功。措玉村结果为西藏自治区·山南市·洛扎县，90.7924176E/28.2381573N。未发送测试QQ、未改内存限制、未推GitHub。
+- 备份 `/var/backups/alexbot/alexbot-20261103T132853467Z.json`，22文件，SHA256 `d6e2429bea4511705356974b8469e8c718e89e4c5c4fb3c34f6fc6fa2e30fdcd`；下载本机 `.private/migration/` 并执行内存恢复验证。
+- 发布脚本/包/哈希：`codex-qq-plugin/test-output/outdoor-places/release/`；远端审计 `/var/backups/alexbot-places/20261103/`。先前暂存 `linux-places-ea67a7005350` 未激活。
+
+## 2026-11-03 20:03 CST：五家服务状态已上线
+
+- 用户授权上线：`linux-status-57b98ae79662`，基于 `linux-latency-0723222520cb`；325 个源码哈希验证通过。品牌卡和 Kimi 满框裁切启用，不含 GLM，共用 AI服务状态开关。
+- 官方服务实际监听 PID 111702，启动 20:03:32 CST，argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，cwd `/var/lib/alexbot`；official connected、未暂停、不确定投递 0。本机实际 SSH 隧道 PID 40880。
+- 权限、词库、账本、配置、早报订阅保持，attempts 30→30；07:30 timer active；OneBot、旧早报保持 masked。
+- 冻结后备份 `/var/backups/alexbot/alexbot-20261103T120332222Z.json`，22 文件，SHA256 `22671d76095b7f92dd50635a68d2b595a231053c2c6c32c1e7767b755cd779dc`；已下载至本机 `.private/migration/` 并 DPAPI 内存验证恢复成功，无明文落盘。
+- ECS 128 MiB / swap 0 / CPU 50% 串行专项：11 项 provider 测试、Node 模块导入通过；真实 LangChain 四家状态源正常，Gemini 读取失败显示“状态待确认”，不能据此判断 Gemini 故障。生产内存限制未变。
+- 本地全链路和图像验证见 `codex-qq-plugin/test-output/status-providers/`，发布脚本、哈希见其 `release/`；远端审计 `/var/backups/alexbot-status/20261103/`。未推送 GitHub，未发测试 QQ。
+
+## 2026-11-03 五家 AI 状态图与查询（本地完成，仅预览，未上线）
+
+OpenAI、DeepSeek 状态图改为提供商官方 Logo 与品牌色，保留天气图版式和异常红框；新增 Gemini、Claude、Kimi 查询。用户随后取消 GLM，已从工具及素材移除。固定“查 厂商 状态”不调用模型；自然语言通过受限 Python LangChain 工具，五家共用逐群“AI服务状态”开关。Gemini 只覆盖 AI Studio/API，读取失败显示待确认，不能当作正常或厂商故障。历史故障回放明确标注非当前状态。
+
+源码与预览说明见 `codex-qq-plugin/docs/provider-status.md`，图片及只读联调记录在 `codex-qq-plugin/test-output/status-providers/`。Python 79 项、Node 69 项相关回归已通过；只在本地开发/查官方公共源/出图，没有部署、发送 QQ 或更新 GitHub。正式发布须整体带上新增 Python 模块、Node 渲染器及 `public/provider-status/`；不得把本地改动当作已上线。当前生产仍为下面的 `linux-latency-0723222520cb`。
+
+## 2026-11-03 响应超时诊断与优化上线（当前生产）
+
+生产 `linux-latency-0723222520cb`，基于 `linux-outdoor-a13098d98e82`，2026-11-03 17:53:48 CST 启动，实际 19327 监听 PID `110628`；入口 `/opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，工作目录 `/var/lib/alexbot`，官方通道 connected、未暂停、不确定投递 0。313 项源码哈希通过，逐群定时器仍 active，全部退役 OneBot 单元 masked；切换前后发送尝试均 19，权限、订阅、配置及最新投递状态保持。本机 19327 仍为 SSH PID `40880`，启动 09:20:05.886 +08。
+
+用户反馈经常 20 秒超时，允许必要时略放宽内存。脱敏遥测证实 17:35 两次 router_model 在 20165/20236 ms 出错，工具尚未执行；服务占用约 250 MiB、主机可用 819 MiB，cgroup memory.events 全零、无 CPU 限流。官方 [DeepSeek 故障记录](https://status.deepseek.com/incidents/7202016104287) 从北京时间 16:58 报网页/API 部分中断，涉及 Flash API，查询时为 Monitoring。ECS 合成实测一条模型 451 ms 成功，下一条 153 ms 返回 MODEL_PROVIDER_UNAVAILABLE（映射供应商 HTTP 5xx），符合上游间歇性异常；不能承诺调整本机即可消除上游故障。未增加内存上限，仍 MemoryHigh=1200M/MemoryMax=1500M。
+
+新增 `python/quick_weather_route.py`：对现有本地地名目录能核对、完整明确的天气/雷达/空气请求，直接 invoke 原 LangChain 工具，如“北京天气如何”“广州明天天气如何”“看看成都雷达图”。不猜未知城市、不解析否定/复合/指代请求；重名原样交地点服务澄清；附图输入仍走模型。逐群功能、灰名单、明天天气窗口和发送边界保持，chat 关闭时仍支持已开放的自然语言工具。复杂表达仍走现有模型；固定命令、可选 day 缺省协议保持。将系统提示中每次变化的时刻/会话范围/短期工具摘要移到固定说明后，以便复用共同前缀，不缓存模型回复或天气结果。模型和 HTTP 客户端单次超时统一 30 秒、提示同步；无超时自动重试，原仅连接故障的一次有限恢复保持。
+
+本机 Node 540 项、Python 296 项通过。旧模型专项的样例改用不命中快捷规则的自然表达，继续验证原模型保护，未删除断言。ECS 两项串行专项在 812/821 MiB 可用时通过，仍独立 128M、零 swap、50% CPU；真实 Node/Python/LangChain 协议通过。云端三个快捷样例识别/工具 RPC 耗时 238/5/5 ms，首条包括载入地名目录，不含天气查询、绘图和 QQ 上传。第四条复杂问题进入真实模型后遇到上述供应商错误，已保留失败记录，未将其记为成功验收；离线真实 LangChain 模型后备分支已通过。诊断共两次真实模型请求，均计入原预算，QQ 消息 0。
+
+备份 `/var/backups/alexbot/alexbot-20261103T095348327Z.json`，22 文件，SHA256 `5fc15b3fcf0fd4fec942dd5b4031f60ba73721003929eb792394de4b2fc205e9`；已下载 `.private/migration/`，DPAPI 内存恢复验证成功，无明文落盘。补丁 SHA256 `0723222520cbd8e1be7aa424ae4663dc0e76b275625758c446d3f2a48a62a38a`；包和本机测试日志在 `codex-qq-plugin/test-output/latency-fix/`，脱敏云端回执在其中 `release/cloud-receipts.zip`，云端原件 `/var/backups/alexbot-latency/20261103/`。最后核验生产内存约 173 MiB、OOM/限额事件 0。首轮发布基线校验因 Windows CRLF 与 Linux LF 的字节差异停止，核对实际远端与 Git 原文一致后更新 Linux 原始哈希，未跳过源码校验。未修改 GitHub。
+
+## 2026-11-03 新版天气图与户外指数 v3 上线
+
+用户确认最新评分和样式后授权上线。普通单城市天气、明天天气和逐群 07:30 早间天气共用户外指数：北京时间上午 06–12、下午 12–18 分别计算，采用较高分；忽略温度，只评云量、PM2.5、风和雨。降雨扣 20/35/50，中雨及以上（或小时>2.5 mm、半天≥5 mm）归零；PM2.5≥150、橙色门槛以上风力归零。≥80 夯、≥60 可、其余拉；少云、低霾、微风、无雨且≥95 为金色夯中夯。具体边界与未定义天气类型处理见 `codex-qq-plugin/docs/outdoor-index.md`；风力使用预报阈值比对，不声称查询或收到官方预警。
+
+固定计算在新增 `python/outdoor_index.py` 受限 LangChain Tool，无模型调用；Node 按城市/首日日期/小时戳匹配 ECMWF、CAMS，只做协议验证和绘图。普通查询补取既有可选小时天气代码；原风速协议和工具可选参数默认行为保持。早报直接复用新结果，正常路径不再运行旧温度运动分析；旧模拟/双城市兼容路径保留。两段关键数据或尚未定义的雪、雷暴等天气无法评分时，保留天气图并注明暂不评级。
+
+沿用确认的狂草、卡片内 18% 微透、不透明户外指数标题、天气图标位置和米色建议条的真实镂空时段高亮；移除 48 小时徽标与冗余天气类型文字。三份原始笔画及 SHA256 来源在 `public/weather-report/outdoor/provenance.json`；金色在运行时依据原夯字透明度着色。PNG 保持 1867×7620、无损。最终小块渲染和预览相比仅 727 个边缘像素有抗锯齿舍入差异（0.00511%，单通道最大 14/255、均差 0.000059），数据、排版及清晰度保持，正式本机和 Linux 图已目视核验。
+
+为适应 2G ECS，新增 `png-strips.mjs`：最多 512 像素高的临时画布，16 行 Sub 过滤/zlib 无损拼接；不可见图表跳过绘制，画布和笔画及时释放。普通天气图片也进入既有重型工作串行队列；渲染函数改为异步，入口与本地预览脚本已 await。初期整图及较大分块候选曾在独立 128M 专项触发 OOM，仅测试进程被停止，生产始终保持旧版；最终普通图+金色早报连续生成通过同一 128M、零 swap、50% CPU 限制，没有放宽保护。诊断记录在下述云端回执目录。
+
+本机完整 Node 539 项、Python 289 项通过；最终分块尺寸调整后 6 项图片专项与全图比较通过，前一轮调用链 21 项通过。真实 Node→Python LangChain 边界、评分阈值、缺测、明天与第二天隔离、旧风速兼容、普通/早报共用与 PNG 接缝均验证。ECS 最终协议/绘图专项分别在 910/891 MiB 可用内存时启动，均通过；真实广州历史输入重算上午 49.1、下午 53.2、评级拉，云端普通图 1717680 字节、金色样例 1761562 字节。未调用付费模型或发送 QQ 验收消息。
+
+生产 release `linux-outdoor-a13098d98e82`，基于 `linux-weather-icons-691c2ee8254f` 叠加 16 个指定文件；补丁 SHA256 `a13098d98e82a10ede0cea8470bd1efded73111b0eefe13b7476ce51d74df709`，310 项源码哈希验证通过。官方实际 19327 监听 PID 110162，2026-11-03 17:29:39 CST 启动；argv/current、cwd `/var/lib/alexbot`、official 环境及源码先于启动已核对。最终 connected、未暂停、未决 0、可用内存 880 MiB；发送计数 14→14，两个授权群、词库、限额、投递账本、共享配置和订阅保持，timer active，退役 OneBot/旧早报仍 masked。本机隧道仍为 ssh.exe PID 40880，09:20:05 启动。
+
+切换前加密备份 `/var/backups/alexbot/alexbot-20261103T092939169Z.json`（22 文件），SHA256 `fa393ec2c4c391cf118b8d27295dc558c9664c82ab8a52d8386aa5fd25c23742`，本机 `.private/migration/` 已下载并校验。云端备份/冻结状态/预检/发布/最终核验回执在 `/var/backups/alexbot-outdoor/20261103`；本地发布材料及图片在忽略目录 `codex-qq-plugin/test-output/outdoor-index/`。旧 release 保留可回退；未推送 GitHub，未纳入暂停的提醒等无关工作。
+
+## 2026-11-03 天气摘要按第 1 日自动匹配素材（此前生产）
+
+用户提供 `素材库/天气摘要图形` 的 8 个 SVG，原色、路径与比例保持，收入 `public/weather-report/conditions/`，来源文件名及 SHA256 在 `provenance.json`。天气图右上角改为对应图形与准确天气文字，SVG 按当前 1867 宽输出的像素密度解码；缺少 viewBox 的晴间多云 SVG 在加载时补原始 84×84 视口。
+
+现有 ECMWF 查询同次增加可选 `daily=weather_code`，按已验证时区中的请求起始日期精确查找，不能取第二天、获取当天或跨日错误值。Open-Meteo 日天气代码含义为该日最显著的天气状况（官方文档称 most severe），映射为素材系列：晴、晴间多云、阴、小雨/毛毛雨、大雨/强阵雨、雷暴、雪、雾。中雨/中雪/大雪等复用同类图形，文字保留实际等级；雾图仅由雾/雾凇代码触发，不用 PM2.5 浓度诊断雾霾。缺数据/未知代码不画默认晴天，显示类型缺数据。查询明天时首日图形与温度/峰值标题都对应明天。
+
+固定映射在 `python/weather_summary.py` 的受限 LangChain Tool 执行，无模型、网络、文件或收件人权限；复用已有风速 worker，同次返回风速和可选天气摘要，不增加 Python 进程数。原 `summarizeWind` 调用和旧 wind JSON 输出保持兼容；Node 仅验证日期、有限图形键与文字后绘图。普通天气与早报共用渲染器。
+
+本机相关 Node 62 项、Python 3 项通过，含真实 Node→Python LangChain 边界、旧风速兼容、明天与第二天隔离、缺失/错误日代码、SVG 出图及天气/早报入口。真实广州 2026-11-03 15:02:02 CST 查询，首日日代码 51（毛毛雨），已核对本机及 Linux 右上角雨图。预览在 `codex-qq-plugin/test-output/weather-icons/`，仅本地/云端验证未发 QQ。ECS 协议和渲染串行专项在分别 906/876 MiB 可用内存时启动，独立 MemoryMax=128M、MemorySwapMax=0、CPUQuota=50% 均通过。
+
+生产 release `linux-weather-icons-691c2ee8254f`，基于 `linux-help-page-78653ec18ee8` 叠加 18 个指定文件；补丁 SHA256 `691c2ee8254fed821dd6fa1e6e21c6be289c4007076910fff1c654459581544b`，299 项源码哈希通过。官方实际监听 PID 108980，2026-11-03 15:06:11 CST 启动；argv/current、cwd、official 环境和源码先于启动均核对。本机 SSH PID 40880、09:20:05 启动保持。connected、paired、未暂停、未决 0，发送计数 14→14；群配置、词库、投递账本、订阅及共享配置保持，timer active，退役 OneBot/旧早报保持 masked。
+
+切换前 22 文件加密备份 `/var/backups/alexbot/alexbot-20261103T070611660Z.json`，SHA256 `198306cf265842e1e99f7ba893df9710a16150e0c2d8d2f694b244bba9443a46`，本机 `.private/migration/` 密文已核对哈希及内存恢复验证。云端回执 `/var/backups/alexbot-weather-icons/20261103`，旧 release 保留回退，未推送 GitHub。规则来源 https://open-meteo.com/en/docs#daily-parameter-definition 与 https://open-meteo.com/en/docs/ecmwf-api 。
+
+## 2026-11-03 帮助页宽度与背景统一天气图（此前生产）
+
+按用户要求，帮助图采用天气页相同的 440 CSS 宽、3×√2 渲染倍率，PNG 宽 1867；整页背景统一为 `#f4f6f3`。像素尺寸取整，先铺满画布背景以避免分数倍率留下透明边缘。仅更新 `src/help-image.mjs`，内容和排版沿用已确认版本，未导入天气绘图模块来增加内存依赖。主群样例 1867×9100，chat 关闭样例 1867×9190，私聊 1867×7968。
+
+本机 3 项帮助入口专项通过，实际 PNG 宽度与天气样式相同、背景采样 RGBA 244/246/243/255，预览已目视核对。ECS 在 882 MiB 可用内存下，独立 MemoryMax=128M、MemorySwapMax=0、CPUQuota=50% 连续生成三种帮助图并验证真实 BridgeCore 路由，全部通过。没有 QQ 测试发送。
+
+生产 release `linux-help-page-78653ec18ee8`，基于 `linux-help-page-25722e38d870`；补丁 SHA256 `78653ec18ee8b2bd318d880160e9562b6b1372e3ba3223b8d0c9f79c5e0c3d1d`，287 项源码哈希核验通过。实际 19327 监听 PID 108796，2026-11-03 14:53:31 CST 启动，argv/current 源码、cwd、official 环境、源码先于启动均验证。connected、未暂停、未决 0，发送计数 14→14，群配置、投递账本、共享配置与订阅保持，timer active；本机 SSH PID 40880、09:20:05 启动保持。
+
+最新 22 文件加密备份 `/var/backups/alexbot/alexbot-20261103T065331051Z.json`，SHA256 `0e5aa5f3a7432ec19c70adfb26955b6a30484b743894584cea08d5ce5a1970e9`，本机 `.private/migration/` 密文已核对哈希并验证凭据可恢复。云端回执 `/var/backups/alexbot-help-align/20261103`，本地发布材料 `codex-qq-plugin/test-output/help-preview/align-release/`。候选目录沿用 `linux-help-page-` 前缀，控制脚本目标断言已与实际验证目录对齐；尚未切换前纠正，不涉及运行数据。未推送 GitHub。
+
+## 2026-11-03 新版帮助页上线（此前生产）
+
+用户确认预览后授权上线。官方群中 @ 机器人或用该群开启的唤醒词加空格发送 `/help`、`帮助`、`菜单`，返回新版帮助图片；主人私聊 `/help` 返回私聊版。菜单由当前群功能、逐词开关和两项 07:30 订阅生成，聊天关闭仍可查看帮助并显示指定红字；不调用模型，先检查额度再绘图。沿用用户确认的米白/深青逐条卡片和控制台蓝色角色 Logo，宽 1320。旧文字菜单不再重复堆在图片旁。
+
+生产 release `linux-help-page-25722e38d870`，基于 `linux-weather-hires-21f195d1` 仅叠加帮助页、帮助入口、天气目录与相应测试 7 个文件；补丁 SHA256 `25722e38d87069807b5f917e0c805406efa4302f4f2ee7ad179cc350adaa7e30`，287 项源码哈希通过。官方 PID 108622 于 2026-11-03 14:43:09 CST 启动，实际 19327 监听、argv/current 源码、cwd `/var/lib/alexbot`、official 环境和源码先于启动均核对。本机仍为 SSH PID 40880、09:20:05 启动。connected、paired、未暂停、未决 0，发送计数 13→13；两群授权、词库、投递账本、共享配置和定时订阅保持，timer active，退役单元仍 masked。
+
+本机相关 Node 110 项通过（其中真实 Python/LangChain 子进程专项需退出沙箱限制后验证）。ECS 在 >=600 MiB 可用内存门槛下，以独立 128M、零 swap、50% CPU cgroup 验证真实 BridgeCore 的群帮助、chat 关闭帮助、私聊帮助及内容过滤；未连接测试 Bot 或发 QQ。Linux 生成 1320×6435 / 1320×6498 / 1320×5634 图片，已下载目视核验字体与 Logo。原天气高清渲染及无关本地工作未改动。
+
+切换前 22 文件加密备份 `/var/backups/alexbot/alexbot-20261103T064309728Z.json`，SHA256 `1f284f680b24d32565042e3d220c18d397e1347983012ccd6de8fe43f73247eb`；本机 `.private/migration/` 同名密文已核对哈希并验证凭据可恢复、未写明文。云端冻结状态与发布回执在 `/var/backups/alexbot-help-page/20261103`，本地补丁与脚本在忽略目录 `codex-qq-plugin/test-output/help-preview/release/`。旧 release 保留可回退。未推送 GitHub；真实 QQ 客户端查看新版帮助尚未由用户反馈。
+
+## 2026-11-03 帮助页按用户示意重排（历史预览，现已上线）
+
+`src/help-image.mjs` 改为用户提供的 `帮助页_Kimi改进_v1` 米白/深青卡片与逐条列表布局，右上角复用控制台 `public/logo.png` 原角色，保留原色与比例。按当前会话功能和启用唤醒词生成菜单，分列 OpenAI/DeepSeek 状态、标明 PM2.5 与识图用法；07:30 只列出本群实际订阅的项目。聊天关闭时显示用户指定红字，私聊不显示群唤醒词或群订阅。图片宽 1320，长度随内容自适应；绘图完成释放画布像素内存。
+
+预览位于 `codex-qq-plugin/test-output/help-preview/`：`help-reference.png` 为当前第一群权限，`help-reference-chat-off.png` 仅模拟该群关闭聊天（未修改实际开关），另有私聊和第二群版本。真实功能文案经过源码核对；本机 group-core/group-context 42 项通过，并检查了功能过滤、唤醒词回退、私聊隔离和 PNG 尺寸。等待用户审阅图片；没有部署、重启服务、发送 QQ 或推送 GitHub。生产仍为下述天气高清版本。
+
+## 2026-11-03 天气图总像素翻倍（当前生产）
+
+按用户要求将新版图片总像素提高约两倍，渲染倍率从 3 改为 3×√2，宽度 1320→1867，布局及配色保持。主画布和各子图完成后立即释放像素存储，避免等待 GC。首次 128M 专项触及 OOM，仅候选进程被停止，生产未受影响；修复后天气与早报连续渲染通过同样的 MemoryMax=128M、MemorySwapMax=0、CPUQuota=50% 限制，未放宽保护。本机相关 3 项测试通过。
+
+当前 release `linux-weather-hires-21f195d1`，基于上一版 `linux-weather-design-46139ccb`，只修改渲染器。manifest 记录补丁和 rendererCorrectionSha256。官方 PID 108298 于 2026-11-03 13:56:38 CST 启动，实际监听、argv、cwd、official 环境、源码时点均核对，connected、未暂停、未决为 0，发送尝试 12→12，定时器 active。本机 SSH 监听 PID 40880 保持。备份 `/var/backups/alexbot/alexbot-20261103T055638155Z.json`（22 文件），SHA256 `f6cecfbefc861e3e65c1d6fe9f5bc230de5a5d9b88eb2ba8a66a4ae2c88dc735`。云端回执目录 `/var/backups/alexbot-weather-hires/20261103`；本地发布脚本位于 `codex-qq-plugin/test-output/weather-redesign/release/hires`。未推送 GitHub。
+
+## 2026-11-03 新版天气图上线（当前生产）
+
+用户确认 PPT 版式和曲线跨档窄幅柔化后授权上线。生产 release `linux-weather-design-46139ccb` 基于 `linux-1e24bc4a96da`，仅替换天气查询、早报渲染入口及新版渲染器/字体/原模板图标；未混入帮助图、提醒、backup.mjs 等本机未完成修改。单城市天气查询与早间天气采用新版；旧双城市比较及模拟报告保留原渲染兼容路径。07:30 订阅、授权、词库和投递账本不变。图例分档和原色保持，PM2.5 曲线仅在跨档处约 3 CSS 像素高度柔化，降水/云量左右百分比轴，云量淡中性灰。
+
+2026-11-03 13:51:46 CST 官方服务 PID 108123 启动，已核对实际 19327 监听 PID、argv/current 源码、cwd、official 环境和源码早于进程启动。connected、未暂停、未决为 0，发送尝试 11→11；定时器 active，退役 OneBot/旧早报保持 masked。没有主动 QQ 测试发送。Node 相关 26 项通过；云端独立 128M、零 swap、50% CPU cgroup 内天气与早报渲染均通过，测试前可用内存超过 600 MiB。
+
+切换前已制作 22 文件加密备份 `/var/backups/alexbot/alexbot-20261103T055146937Z.json`，SHA256 `e2d69759a100b02fdc4ffea9798dade91d20db7152e6b23b631fa482312ba173`。旧 release 保留可回滚；冻结状态、备份和上线回执在 `/var/backups/alexbot-weather-design/20261103`。发布包 SHA256 `46139ccbfaf25463f0c9b8589c208c7dea4d1e3775860e809d785af8e3013d23`，本地脚本和回放数据在忽略目录 `codex-qq-plugin/test-output/weather-redesign/release`。发布是在现有生产源码上叠加指定文件，manifest 标明 baseRelease 和 patchSha256；没有推送 GitHub。
+
 ## 2026-11-03 07:30 两项推送拆成独立开关（当前生产）
 
 按用户要求，群页“定时推送”拆为“早间天气”（天气、空气与运动建议）和“三号楼自习简报”，两个开关分别保存、按群隔离；两项仍为每天北京时间 07:30。关闭的项目不抓取、不生成、不发送；关闭一项不会取消另一项，生成失败也不抑制另一项。开关关闭后重新开启不能复活旧结果，也不能将运行中新增的订阅加入旧任务。逐群逐图幂等键保持原值，已发送的图片不因拆分重复投递。继续使用现有官方 `alexbot-group-morning.timer`，Persistent=false、不补发；旧官方全局早报和全部 OneBot 单元仍 masked/inactive。

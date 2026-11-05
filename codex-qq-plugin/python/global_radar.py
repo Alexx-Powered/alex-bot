@@ -6,7 +6,6 @@ import math
 import re
 import time
 import uuid
-import threading
 from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -35,7 +34,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 def request(url,limit=1_500_000):
     parsed=urlsplit(url)
-    if parsed.scheme!='https' or parsed.hostname not in {'api.rainviewer.com','tilecache.rainviewer.com','tile.openstreetmap.org','geocoding-api.open-meteo.com'} or parsed.port is not None or parsed.username or parsed.password:
+    if parsed.scheme!='https' or parsed.hostname not in {'api.rainviewer.com','tilecache.rainviewer.com','geocoding-api.open-meteo.com'} or parsed.port is not None or parsed.username or parsed.password:
         raise RadarFailure('GLOBAL_RADAR_SOURCE_INVALID')
     try:
         with build_opener(NoRedirect()).open(Request(url,headers={'User-Agent':UA,'Accept':'application/json,image/png'}),timeout=10) as response:
@@ -69,6 +68,7 @@ def resolve_target(target,fetch=request):
         return {'name':target,'world':False,'latitude':lat,'longitude':lon,'zoom':zoom}
     # Reuse trusted project coordinates/aliases before any geocoding request.
     catalog=json.loads((Path(__file__).resolve().parents[1]/'data/weather-locations.json').read_text(encoding='utf-8'))
+    catalog['places'] += json.loads((Path(__file__).resolve().parents[1]/'data/outdoor-locations.json').read_text(encoding='utf-8'))['places']
     matches=[p for p in catalog['places'] if target.casefold() in {str(v).casefold() for v in [p['name'],p['id'],*p.get('aliases',[])]}]
     if len(matches)>1:raise RadarFailure('GLOBAL_RADAR_LOCATION_AMBIGUOUS')
     if matches:
@@ -128,12 +128,14 @@ def natural_base(zoom,left,top,size):
                     shifted=[(x+offset,y) for x,y in points]
                     if max(x for x,y in shifted)<0 or min(x for x,y in shifted)>size or max(y for x,y in shifted)<0 or min(y for x,y in shifted)>size:continue
                     draw.polygon(shifted,fill='#f7f5ee' if index==0 else '#dcebf3',outline='#95a9b4')
-    from render_fonts import font_path
-    font=ImageFont.truetype(font_path(False),21)
     if zoom>=4:
-        for label in data['labels']:
-            x,y=tile_position(label['latitude'],label['longitude'],zoom);x=x*512-left;y=y*512-top
-            if 30<x<size-80 and 25<y<size-25:draw.text((x,y),label['name'],font=font,fill='#617482',stroke_width=2,stroke_fill='#f7f5ee')
+        from render_fonts import font_path
+        from weather_map import label_layout,viewport_data
+        area={'world':world,'left':left,'top':top,'size':size}
+        _,labels=viewport_data(area)
+        font=ImageFont.truetype(font_path(False),round(14*size/640))
+        for row in label_layout(labels,area):
+            draw.text((row['x']*size/640,row['y']*size/640),row['text'],font=font,fill='#445b68',stroke_width=2,stroke_fill='#f7f5ee')
     return image
 
 def map_image(place,frame,private,fetch=request):
@@ -144,37 +146,17 @@ def map_image(place,frame,private,fetch=request):
         center_x,center_y=tile_position(place['latitude'],place['longitude'],zoom)
         left=round(center_x*512-512);top=round(center_y*512-512);size=1024
         tiles=[(x%n,y,x*512-left,y*512-top) for x in range(math.floor(left/512),math.floor((left+size-1)/512)+1) for y in range(math.floor(top/512),math.floor((top+size-1)/512)+1) if 0<=y<n]
-    base=Image.new('RGBA',(size,size),'#e2e8ef');radar=Image.new('RGBA',(size,size));mask=Image.new('L',(size,size),255)
-    cache=private/'global-radar-tiles';cache.mkdir(parents=True,exist_ok=True,mode=0o700)
-    unavailable=cache/'osm-unavailable';use_natural=threading.Event()
-    if unavailable.exists() and 0<=time.time()-unavailable.stat().st_mtime<3600:use_natural.set()
-    for old in cache.glob('osm-*.png'):
-        if time.time()-old.stat().st_mtime>8*86400:old.unlink(missing_ok=True)
-    # Only tiles intersecting this requested viewport; OSM cache retained at least seven days.
+    base=natural_base(zoom,left,top,size)
+    radar=Image.new('RGBA',(size,size));mask=Image.new('L',(size,size),255)
     def load_tile(row):
         x,y,dx,dy=row
-        cached=cache/f'osm-{zoom}-{x}-{y}.png'
-        background=None
-        if not use_natural.is_set():
-            try:
-                if cached.exists() and 0<=time.time()-cached.stat().st_mtime<7*86400:
-                    raw=cached.read_bytes()
-                else:
-                    if not cached.exists() and sum(1 for _ in cache.glob('osm-*.png'))>=512:raise RadarFailure('GLOBAL_RADAR_CACHE_FULL')
-                    raw=fetch(f'https://tile.openstreetmap.org/{zoom}/{x}/{y}.png')
-                    decode_tile(raw,256);temporary=cached.with_name(cached.name+'.'+uuid.uuid4().hex+'.tmp');temporary.write_bytes(raw);temporary.replace(cached)
-                background=decode_tile(raw,256).resize((512,512),Image.Resampling.LANCZOS)
-            except (RadarFailure,OSError):
-                use_natural.set();unavailable.touch()
         echo=decode_tile(fetch(f"{HOST}{frame['path']}/512/{zoom}/{x}/{y}/2/0_0.png"),512)
         coverage=decode_tile(fetch(f'{HOST}/v2/coverage/0/512/{zoom}/{x}/{y}/0/0_0.png'),512).getchannel('A')
-        return background,echo,coverage,dx,dy
+        return echo,coverage,dx,dy
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for background,echo,coverage,x,y in pool.map(load_tile,tiles):
-            if background is not None:base.paste(background,(x,y))
+        for echo,coverage,x,y in pool.map(load_tile,tiles):
             radar.paste(echo,(x,y));mask.paste(coverage,(x,y))
-    if use_natural.is_set():base=natural_base(zoom,left,top,size)
-    place['base_source']='Natural Earth' if use_natural.is_set() else 'OpenStreetMap'
+    place['base_source']='Natural Earth'
     base=Image.alpha_composite(base,radar)
     shade=Image.new('RGBA',base.size,(84,94,108,115));hatch=ImageDraw.Draw(shade)
     for offset in range(-size,size*2,18):hatch.line((offset,0,offset-size,size),fill=(70,82,99,175),width=2)
@@ -182,9 +164,6 @@ def map_image(place,frame,private,fetch=request):
     covered=mask.getpixel((512,512))<128 if not place['world'] else True
     if not place['world']:
         draw=ImageDraw.Draw(base);draw.ellipse((503,503,521,521),fill='#ffffff',outline='#1e4c84',width=3);draw.ellipse((509,509,515,515),fill='#1e4c84')
-    # Bound disk growth without discarding any tile before the seven-day cache minimum.
-    for old in cache.glob('osm-*.png'):
-        if time.time()-old.stat().st_mtime>8*86400:old.unlink(missing_ok=True)
     return base.convert('RGB'),covered
 
 def render(place,map_view,covered,frame):
@@ -204,7 +183,7 @@ def render(place,map_view,covered,frame):
         x=245+i*103;draw.rectangle((x,1203,x+92,1219),fill=color);draw.text((x+25,1227),str(value),font=font(20),fill='#536b84')
     draw.text((30,1265),'灰纹：无雷达覆盖   ·   圆点：查询位置' if not place['world'] else '灰纹：无雷达覆盖',font=font(23),fill='#536b84')
     draw.text((30,1301),'雷达 RainViewer · https://www.rainviewer.com/',font=font(22),fill='#536b84')
-    draw.text((30,1336),'底图 Natural Earth · naturalearthdata.com' if place.get('base_source')=='Natural Earth' else '底图 © OpenStreetMap contributors · openstreetmap.org/copyright',font=font(20),fill='#536b84')
+    draw.text((30,1336),'海岸线 Natural Earth · 行政中心见项目底图来源',font=font(20),fill='#536b84')
     output=io.BytesIO();image.save(output,format='PNG',optimize=True)
     if output.tell()>4_500_000:raise RadarFailure('GLOBAL_RADAR_IMAGE_TOO_LARGE')
     return output.getvalue()

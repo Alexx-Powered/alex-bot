@@ -65,6 +65,16 @@ test('scope limit applies across users and the global limit applies across scope
   assert.equal(JSON.parse(await fs.readFile(f.file, 'utf8')).records.length, 6);
 });
 
+test('queued model calls wait for the actual ledger slot and acquire only once',async t=>{
+  const f=await fixture(t);
+  const start=f.now(), waits=[];
+  const wait=async at=>{waits.push(at-start);f.setTime(at);return true;};
+  for(let i=0;i<3;i++)assert.equal((await f.budget.acquire(request(),wait)).ok,true);
+  assert.deepEqual(waits,[10000,20000,60000]);
+  assert.equal((await f.budget.acquire(request(),async()=>false)).code,'MODEL_REQUEST_CANCELLED');
+  assert.equal(JSON.parse(await fs.readFile(f.file,'utf8')).records.length,3);
+});
+
 test('concurrent acquisitions serialize and cannot overspend the global minute limit', async t => {
   const f = await fixture(t);
   const results = await Promise.all(Array.from({ length: 20 }, (_, i) => f.budget.acquire(request(`u${i}`, `s${i}`))));

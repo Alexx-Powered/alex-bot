@@ -180,12 +180,22 @@ test('group admin commands do nothing and fixed help exposes no private settings
   for (const command of ['帮助', '菜单', '/help']) assert.equal((await f.core.handleMessage(group(`梁嗨 ${command}`, command))).code, 'SENT');
   assert.equal(f.queries.length, 0);
   for (const sent of f.sent) {
-    assert.match(sent.text, /发 天气 城市或区县/); assert.match(sent.text, /发 雷达/); assert.match(sent.text, /雷达目录/); assert.match(sent.text, /发 雾霾 城市或区县/);
-    for (const alias of ['梁圣', '梁祖', '梁嗨', '小难梁', '大肥鱼']) assert.ok(sent.text.includes(alias));
-    assert.match(sent.text, /直接@机器人，无需前缀/);
+    assert.equal(sent.text,'本群使用指南');
+    assert.equal(sent.image.mimeType,'image/png');
+    assert.equal(sent.image.buffer.subarray(1,4).toString(),'PNG');
     assert.ok(!/pause|status|08|每日|已配对|本人/.test(sent.text));
     assert.equal(sent.groupId, GROUP);
   }
+});
+
+test('help remains available with model chat disabled and never invokes a business handler',async()=>{
+  const f=fixture({handler:async()=>assert.fail('help must not invoke tools or a model')});
+  await pairOwner(f);const groupKey=await allowGroup(f);
+  const features={...f.core.groupFeatures(GROUP),chat:false};
+  assert.equal((await f.core.setGroupFeatures({groupKey,features,enabled:true})).code,'GROUP_FEATURES_SAVED');
+  assert.equal((await f.core.handleMessage({...group('/help','help-chat-off'),mentioned:true})).code,'SENT');
+  assert.equal(f.sent.length,1);assert.equal(f.sent[0].image.mimeType,'image/png');
+  assert.equal(f.sent[0].requiredAccess,'chat');assert.equal(f.queries.length,0);
 });
 
 test('all five leading aliases accept whitespace separators and strip exactly one prefix', async () => {
@@ -369,4 +379,12 @@ test('whitelist removal is persisted and immediately prevents further queries; m
   assert.equal((await g.core.startGroupPairing({ name: NAME })).code, 'GROUP_LIMIT_REACHED');
   assert.equal(g.core.status().groupCount, 10);
   assert.equal(f.sent.length, 0); assert.equal(f.queries.length, 0);
+});
+
+test('video keeps one delivery ledger entry, captionless, and rejects mixed media',async()=>{
+ const buffer=Buffer.alloc(64);buffer.writeUInt32BE(24);buffer.write('ftypisom',4);const video={buffer,mimeType:'video/mp4'};
+ let mixed=false;const f=fixture({handler:async()=>({text:'',video,...(mixed?{image}:{})})});await pairOwner(f);await allowGroup(f);
+ assert.equal((await f.core.handleMessage(group('小难梁 发 动态温度 广州','video-1'))).code,'SENT');assert.equal(f.sent.length,1);assert.deepEqual(f.sent[0].video,video);
+ await f.core.handleMessage(group('小难梁 发 动态温度 广州','video-1'));assert.equal(f.sent.length,1);
+ mixed=true;assert.equal((await f.core.handleMessage(group('小难梁 发 动态温度 广州','video-2'))).code,'INVALID_INPUT');assert.equal(f.sent.length,1);
 });

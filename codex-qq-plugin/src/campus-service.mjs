@@ -9,6 +9,7 @@ import {z} from 'zod';
 import {fullAccess} from './access-policy.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
 import {withHeavyWork} from './heavy-work.mjs';
+import {recordRequestFailure} from './telemetry.mjs';
 
 const source='https://app.buaa.edu.cn/site/classRoomQuery/index';
 const semantics='接口标空闲则为空闲，其余课节为有课；保留接口给出的节次。';
@@ -53,7 +54,7 @@ export const parseCampusCommand=text=>{
 };
 
 export class CampusService{
-  #busy=false;#last=null;#cache=new Map();#cacheLoaded=false;
+  #pendingQueries=new Set();#last=null;#cache=new Map();#cacheLoaded=false;
   constructor({home,configStore,worker,now=()=>Date.now()}){
     Object.assign(this,{home,configStore,now});
     this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','campus_worker.py'),timeoutMs:210000,maxLineBytes:262144,idleMs:90_000});
@@ -82,14 +83,19 @@ export class CampusService{
   }
   async status(){
     let status;try{status=await this.configStore.status();}catch{status={enabled:false,configured:false,code:'CAMPUS_CONFIG_UNAVAILABLE'};}
-    return {...status,busy:this.#busy,lastCode:this.#last?.code||null,lastFetchedAt:this.#last?.fetched_at||null};
+    return {...status,busy:this.#pendingQueries.size>0,lastCode:this.#last?.code||null,lastFetchedAt:this.#last?.fetched_at||null};
   }
   async run(args={},mode='query',options={}){
     let parsed;try{parsed=campusArgs.parse(args);}catch{return {data:campusFailure('CAMPUS_INVALID_DATE')};}
     if(!['query','report','login'].includes(mode))return {data:campusFailure('CAMPUS_QUERY_FAILED')};
-    if(this.#busy)return {data:campusFailure('CAMPUS_BUSY',parsed.date)};
-    this.#busy=true;
-    try{
+    const pending=withHeavyWork(()=>this.#query(parsed,mode,options));
+    this.#pendingQueries.add(pending);
+    try { return await pending; }
+    catch(error){return {data:campusFailure(error.code==='HEAVY_WORK_BUSY'?'CAMPUS_BUSY':error.timedOut?'CAMPUS_WORKER_TIMEOUT':'CAMPUS_QUERY_FAILED',parsed.date)};}
+    finally{this.#pendingQueries.delete(pending);}
+  }
+  async #query(parsed,mode,options) {
+      if(options.authorize && !options.authorize())return {data:campusFailure('CAMPUS_OWNER_ONLY',parsed.date)};
       let credentials;try{credentials=await this.configStore.read();}catch{return {data:campusFailure('CAMPUS_CONFIG_UNAVAILABLE',parsed.date)};}
       if(!credentials.username||!credentials.password)return {data:campusFailure('CAMPUS_NOT_CONFIGURED',parsed.date)};
       if(!credentials.enabled)return {data:campusFailure('CAMPUS_DISABLED',parsed.date)};
@@ -98,7 +104,7 @@ export class CampusService{
       if(process.platform!=='win32'){
         try{const saved=await unprotectCredential(JSON.parse(await fs.readFile(sessionFile,'utf8')).cipher);if(saved.identity===identity)sessionState=saved.state;}catch{ /* A missing/expired session requires a fresh login. */ }
       }
-      const result=await withHeavyWork(()=>this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
+      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
         const data=validateCampusData(value.data);
         if(process.platform!=='win32'&&data.ok&&value.session_state){
           await atomicJson(sessionFile,{format:credentialFormat(),cipher:await protectCredential({identity,state:value.session_state})});
@@ -113,10 +119,8 @@ export class CampusService{
         const buffer=await fs.readFile(file);
         const image=await studyImage({idempotencyKey:'study:'+value.artifact_id.repeat(2),pngBase64:buffer.toString('base64')});
         return {data,image};
-      }));
+      });
       this.#last=result.data;return result;
-    }catch(error){return {data:campusFailure(error.code==='HEAVY_WORK_BUSY'?'CAMPUS_BUSY':error.timedOut?'CAMPUS_WORKER_TIMEOUT':'CAMPUS_QUERY_FAILED',parsed.date)};}
-    finally{this.#busy=false;}
   }
   async resolveIntent(text,requested='auto',origin='query'){
     if(!text)return {view:requested==='auto'?(origin==='query'?'full':'compact'):requested,session:'now'};
@@ -138,9 +142,10 @@ export class CampusService{
     const compact=intent.view==='compact';
     if(context?.progress&&await context.progress(compact?'campus-fetch-current':'campus-fetch')!==true)return {cancelled:true};
     if(!fullAccess(context,'campus'))return {cancelled:true};
-    const result=await this.run(queryArgs,compact?'query':'report',{requestText,building,regions});
+    const result=await this.run(queryArgs,compact?'query':'report',{requestText,building,regions,authorize:()=>fullAccess(context,'campus')});
     if(!fullAccess(context,'campus'))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     if(compact&&result.data.ok)return this.recommend({date:result.data.date,session:intent.session,...(building?{building}:{}),...(regions?{regions}:{})},context,requestText);
+    if(!result.data.ok)recordRequestFailure({code:result.data.code},'worker_total');
     return result.image?{image:result.image,text:'',campusData:result.data,requiredAccess:'white'}:{text:JSON.stringify({...result.data,...(timeoutNotice({code:result.data.code})?{message:timeoutNotice({code:result.data.code})}:{})}),requiredAccess:'white'};
   }
   async recommend(args,context,requestText){
@@ -151,7 +156,8 @@ export class CampusService{
     }
     const status=await this.configStore.status();
     if(!status.configured||!status.enabled)return {text:'校园查询未启用，请先在本机设置页启用。',requiredAccess:'white'};
-    if(this.#busy)return {text:'正在抓取教室数据，请等本次查询完成后再问推荐。',requiredAccess:'white'};
+    await Promise.allSettled(this.#pendingQueries);
+    if(!fullAccess(context,'campus'))return null;
     const intent=await this.resolveIntent(requestText,'auto','recommend');
     if(!fullAccess(context,'campus'))return null;
     if(intent.view==='full')return this.execute({date:parsed.date,building:parsed.building,regions:parsed.regions,view:'full'},context,requestText);

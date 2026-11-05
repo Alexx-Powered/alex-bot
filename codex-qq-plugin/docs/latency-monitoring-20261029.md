@@ -33,10 +33,10 @@
 
 配置页第07节可填自己的Key、项目、区域、必要时workspace UUID。Key通过现有平台加密保存到`.private/monitoring-config.json`，不回显，不进入Python、模型输入、日志或trace。Key纳入整体加密备份。
 
-保持`LANGSMITH_TRACING=false`和既有环境隔离，不启用LangChain自动聊天追踪。Node通过官方[手动API](https://docs.langchain.com/langsmith/trace-with-api)发送完成的root/child runs；遵循[敏感数据处理](https://docs.langchain.com/langsmith/mask-inputs-outputs)的原则，但不依赖事后正则脱敏，而是从源头不收内容：
+Node 在请求完成后向已配置的 LangSmith 项目发送分段记录。Python 继续关闭自动追踪，单独提供阶段耗时、分类后的异常和 HTTP 状态。[LangSmith run 格式](https://docs.langchain.com/langsmith/run-data-format)
 
-- inputs/outputs固定空对象；不上传聊天、prompt、长期记忆、工具参数/结果、账号、真实群/成员ID或稳定session哈希。
-- 只传固定阶段名、随机UUID、时间、耗时、数值token与ok/error/fallback状态；错误只用固定码，不用SDK原异常。
+- 从 2026-11-05 起，远端 Input 显示已授权且唤醒机器人的本条消息原文。部分工具步骤显示地点、图层、时长等已校验参数。可识别的凭据、绑定口令与 QQ 内部提及标识会遮盖。背景群聊、完整模型提示、历史消息、附件和工具输出均排除在上报范围外。
+- Error Message 显示失败步骤、已识别的错误码、中文原因，以及上游提供的 HTTP 状态。备用源成功时，原数据源步骤保留故障原因，根请求显示成功。SDK 原始响应、堆栈和凭据不上报。本地最近记录仍只保存性能统计，历史远端记录不会回填。
 - 仅允许US/EU官方HTTPS API，workspaceId用官方`x-tenant-id`。独立有界队列32条，单次POST限2秒、不重试，不等待网络或磁盘再返回QQ。
 - 失败、未配置、断网或监控拥堵只影响追踪状态，不暂停Bot，不消耗QQ发送额度。
 
@@ -48,6 +48,6 @@
 
 ## 本轮优化与后续判断
 
-生产启动时在连接QQ前导入Python/LangChain/provider依赖，不创建模型、不发API请求、不写业务记忆。HTTP连接池空闲复用从默认5秒延至60秒，原20秒超时和重试边界不变。固定工具、权限、可爱淘气口吻与长期记忆继续保留。
+2026-10-29 的优化在生产启动时、连接QQ前导入Python/LangChain/provider依赖，不创建模型、不发API请求、不写业务记忆。HTTP连接池空闲复用从默认5秒延至60秒；当时仍为20秒超时。2026-11-03 后续优化将模型等待改为30秒，并增加明确天气请求的 Python 确定性快捷路径；详情见 HANDOVER 最新节。无超时自动重试，固定工具、权限、口吻与长期记忆继续保留。
 
 全局任务队列仍串行，长校园查询可能让后续聊天等待；先根据core_queue与worker_queue的真实指标决定是否需要拆队列，没有在本轮贸然开放并发。普通聊天两次模型请求也仍然存在，约2秒热路径的进一步优化需要继续权衡路由准确率、口吻与成本。

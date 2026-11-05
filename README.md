@@ -1,48 +1,126 @@
-# 亚历克斯 QQ Bot
+<p align="center">
+  <img src="codex-qq-plugin/public/logo.png" width="88" alt="亚历克斯机器人标志">
+</p>
+<h1 align="center">亚历克斯 QQ Bot</h1>
+<p align="center">问天气、看雷达、查教室。支持自然语言，也支持直接发指令。</p>
+<p align="center">QQ 官方 Bot · Python LangChain · 独立群权限 · 图像与视频回复</p>
 
-通过腾讯官方 QQ Bot API 运行的机器人，生产服务在阿里云ECS，本机通过受限SSH访问配置入口。Node.js 管理 QQ 接入、授权、预算和发送；Python LangChain 管理自然语言工具选择与新增业务规则。主要功能包括天气/雷达图片、固定换算、生活费预算、官方服务状态查询、本人账户余额、早安报告及自习简报。
+## 能做什么
 
-开发前阅读 [AGENTS.md](AGENTS.md) 和 [HANDOVER.md](HANDOVER.md)。
+- **天气与户外**：两日天气简报，温度、降水、云量、PM2.5，以及分上午、下午计算的户外指数。
+- **动态气象**：云量、温度、降水、PM2.5 的 24 / 48 小时预报视频；历史云图回看近 6 小时观测。支持城市、省区、大区和部分景点、山峰、村庄、徒步路线。
+- **实用查询**：全球降水雷达、五家 AI 服务状态、学院路空教室与三号楼自习简报、固定单位换算。
+- **按群管理**：快速匹配群聊、独立功能开关、全局唤醒词与各群开关。普通聊天可以关闭，仍能用自然语言调用已开放的工具。
+- **定时与帮助**：早间天气、三号楼自习简报各自订阅，每天北京时间 07:30 推送；`/help` 按当前聊天的功能和唤醒词生成帮助图。
 
-天气图显示北京时间今天00:00至明天24:00，包含温度、PM2.5、逐小时降水概率和ECMWF总云量，每行标明来源。2026-11-03 已恢复官方 QQ Bot，并移植新版分栏控制台、快速群匹配、全局唤醒词管理与逐群功能开关；原主人及两个官方群授权保持，OneBot 服务全部屏蔽。群页的“早间天气”和“三号楼自习简报”分别开关，默认关闭；明确开启并保存后，每天 07:30 仅发送所选项目，不补发错过的周期。
+## 看看效果
 
-教室抓取先回复“正在抓取数据”，再返回三号楼图片。成功查询按日期缓存到云端记忆，支持“推荐一下晚上的教室，多推荐几个”“现在想换教室推荐去哪”：固定Python工具按真实北京时间、课节状态和教室舒适度筛选候选，大模型解释选择。图片沿用橙色系，用明显的深浅区分档位；完整优先级见交接文档。GitHub仅在用户明确要求时同步，日常开发在本地完成。
+以下是程序实际渲染的样例。天气和服务状态保留采集日期，代表当时结果；控制台使用演示群名与配置。
 
-群权限现分两档：白名单群成员直接官方@机器人或带唤醒前缀主动询问时，可使用全部业务工具，包括DeepSeek余额和学院路教室查询；灰名单群仅可基础聊天与固定单位换算。设置页第04节可选择名单绑定群、切换档位或移除。群管理与凭据设置仍由本机页面操作；Codex阻塞求助按既有规则只发已配对本人。
+### 两日天气与户外指数
 
-GitHub：[Alexx-Powered/alex-bot](https://github.com/Alexx-Powered/alex-bot)，2026-10-31已复核为private；默认分支`main`。
+将天气摘要、空气质量和适合户外活动的时段放在一起，下方继续展示逐小时曲线。户外指数使用项目自定义规则，说明见[评分规则](codex-qq-plugin/docs/outdoor-index.md)。
 
-| 目录 | 内容 |
-|---|---|
-| [codex-qq-plugin](codex-qq-plugin/README.md) | QQ主服务、Python工具、Codex MCP、本机控制页与测试 |
-| [workbuddy-study-qq](workbuddy-study-qq/README.md) | WorkBuddy截图分析、三号楼自习规划、绘图及本人发送工具 |
-| [buaa-classrooms](buaa-classrooms/README.md) | 最初的独立采集原型；当前Bot集成实现在主服务的Python校园模块 |
+<a href="docs/images/weather.webp"><img src="docs/images/weather-summary.webp" width="640" alt="广州天气摘要：温度范围、降水、风、湿度与户外指数"></a>
 
-## 本地开发
+[查看完整天气图](docs/images/weather.webp)
 
-运行环境为 Windows、Node.js ≥22、Python ≥3.10。主服务依赖恢复：
+### 24 / 48 小时动态预报
+
+在 QQ 中直接播放视频，地图上显示地名、预报类型、色阶和时间轴。云量、温度、降水优先使用 ECMWF IFS；PM2.5 使用 ECMWF/CAMS。预报云图与历史卫星观测分开查询。
+
+<img src="docs/images/forecast-video.webp" width="640" alt="广东降水预报视频实帧，显示地市边界、水域和北京时间轴">
+
+### AI 服务状态
+
+支持 OpenAI、DeepSeek、Gemini、Claude、Kimi。有故障时，红色信息区列出受影响服务、事件说明和最新修复进展。
+
+<img src="docs/images/providers.webp" width="960" alt="OpenAI、DeepSeek、Gemini、Claude、Kimi 五家服务状态卡片节选">
+
+### 控制台
+
+选择群聊即可修改功能与定时推送；在任意页面增删改唤醒词都会同步到全局，各群独立选择启用哪些词。
+
+<img src="docs/images/console.webp" width="1040" alt="控制台演示：群功能分栏、独立开关和两个 07:30 定时订阅">
+
+<details>
+<summary>展开查看自动生成的帮助图</summary>
+
+帮助内容随当前聊天权限更新，展示实际可用的指令和唤醒词。
+
+<img src="docs/images/help.webp" width="640" alt="按演示群权限生成的帮助图，含自然语言提问示例和聊天关闭提示">
+
+</details>
+
+## 怎么问
+
+主人私聊直接发送；群聊先 **@机器人**，或使用已启用的**唤醒词 + 空格**。例如：
+
+```text
+大肥鱼 北京明天要带伞吗？
+小瘦鱼 看看新疆未来两天的动态温度
+梁圣 外面打雷了，看看成都的雷达图
+```
+
+固定指令直接调用工具，无需 DeepSeek 理解自然语言。下表省略群聊的 @ / 唤醒词：
+
+| 想做什么 | 指令示例 |
+| --- | --- |
+| 当前聊天的帮助图 | `/help` |
+| 两日天气 | `发 天气 广州` |
+| PM2.5 曲线 | `发 PM2.5 北京` |
+| 雷达图 | `发 雷达 成都` |
+| 云量预报视频 | `发 云图 南京` |
+| 历史卫星云图 | `发 历史云图 南京` |
+| 48 小时云量预报 | `发 动态云图48h 华北` |
+| 48 小时温度预报 | `发 48h动态温度 新疆` |
+| 48 小时 PM2.5 预报 | `发 48h动态pm2.5 北京` |
+| 降水预报视频 | `发 动态降水 广东` |
+| 服务状态 | `查 OpenAI 状态`，也可换成其他四家 |
+| 自习教室 | `发 三号楼空教室情况` |
+| 固定换算 | `1马里换公里` |
+
+各群可用功能以当次 `/help` 为准。图片和视频查询成功后直接发成品，无需附加文字。
+
+## 实现与运行
+
+**Node.js** 负责 QQ 官方 SDK、授权、唤醒词、消息队列、发送与控制台；**Python LangChain** 负责受限工具和自然语言路由。固定指令、自然语言和定时任务复用业务实现。图片与视频按队列处理，数据下载使用受限并发与缓存。
+
+响应监控可查看排队、数据获取、解码、绘图、H.264 编码和 QQ 投递耗时。启用 LangSmith 后，trace 包含触发消息原文、工具参数和错误信息；详见[监控说明](codex-qq-plugin/docs/latency-monitoring-20261029.md)。
+
+正式实例运行在 ECS，通过 SSH 隧道访问本机控制台。当前仅使用 **QQ 官方 Bot**；OneBot 已退役。部署会保留运行状态，执行备份、回归、地图资产校验与进程核验。
+
+### 开发准备
+
+需要 Node.js 22+、Python 3.10+。Windows 开发环境：
 
 ```powershell
-Set-Location -LiteralPath 'D:\Projects\Alex Bot\codex-qq-plugin'
+cd codex-qq-plugin
 npm ci
 .\scripts\install-python-agent.ps1
 ```
 
-凭据在本机设置页填写；首次配对与启动流程见主服务README。现有安装无需重新配对。MCP安装源和部分脚本含本机绝对路径，迁移时需调整，不能把Windows DPAPI材料直接复制到其他机器使用。
+Linux 部署、中文字体和浏览器依赖见[运行与部署](codex-qq-plugin/ops/README.md)。已有 ECS 实例使用隧道连接，避免以同一组凭据重复启动机器人。
 
-离线回归不发送真实QQ消息、不调用在线模型，可在服务运行时执行：
+### 测试
 
 ```powershell
-npm test
-.\.venv\Scripts\python.exe -B -X utf8 -m unittest discover -s python -p 'test_*.py'
+# 在 codex-qq-plugin 目录执行，离线回归不发送真实 QQ 消息。
+$env:QQ_PYTHON = (Resolve-Path '.venv/Scripts/python.exe').Path
+node --test test/*.test.mjs
+.\.venv\Scripts\python.exe -m unittest discover -s python -p 'test_*.py'
 ```
 
-WorkBuddy原脚本保留不同Python环境入口；Bot环境现已加入Pillow，也可一次运行完整5项测试，命令见其README。在线数据、模型与真实QQ验收需要按当次授权单独执行。
+## 项目入口
 
-学院路功能在本机控制页第06节配置。本人私聊或白名单群主动询问“查空教室”“三号楼简报”会查询学院路全部教室JSON，并直接生成三号楼图片回复当前会话；JSON可在控制页查询/下载。校园账号密码单独用Windows DPAPI加密，不进入模型、仓库或群聊。校园接口标空闲的课节为空闲，其余课节按用户指定记为有课。
+| 目录 / 文档 | 内容 |
+| --- | --- |
+| [主服务指南](codex-qq-plugin/README.md) | 配置、群管理、工具、测试与 MCP |
+| [动态视频](codex-qq-plugin/docs/weather-video.md) | 数据、缓存、渲染与资源策略 |
+| [运行与部署](codex-qq-plugin/ops/README.md) | ECS、备份与回滚 |
+| [开发交接](HANDOVER.md) | 发布记录、当前版本与验证结果 |
+| [架构与功能](QQ-Bot-架构与功能.html) | 可在浏览器打开的交互式工程说明 |
+| [workbuddy-study-qq](workbuddy-study-qq/README.md) | 校园截图分析与自习简报组件 |
+| [buaa-classrooms](buaa-classrooms/README.md) | 校园采集原型 |
 
-## 仓库边界
-
-本仓库仅保存源码、非密钥配置、依赖锁文件、测试和开发说明。`.private`、校园浏览器profile、QQ收件回执、备份、预览、采集样本、运行日志、虚拟环境及安装ZIP均忽略；本机保留这些文件，Git不管理它们。历史部署验收原件可能含用户信息，默认只留本地；Git中保存经过筛选的维护记录。
-
-当前GitHub仓库设置为private。后续改变可见性前需重新检查文档、配置及提交历史。消息接收权限、发送暂停、计数及幂等记录不能通过Git回滚或复制来重置。
+第三方数据、字体和标志的来源分别保留在 `codex-qq-plugin/data/*NOTICE*` 与 `public/` 对应素材目录。地图使用项目已确认的资产与核对流程；未附带的个人凭据、运行状态和本机素材不进入仓库。

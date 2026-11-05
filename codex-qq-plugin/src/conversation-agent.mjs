@@ -7,6 +7,7 @@ import {parseWeatherCommand} from './weather-commands.mjs';
 import {featureEnabled,toolFeature} from './group-features.mjs';
 import {isGray,fullAccess,basicAccess,restrictedReply} from './access-policy.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
+import {recordRequestFailure} from './telemetry.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
@@ -17,8 +18,11 @@ export class ConversationAgent{
   async handle(text,context={}){
     let socialData={};
     try{socialData=await this.socialService?.prepare(text,context)||{};}catch(error){
-      if(error.timedOut)return {text:timeoutNotice(error,{stage:text.startsWith('/记忆')?'记忆处理':'图片或语音识别'}),requiredAccess:'chat'};
-      if(/^\/(?:识图|记忆)(?:\s|$)/u.test(text)||context.media?.length)return {text:context.media?.some(a=>a.kind==='audio')?'这条语音暂时没听清，再发一次试试~':text.startsWith('/记忆')?'记忆暂时更新不了，稍后再试~':'这张图暂时没看清，再发一次试试~',requiredAccess:'chat'};
+      if(error.timedOut){recordRequestFailure(error);return {text:timeoutNotice(error,{stage:text.startsWith('/记忆')?'记忆处理':'图片或语音识别'}),requiredAccess:'chat'};}
+      if(/^\/(?:识图|记忆)(?:\s|$)/u.test(text)||context.media?.length){
+        recordRequestFailure(error);
+        return {text:context.media?.some(a=>a.kind==='audio')?'这条语音暂时没听清，再发一次试试~':text.startsWith('/记忆')?'记忆暂时更新不了，稍后再试~':'这张图暂时没看清，再发一次试试~',requiredAccess:'chat'};
+      }
       socialData={social:{ok:false,disabled:true,unavailable:true}};
     }
     if(socialData.reply)return {text:socialData.reply,requiredAccess:'chat',...(socialData.reset?{memoryReset:true}:{})};
@@ -36,23 +40,23 @@ export class ConversationAgent{
     const campus=await this.campusTools?.handle(text,context);if(campus)return campus.cancelled?null:gray?denied():decorate(campus,'white',false,'campus');
     if(isBalanceQuery(text)){
       if(!fullAccess(context,'balance'))return gray||context.features?denied():{text:'账户余额仅支持本人私聊或获准的群主动查询。'};
-      let config;try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机检查。'};}
+      let config;try{config=await this.configStore.read();}catch{recordRequestFailure({code:'MODEL_CONFIG_UNAVAILABLE'});return {text:'模型配置暂不可用，请在本机检查。'};}
       if(!config.apiKey)return {text:'尚未配置 DeepSeek API Key，请在本机配置页保存。'};
       try{return await this.worker.run({type:'execute',name:'deepseek_account_balance',args:{},config,...fixedToolContext(context),context:{scope:context.scope,...(context.scope==='group'?{access:context.features?'white':context.access,...(context.features?{features:context.features,policyRevision:context.policyRevision||0}:{})}:{})}},async()=>{throw Error('BALANCE_RPC_DENIED');},value=>fullAccess(context,'balance')?decorate(balanceReply(value),'white',true,'balance'):denied());}
-      catch(error){return {text:timeoutNotice(error)||'余额查询暂不可用，请稍后再试。'};}
+      catch(error){recordRequestFailure(error,'worker_total');return {text:timeoutNotice(error)||'余额查询暂不可用，请稍后再试。'};}
     }
     if (!featureEnabled(context,'conversion') && parseConversionCommand(text)) return denied();
     const conversion=featureEnabled(context,'conversion')?await this.conversionTools?.handle(text,context):null;
     if(conversion)return decorate(conversion,'chat',false,'conversion');
     const weather=parseWeatherCommand(text);
-    const weatherFeature=weather?.type==='air'?'air':weather?.type?.startsWith('radar')?'radar':'weather';
+    const weatherFeature=weather?.type==='air'||(weather?.type==='video'&&weather.layer==='pm25')?'air':weather?.type?.startsWith('radar')?'radar':'weather';
     if (weather && !featureEnabled(context,weatherFeature)) return denied();
     if(!gray){const fixed=await this.toolbox.handle(text);if(fixed)return decorate(fixed,'white',false,weatherFeature);}
     if(!basicAccess(context))return null;
     let config,policy;
-    try{config=await this.configStore.read();}catch{return {text:'模型配置暂不可用，请在本机设置中检查。'};}
+    try{config=await this.configStore.read();}catch{recordRequestFailure({code:'MODEL_CONFIG_UNAVAILABLE'});return {text:'模型配置暂不可用，请在本机设置中检查。'};}
     if(!config.enabled||!config.apiKey)return null;
-    try{policy=await this.policyLoader(this.policyFile);}catch{return {text:'聊天规则文件格式有误，请在本机检查 config/chat-policy.md。'};}
+    try{policy=await this.policyLoader(this.policyFile);}catch{recordRequestFailure({code:'CHAT_POLICY_INVALID'});return {text:'聊天规则文件格式有误，请在本机检查 config/chat-policy.md。'};}
     policy={...policy,enabled:policy.enabled&&featureEnabled(context,'chat'),maxChars:Math.min(600,policy.maxChars)};
     const input=checkChatInput(text,{media:Boolean(socialData.media)});
     if(!input.ok)return policy.enabled&&input.reply?{text:boundChatReply(input.reply,policy.maxChars)}:null;
@@ -60,7 +64,7 @@ export class ConversationAgent{
     const key=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
     const userKey=key(context.userKey)?context.userKey:opaque('user:'+sessionKey);
     const scopeKey=key(context.scopeKey)?context.scopeKey:opaque('scope:'+sessionKey);
-    let budget;try{budget=await this.modelBudget.acquire({userKey,scopeKey});}catch{return null;}
+    let budget;try{budget=await this.modelBudget.acquire({userKey,scopeKey},context.waitForQuota);}catch{return null;}
     if(!budget?.ok){
       if(!budget?.code?.startsWith('MODEL_RATE_LIMIT_'))return null;
       const now=Date.now(),last=this.#limitNotices.get(scopeKey);
@@ -90,7 +94,7 @@ export class ConversationAgent{
         if(name==='local_weather_briefing')throw new Error('TOOL_DENIED');
         const feature=toolFeature(name);
         if (!feature || !featureEnabled(context,feature)) return denied();
-        if(name==='deepseek_service_status'||name==='liang_status'){
+        if(name==='deepseek_service_status'||name==='liang_status'||name==='ai_service_status'){
           if(!this.statusTools||!fullAccess(context,'status'))return denied();
           return this.statusTools.execute(name,args,context);
         }
@@ -124,7 +128,7 @@ export class ConversationAgent{
           return decorate({ignored:true,text:policy.enabled?'这件事我帮不上忙，但鱼还在，可以陪你聊聊。':''},'chat');
         }
         if(result.kind==='clarify'&&result.reason==='unsupported_action'&&policy.enabled)return decorate({text:'这件事我不能代你操作，也不能替你联系别人。'},'chat');
-        if(result.kind==='clarify')return result.reason==='restricted_access'?denied():result.reason==='missing_place'?decorate({text:'请告诉我城市或区县；雷达也可以使用区域名，例如华北。'},'chat'):result.reason==='unsupported_time'?decorate({text:'天气图支持从今天或明天00:00开始的连续两天；空气质量单图展示未来48小时，雷达只支持当前观测。'},'chat'):null;
+        if(result.kind==='clarify')return result.reason==='restricted_access'?denied():result.reason==='missing_place'?decorate({text:'请告诉我地点。动态天气视频和雷达也支持区域名，例如华北。'},'chat'):result.reason==='unsupported_time'?decorate({text:'天气图支持从今天或明天00:00起连续两天；空气单图未来48小时，雷达当前观测。天气视频支持未来24或48小时；历史观测请发“发 历史云图 地点”。'},'chat'):null;
         return null;
       });
       if(result?.ignored){
@@ -148,6 +152,7 @@ export class ConversationAgent{
       if(!fullAccess(context,'campus')||!advice)return null;
       return this.campusTools.renderRecommendation?decorate(await this.campusTools.renderRecommendation(result.campusRecommendation,advice.explanation||'',context),'white',false,'campus'):advice;
     }catch(error){
+      recordRequestFailure(error);
       const messages={MODEL_AUTH_ERROR:'模型接口鉴权失败，请检查本机保存的 Key 和权限。',MODEL_BALANCE_INSUFFICIENT:'模型接口提示余额不足，可以私聊问“查余额”确认。',MODEL_PROVIDER_RATE_LIMITED:'模型接口暂时限流了，稍等再问我。',MODEL_PROVIDER_UNAVAILABLE:'模型服务暂时异常，稍后再试一下。',MODEL_TIMEOUT:'模型回复超时了，稍后再问一次吧。',MODEL_CONNECTION_ERROR:'这次没连上模型接口，稍后再试一下。',MODEL_TOOL_ROUTING_FAILED:'这次没能正确识别工具参数，请换个说法再试。'};
       const reason=Object.hasOwn(messages,error?.reason)?error.reason:'WORKER_FAILED';
       console.warn('[qq-agent] '+reason);

@@ -45,8 +45,13 @@ def wind_brief(speeds: list[float | None], directions: list[float | None], gusts
 if __name__ == "__main__":
     try:
         packet = json.loads(sys.stdin.buffer.readline(65537))
+        weather = packet.pop("weather", None)
         if not {"speeds", "directions"} <= set(packet) or set(packet) - {"speeds", "directions", "gusts"}:
             raise ValueError("INVALID_FIELDS")
-        print(json.dumps(wind_brief.invoke(packet), ensure_ascii=False))
+        result = wind_brief.invoke(packet)
+        if weather is not None:
+            from weather_summary import weather_summary
+            result = {"windBrief": result, "weatherSummary": weather_summary.invoke(weather)}
+        print(json.dumps(result, ensure_ascii=False))
     except Exception:
         print(json.dumps(["风速暂不可用", "风速暂不可用"], ensure_ascii=False))

@@ -4,11 +4,12 @@ FEATURE_KEYS = {
     'status', 'balance', 'images', 'voice', 'memory', 'morningWeather', 'morningCampus',
 }
 TOOL_FEATURES = {
+    'cloud_video':'weather','pm25_video':'air','precipitation_video':'weather','temperature_video':'weather',
     'weather_image': 'weather', 'air_quality_image': 'air',
     'radar_image': 'radar', 'radar_catalog': 'radar',
     'convert_units': 'conversion', 'convert_previous_result': 'conversion',
     'living_cost_budget': 'budget', 'openai_service_status': 'status',
-    'deepseek_service_status': 'status', 'liang_status': 'status',
+    'deepseek_service_status': 'status', 'ai_service_status': 'status', 'liang_status': 'status',
     'deepseek_account_balance': 'balance', 'buaa_classroom_query': 'campus',
     'buaa_classroom_recommend': 'campus', 'reply_chat': 'chat',
     'chat_memory': 'memory', 'lookup_current_slang': 'chat',

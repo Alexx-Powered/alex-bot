@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { CITIES, LOCATION_METADATA, getLocationCatalog, LocationService, validatePlace } from '../src/locations.mjs';
 
+const makeService = options => new LocationService({outdoorLookup:async()=>[],...options});
 const NOW = Date.parse('2026-10-28T12:00:00Z');
 const response = (body, options = {}) => new Response(JSON.stringify(body), {
   headers: { 'content-type': 'application/json; charset=utf-8' }, ...options,
@@ -28,7 +29,7 @@ test('published catalog retains every official CSV location, provenance, and all
 });
 
 test('all 3577 stable catalog IDs resolve locally, including nonnumeric QWeather IDs', async () => {
-  const service = new LocationService({ fetchImpl: noNetwork });
+  const service = makeService({ fetchImpl: noNetwork });
   let alphanumeric = 0;
   for (const place of getLocationCatalog()) {
     assert.deepEqual(await service.resolve(place.id), place);
@@ -39,7 +40,7 @@ test('all 3577 stable catalog IDs resolve locally, including nonnumeric QWeather
 });
 
 test('legacy coordinates are exact and copied, while other cities and counties resolve from the catalog', async () => {
-  const service = new LocationService({ fetchImpl: noNetwork });
+  const service = makeService({ fetchImpl: noNetwork });
   assert.deepEqual(CITIES.beijing, { id: 'beijing', name: '北京', latitude: 39.9042, longitude: 116.4074 });
   assert.deepEqual(CITIES.tianjin, { id: 'tianjin', name: '天津', latitude: 39.0842, longitude: 117.2009 });
   assert.deepEqual(CITIES.guangzhou, { id: 'guangzhou', name: '广州', latitude: 23.1291, longitude: 113.2644 });
@@ -59,7 +60,7 @@ test('legacy coordinates are exact and copied, while other cities and counties r
 });
 
 test('same-name cities/counties are ambiguous and copied suggestions select the exact record', async () => {
-  const service = new LocationService({ fetchImpl: noNetwork });
+  const service = makeService({ fetchImpl: noNetwork });
   let ambiguous;
   await assert.rejects(service.resolve('朝阳'), (error) => {
     ambiguous = error; return error.code === 'LOCATION_AMBIGUOUS' && error.suggestions.length >= 3;
@@ -91,7 +92,7 @@ test('validatePlace rejects malformed coordinates, IDs, labels, prototypes and s
 
 test('invalid user input cannot make any network request', async () => {
   let calls = 0;
-  const service = new LocationService({ fetchImpl: async () => { calls++; throw new Error(); } });
+  const service = makeService({ fetchImpl: async () => { calls++; throw new Error(); } });
   for (const value of ['', '   ', null, {}, 1, 'https://example.test', '../北京', '北京\n上海',
     'a'.repeat(61), '<@abc>', '北京?x=y', '北京\u0000']) {
     await assert.rejects(service.resolve(value), { code: 'LOCATION_INPUT_INVALID' });
@@ -101,7 +102,7 @@ test('invalid user input cannot make any network request', async () => {
 
 test('dynamic fallback uses only official HTTPS geocoding with bounded response and request settings', async () => {
   const calls = [];
-  const service = new LocationService({ now: () => NOW, fetchImpl: async (url, options) => {
+  const service = makeService({ now: () => NOW, fetchImpl: async (url, options) => {
     calls.push({ url, options }); return response({ results: [foreign()] });
   } });
   const place = await service.resolve('Paris, France');
@@ -122,7 +123,7 @@ test('dynamic fallback uses only official HTTPS geocoding with bounded response 
 
 test('dynamic ambiguity never picks the first result and allows cached stable-ID selection', async () => {
   let calls = 0;
-  const service = new LocationService({ now: () => NOW, fetchImpl: async () => {
+  const service = makeService({ now: () => NOW, fetchImpl: async () => {
     calls++; return response({ results: [foreign(), foreign({ id: 4717560, country: 'United States', country_code: 'US', admin1: 'Texas' })] });
   } });
   let suggestions;
@@ -136,7 +137,7 @@ test('dynamic ambiguity never picks the first result and allows cached stable-ID
 
 test('concurrent identical fallback requests coalesce and positive cache expires after 24 hours', async () => {
   let now = NOW, calls = 0;
-  const service = new LocationService({ now: () => now, fetchImpl: async () => {
+  const service = makeService({ now: () => now, fetchImpl: async () => {
     calls++; await new Promise((resolve) => setTimeout(resolve, 5)); return response({ results: [foreign()] });
   } });
   const places = await Promise.all(Array.from({ length: 12 }, () => service.resolve('Paris France')));
@@ -148,7 +149,7 @@ test('concurrent identical fallback requests coalesce and positive cache expires
 
 test('distinct dynamic requests use at most two simultaneous downloads', async () => {
   let active = 0, peak = 0, calls = 0;
-  const service = new LocationService({ fetchImpl: async () => {
+  const service = makeService({ fetchImpl: async () => {
     calls++; active++; peak = Math.max(peak, active);
     await new Promise((resolve) => setTimeout(resolve, 5)); active--;
     return response({ results: [foreign()] });
@@ -159,7 +160,7 @@ test('distinct dynamic requests use at most two simultaneous downloads', async (
 
 test('missing locations and ADM1-only responses are not converted into city-center forecasts', async () => {
   let calls = 0, now = NOW;
-  const service = new LocationService({ now: () => now, fetchImpl: async () => {
+  const service = makeService({ now: () => now, fetchImpl: async () => {
     calls++; return response({ results: [foreign({ feature_code: 'ADM1' })] });
   } });
   await assert.rejects(service.resolve('ProvinceOnly'), { code: 'LOCATION_NOT_FOUND' });
@@ -185,7 +186,7 @@ test('failed or malformed sources return fixed errors without automatic retries 
   ];
   for (const fetchImpl of cases) {
     let calls = 0;
-    const service = new LocationService({ fetchImpl: async (...args) => { calls++; return fetchImpl(...args); } });
+    const service = makeService({ fetchImpl: async (...args) => { calls++; return fetchImpl(...args); } });
     await assert.rejects(service.resolve('UncataloguedPlace'), (error) =>
       error.code === 'LOCATION_SOURCE_UNAVAILABLE' && error.message === 'LOCATION_SOURCE_UNAVAILABLE');
     assert.equal(calls, 1);

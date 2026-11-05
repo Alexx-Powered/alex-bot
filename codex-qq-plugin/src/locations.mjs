@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import {searchOutdoorPlaces} from './outdoor-places.mjs';
 
 export const CITIES = Object.freeze({
   beijing: Object.freeze({ id: 'beijing', name: '北京', latitude: 39.9042, longitude: 116.4074 }),
@@ -65,6 +66,8 @@ for (const row of catalog) {
   addAlias(place.name, place);
   for (const alias of row.aliases) addAlias(alias, place);
 }
+const outdoorCatalog=JSON.parse(readFileSync(new URL('../data/outdoor-locations.json', import.meta.url),'utf8'));
+for(const row of outdoorCatalog.places){const place=Object.freeze(validatePlace(row));byId.set(place.id,place);for(const name of [place.name,...row.aliases])addAlias(name,place);}
 for (const place of Object.values(CITIES)) {
   byId.set(place.id, place);
   for (const key of [place.id, place.name, `${place.name}市`]) aliases.set(compact(key), new Map([[place.id, place]]));
@@ -80,7 +83,8 @@ function choose(places) {
 
 export class LocationService {
   #fetch; #now; #cache = new Map(); #inflight = new Map(); #active = 0; #waiting = [];
-  constructor({ fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+  constructor({ fetchImpl = globalThis.fetch, now = Date.now, outdoorLookup = searchOutdoorPlaces } = {}) {
+    this.outdoorLookup=outdoorLookup;
     if (typeof fetchImpl !== 'function' || typeof now !== 'function') throw invalid();
     this.#fetch = fetchImpl; this.#now = now;
   }
@@ -88,11 +92,11 @@ export class LocationService {
     if (typeof input !== 'string') throw invalid();
     const query = input.normalize('NFKC').trim();
     if (!query || query.length > 60 || !NAME.test(query)) throw invalid();
-    const selected = /\((geonames-\d+|qweather-[A-Za-z0-9]+|beijing|tianjin|guangzhou)\)$/.exec(query);
+    const selected = /\((landmark-[A-Za-z0-9-]+|osm-[nwr]-\d+|geonames-\d+|qweather-[A-Za-z0-9]+|beijing|tianjin|guangzhou)\)$/.exec(query);
     const id = selected?.[1] ?? query;
     if (byId.has(id)) return { ...byId.get(id) };
     // A suggested dynamic result may be selected by its stable ID from cache.
-    if (/^geonames-\d+$/.test(id)) {
+    if (/^(?:geonames-\d+|osm-[nwr]-\d+)$/.test(id)) {
       for (const entry of this.#cache.values()) {
         const found = entry.places.find((p) => p.id === id);
         if (entry.expiresAt > this.#now() && found) return { ...found };
@@ -122,6 +126,17 @@ export class LocationService {
     return choose(await this.#inflight.get(key));
   }
   async #lookup(query) {
+    const outdoor=async()=>{
+      const rows=await this.outdoorLookup(query);
+      if(!Array.isArray(rows)||rows.length>8)throw new LocationError('LOCATION_SOURCE_UNAVAILABLE');
+      return rows.map(row=>{const p=validatePlace(row);if(!/^osm-[nwr]-\d+$/.test(p.id))throw invalid();return p;});
+    };
+    // POI-shaped queries must not silently turn into a nearby town or road.
+    if(/村|峰|山|岭|峡|沟|湖|岛|景区|公园|古道|步道|徒步|穿越|径|徑|线$|trail|peak|mount/i.test(query))return outdoor();
+    const places=await this.#legacyLookup(query);
+    return places.length?places:outdoor();
+  }
+  async #legacyLookup(query) {
     if (this.#active >= MAX_CONCURRENT) await new Promise((resolve) => this.#waiting.push(resolve));
     this.#active++;
     try {

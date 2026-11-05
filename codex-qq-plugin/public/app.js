@@ -70,6 +70,10 @@ function feedback(data) {
   $('feedback').textContent = descriptions[data?.code] || (success ? '操作完成：' : '操作未完成：') + (data?.code || 'UNKNOWN');
 }
 const stageNames={core_queue:'消息排队',agent:'业务处理',worker_queue:'Python排队',worker_startup:'Python启动',worker_total:'Python总耗时',router_setup:'路由初始化',router_model:'模型路由',chat_setup:'口吻初始化',chat_model:'聊天表达',memory:'记忆',tool:'工具查询',qq_send:'QQ发送'};
+Object.assign(stageNames,{weather_video:'天气视频',resolve_location:'地点解析',heavy_queue:'渲染资源排队',video_cache_hit:'视频缓存命中',
+  video_prepare_worker:'渲染进程初始化',video_fetch_gdps:'获取 GDPS 云量',video_fetch_ifs:'读取 ECMWF 预报',video_fetch_cams:'读取 CAMS 空气预报',video_fetch_forecast:'查询备用预报接口',video_fetch_satellite:'获取卫星观测',
+  video_download_slowest:'最慢一次下载',video_decode_slowest:'最慢一次解码',video_render_frames:'绘图及帧写盘',video_encode_h264:'H.264 编码',
+  video_read_mp4:'读取成片',weather_fetch:'获取天气',air_fetch:'获取空气质量',weather_render:'天气绘图',radar_query:'雷达查询',qq_media_upload:'QQ 媒体上传',qq_message_submit:'QQ 消息提交'});
 const duration=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0?`${Math.round(value)} ms`:'—';
 async function refreshMonitoring({force=false}={}){
   if(monitoringBusy)return;monitoringBusy=true;
@@ -94,7 +98,7 @@ async function refreshMonitoring({force=false}={}){
     head.append(heading);table.append(head);const body=document.createElement('tbody');
     for(const trace of recent){
       const row=document.createElement('tr'),stamp=new Date(trace.at);
-      const stages=Array.isArray(trace.stages)?trace.stages.slice(0,24):[];
+      const stages=Array.isArray(trace.stages)?trace.stages.slice(0,64):[];
       const values=[Number.isFinite(stamp.getTime())?stamp.toLocaleTimeString('zh-CN',{hour12:false}):'—',trace.synthetic===true?'监控自检':trace.scope==='group'?'群聊':trace.scope==='c2c'?'私聊':'请求',duration(trace.totalMs),stages.map(stage=>`${stageNames[stage.name]||'其他'} ${duration(stage.ms)}`).join(' / ')];
       for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}body.append(row);
     }

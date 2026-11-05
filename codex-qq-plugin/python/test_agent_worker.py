@@ -146,7 +146,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_live_weather_cannot_be_fabricated_by_chat_but_concepts_allowed(self):
         policy = {"enabled": True, "topics": ["天气知识"], "maxChars": 80, "instructions": ""}
-        for request in ["今天广州天气怎么样", "现在北京空气质量如何", "天津PM2.5目前多少", "What is the weather today?", "明天会不会下雨"]:
+        for request in ["我在广州，今天的天气怎么样", "现在北京空气质量如何", "天津PM2.5目前多少", "What is the weather today?", "明天会不会下雨"]:
             with self.subTest(request=request):
                 result = self.run_action("reply_chat", {"topic": "天气知识", "text": "当前气温25度，PM2.5是10。"}, policy=policy, text=request)
                 self.assertEqual(result["kind"], "ignore")
@@ -261,7 +261,7 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(worker._unsupported_time("北京明天雷达", "radar_image", "2026-10-31"))
 
     def test_tomorrow_start_survives_model_omitting_optional_day(self):
-        self.assertEqual(self.run_action(text='北京明天天气')['kind'],'tool')
+        self.assertEqual(self.run_action(text='我在广州，明天的天气怎么样')['kind'],'tool')
         self.assertEqual(self.calls[-1][3],{'city':'广州','day':'tomorrow'})
         self.run_action(args={'city':'北京','day':'tomorrow'},text='北京明早天气')
         self.assertEqual(self.calls[-1][3]['day'],'tomorrow')
@@ -383,7 +383,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(model.api_base, "https://api.deepseek.com")
         self.assertEqual(model.extra_body, {"thinking": {"type": "disabled"}})
         self.assertEqual(model.max_retries, 0)
-        self.assertEqual(model.request_timeout, 20)
+        self.assertEqual(model.request_timeout, 30)
         self.assertEqual(model.max_tokens, 768)
         self.assertEqual(model.temperature, 0.9)
         self.assertEqual(str(model.root_client.base_url), "https://api.deepseek.com")

@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { QQAdapter, QQAdapterError } from '../src/qq-adapter.mjs';
+import {Telemetry,measureSpan} from '../src/telemetry.mjs';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 class FakeQQBot {
   handlers = new Map();
@@ -107,6 +111,17 @@ test('old, malformed or future platform timestamps cannot create reply authoriza
   assert.equal(f.messages.length, 0);
   await assert.rejects(f.adapter.send({ ownerId: 'OWNER_OPENID', text: 'x', replyTarget: inbound().replyTarget }), { code: 'QQ_REPLY_TARGET_INVALID' });
   assert.equal(bot.calls.length, 0);
+  await f.adapter.disconnect();
+});
+
+test('the command queue receives the original event deadline even for delayed events',async()=>{
+  const received=[];
+  const f=fixture({onMessage:(msg,expiresAt)=>received.push([msg.id,expiresAt])});
+  const bot=await f.connect();
+  f.advance(90000);
+  await bot.emit('message',{},inbound());
+  await bot.emit('message',{},inbound());
+  assert.deepEqual(received,[['msg-1',Date.parse(inbound().timestamp)+300000]]);
   await f.adapter.disconnect();
 });
 
@@ -454,4 +469,20 @@ test('installed Tencent SDK serializes rich media content together with file_inf
     assert.equal(requests.length,2);assert.equal(requests[0].body.srv_send_msg,false);
     assert.deepEqual(requests[1].body,{msg_type:7,content:caption,media:{file_info:'offline-file'},msg_seq:1});
   }finally{await adapter.disconnect();}
+});
+
+test('official MP4 upload sends one video message, traces both phases, and never retries',async t=>{
+ const home=await mkdtemp(join(tmpdir(),'qq-media-span-'));t.after(()=>rm(home,{recursive:true,force:true}));
+ const monitoring=new Telemetry({home});
+ const buffer=Buffer.alloc(64);buffer.writeUInt32BE(24);buffer.write('ftypisom',4);const video={buffer,mimeType:'video/mp4'};
+ const f=fixture();const bot=await f.connect();await bot.emit('message',{},inbound());
+ const send=()=>monitoring.run({},()=>measureSpan('qq_send',()=>f.adapter.send({ownerId:'OWNER_OPENID',text:'',video,replyTarget:f.messages[0].replyTarget})));
+ await send();
+ assert.equal(bot.uploadCalls.length,1);assert.equal(bot.uploadCalls[0].body.file_type,2);assert.equal(bot.uploadCalls[0].body.srv_send_msg,false);assert.equal(bot.mediaCalls.length,1);assert.equal(bot.mediaCalls[0].content,undefined);
+ bot.uploadError=new Error('offline');await assert.rejects(send());assert.equal(bot.uploadCalls.length,2);assert.equal(bot.mediaCalls.length,1);
+ const [failed,ok]=(await monitoring.status()).recent;
+ assert.deepEqual(ok.spans.map(s=>s.name),['qq_send','qq_media_upload','qq_message_submit']);
+ assert.ok(ok.spans.slice(1).every(s=>s.parentId===ok.spans[0].id));
+ assert.deepEqual(failed.spans.map(s=>[s.name,s.status]),[['qq_send','error'],['qq_media_upload','error']]);
+ for(let i=0;i<100&&(await monitoring.status()).local.lastCode!=='SAVED';i++)await new Promise(r=>setTimeout(r,10));
 });

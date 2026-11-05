@@ -37,6 +37,30 @@ class PerformanceTests(unittest.TestCase):
         self.assertEqual(self.recorder.finish()[0]['status'], 'error')
         self.assertNotIn('SECRET', json.dumps(self.recorder.finish()))
 
+    def test_provider_callback_reports_http_status_and_code_without_provider_body(self):
+        error = RuntimeError('SECRET provider body')
+        error.status_code = 429
+        callback = self.recorder.callback('router_model')
+        run_id = uuid4()
+        callback.on_chat_model_start({}, [], run_id=run_id)
+        callback.on_llm_error(error, run_id=run_id)
+        event, = self.recorder.finish()
+        self.assertEqual((event['errorCode'], event['httpStatus']), ('MODEL_PROVIDER_RATE_LIMITED', 429))
+        self.assertNotIn('SECRET', json.dumps(event))
+
+    def test_native_fallback_reports_wrapped_timeout_in_video_protocol(self):
+        from video_trace import reporting, stage
+        from weather_video_codec import VideoFailure
+        events = []
+        with self.assertRaises(VideoFailure), reporting(events.append), stage('video_fetch_ifs', (VideoFailure,)):
+            try:
+                raise TimeoutError('SECRET signed URL')
+            except TimeoutError as cause:
+                raise VideoFailure('VIDEO_NATIVE_UNAVAILABLE') from cause
+        end = events[-1]
+        self.assertEqual((end['phase'], end['errorCode'], end['causeCode']), ('fallback', 'VIDEO_NATIVE_UNAVAILABLE', 'NETWORK_TIMEOUT'))
+        self.assertNotIn('SECRET', json.dumps(events))
+
     def test_explicit_record_projects_only_allowed_numeric_counts(self):
         self.clock.advance(20)
         self.assertTrue(self.recorder.record('router_model', 15, inputTokens=7, outputTokens=2, cachedInputTokens=0))

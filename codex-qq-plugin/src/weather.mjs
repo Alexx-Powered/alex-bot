@@ -4,10 +4,10 @@
 export const FORECAST_TIMEZONE = 'Asia/Shanghai';
 export const HOUR_MS = 3_600_000;
 import { CITIES, validatePlace } from './locations.mjs';
-import { summarizeWind } from './wind-summary.mjs';
+import { summarizeWeather } from './wind-summary.mjs';
 export { CITIES } from './locations.mjs';
 const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/ecmwf';
-const WEATHER_METADATA = 'https://api.open-meteo.com/data/ecmwf_ifs025/static/meta.json';
+const WEATHER_METADATA = 'https://api.open-meteo.com/data/ecmwf_ifs/static/meta.json';
 const MAX_BODY_BYTES = 512 * 1024;
 const VARIABLES = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'precipitation_probability', 'rain', 'snowfall', 'cloud_cover', 'apparent_temperature'];
 
@@ -153,8 +153,8 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const nextMidnight = midnight + days * 24 * HOUR_MS;
   const url = new URL(WEATHER_ENDPOINT);
   url.search = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude),
-    hourly: [...VARIABLES,'wind_speed_10m','wind_direction_10m','wind_gusts_10m',...(exerciseFields?['shortwave_radiation','weather_code']:[])].join(','), models: 'ecmwf_ifs025', timezone: FORECAST_TIMEZONE,
-    start_date: date, end_date: localDate(nextMidnight), temperature_unit: 'celsius', precipitation_unit: 'mm' }).toString();
+    hourly: [...VARIABLES,'wind_speed_10m','wind_direction_10m','wind_gusts_10m',...(exerciseFields?['shortwave_radiation','weather_code']:[])].join(','), models: 'ecmwf_ifs', timezone: FORECAST_TIMEZONE,
+    daily: 'weather_code', start_date: date, end_date: localDate(nextMidnight), temperature_unit: 'celsius', precipitation_unit: 'mm' }).toString();
   url.searchParams.set('wind_speed_unit','ms');
   const [forecast, metadata] = await Promise.all([
     fetchForecastJson(url.href, { fetchImpl, now }), fetchForecastJson(WEATHER_METADATA, { fetchImpl, now }),
@@ -162,6 +162,12 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const freshness = validateModelMetadata(metadata.data, { now, requiredEnd: nextMidnight, maxRunAgeHours: 24 });
   const data = forecast.data;
   const index = hourlyIndex(data, { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' });
+  // Optional daily code must belong to the requested first day, never the fetch day or the second day.
+  const dailyTimes=data.daily?.time,dailyCodes=data.daily?.weather_code;
+  const dailyIndex=Array.isArray(dailyTimes)?dailyTimes.indexOf(date):-1;
+  const dailyCode=data.daily_units?.weather_code==='wmo code'&&dailyIndex>=0&&dailyTimes.lastIndexOf(date)===dailyIndex&&
+    dailyTimes.length<=4&&Array.isArray(dailyCodes)&&dailyCodes.length===dailyTimes.length?dailyCodes[dailyIndex]:null;
+  const weatherCode=Number.isInteger(dailyCode)&&dailyCode>=0&&dailyCode<=99?dailyCode:null;
   // Additional fields stay nullable so an absent cloud/exercise series cannot erase other weather.
   const extra=(key,unit,i,min,max)=>{
     const value=data.hourly_units?.[key]===unit&&Array.isArray(data.hourly?.[key])&&data.hourly[key].length===data.hourly.time.length?finiteValue(data.hourly[key][i],min,max):null;
@@ -199,7 +205,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const summary = { temperature, humidity, cloudCover: range(hourly.map((p) => p.cloudCoverPct)), precipitationTotalMm: total(hourly.map((p) => p.precipitationMm)),
     rainTotalMm: total(hourly.map((p) => p.rainMm)), snowfallTotalCm: total(hourly.map((p) => p.snowfallCm)),
     maxHourlyPrecipitationProbabilityPct: probability.max, probabilityComplete: probability.complete, rain: assessRain(hourly) };
-  const source = { name: 'ECMWF IFS 0.25°，经 Open-Meteo 提供', model: 'ecmwf_ifs025', provider: 'Open-Meteo',
+  const source = { name: 'ECMWF IFS，经 Open-Meteo 提供', model: 'ecmwf_ifs', provider: 'Open-Meteo',
     type: 'model_forecast', documentation: 'https://open-meteo.com/en/docs/ecmwf-api',
     metadataDocumentation: 'https://open-meteo.com/en/docs/model-updates', attribution: 'ECMWF / Open-Meteo', url: url.href };
   const intervalText = summary.rain.intervals.map((p) => days === 1
@@ -216,8 +222,8 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   ].join('\n');
   const hourlyText = hourly.map((p) => `${p.time.slice(11, 16)} ${shown(p.temperatureC, '°C')} ${shown(p.humidityPct, '%')} ${shown(p.precipitationMm, 'mm')} ${shown(p.precipitationProbabilityPct, '%')} 云量${shown(p.cloudCoverPct, '%')}`).join('\n');
   let windTimedOut=false;
-  const windBrief = await summarizeWind(hourly,{onTimeout:()=>{windTimedOut=true;}});
-  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText, windBrief,...(windTimedOut?{timeoutNotice:'风速简报计算超时（10秒时限），其余预报正常展示'}:{}),
+  const {windBrief,weatherSummary} = await summarizeWeather(hourly,{date,weatherCode,onTimeout:()=>{windTimedOut=true;}});
+  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText, windBrief,weatherSummary,...(windTimedOut?{timeoutNotice:'天气与风速摘要计算超时（10秒时限），其余预报正常展示'}:{}),
     source, fetchedAt: new Date(now).toISOString(), modelRunAt: null, freshness, warnings,
     temporalNote: '温湿度与总云量为行首时刻；降水量/概率对应 time 至 periodEnd。降水为雨雪合计。阵风为覆盖该行的3小时窗口最大值。' };
 }

@@ -28,6 +28,20 @@ def set_pm(data, value):
 
 
 class MorningReportTests(unittest.TestCase):
+    def test_guangzhou_preview_uses_its_own_city_and_the_same_rules(self):
+        data = packet()
+        expected = analyze_morning(data)
+        data["city"], data["cityName"] = "guangzhou", "广州"
+        report = analyze_morning(data)
+        self.assertEqual(report["city"], "guangzhou")
+        self.assertEqual(report["cityName"], "广州")
+        self.assertTrue(report["title"].startswith("广州"))
+        self.assertEqual(report["windows"], expected["windows"])
+        self.assertEqual(report["recommendation"], expected["recommendation"])
+        data["city"] = "unsupported-city"
+        with self.assertRaisesRegex(ValueError, "MORNING_PACKET_INVALID"):
+            analyze_morning(data)
+
     def test_two_day_weather_does_not_mix_tomorrow_into_today_exercise_advice(self):
         data = packet()
         expected = analyze_morning(data)

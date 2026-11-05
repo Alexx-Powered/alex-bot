@@ -30,13 +30,15 @@ test('campus credentials go only to private worker and generated image has no ar
   worker.run=async(_p,_e,finish)=>finish({kind:'campus',data:data(),artifact_id:'../../private'});
   assert.equal((await service.run({},'report')).data.code,'CAMPUS_QUERY_FAILED');
 });
-test('group queries, paused configuration and duplicate active queries do not access private worker',async()=>{
+test('unauthorized queries are denied and two authorized queries run sequentially',async()=>{
   let calls=0,release,entered;
   const start=new Promise(r=>entered=r),gate=new Promise(r=>release=r);
   const service=new CampusService({home:'D:/unused',configStore:config,worker:{close(){},run:async(_p,_e,finish)=>{calls++;entered();await gate;return finish({data:campusFailure('CAMPUS_AUTH_FAILED'),artifact_id:null});}}});
   assert.equal(JSON.parse((await service.execute({},{scope:'group'})).text).code,'CAMPUS_OWNER_ONLY');assert.equal(calls,0);
   const first=service.run({});await start;
-  assert.equal((await service.run({})).data.code,'CAMPUS_BUSY');release();await first;assert.equal(calls,1);
+  const second=service.run({});
+  assert.equal(calls,1);release();const results=await Promise.all([first,second]);assert.equal(calls,2);
+  assert.ok(results.every(r=>r.data.code==='CAMPUS_AUTH_FAILED'));
 });
 test('campus HTTP API authenticates all operations and sends one image only to the paired owner',async()=>{
   const sent=[],calls=[],store={token:'a'.repeat(64),init:async()=>{},readCredentials:async()=>null,loadState:async()=>null,saveState:async()=>{}};

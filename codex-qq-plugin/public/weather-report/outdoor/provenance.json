@@ -1,0 +1,17 @@
+{
+  "origin": "用户提供的狂草素材；保留原始透明度及笔触。金色通过画布 source-in 着色。",
+  "files": {
+    "excellent.png": {
+      "source": "夯-狂草版.png",
+      "sha256": "18e7539bc7cdc19429aee4388b9373dfd7cf289b9ccfe90097eaac5f6f16147a"
+    },
+    "fair.png": {
+      "source": "可-狂草版.png",
+      "sha256": "fd6f038f7ca4edee65dbc03fd82f20013cd055c2469140dbbb381e9887ef46bc"
+    },
+    "poor.png": {
+      "source": "拉-狂草版.png",
+      "sha256": "2d66e8e0c8c818e9273dc21211b7a5ad6ba68273753f3ac1b192763f5338b558"
+    }
+  }
+}

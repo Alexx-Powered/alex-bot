@@ -1,0 +1,150 @@
+"""Deterministic outdoor index. User-approved v3 rules; no model or service calls."""
+from __future__ import annotations
+
+from datetime import date as calendar_date, datetime
+import json
+import sys
+from typing import Annotated
+
+from langchain_core.tools import tool
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
+
+
+RULES = {
+    "version": "outdoor-v3-20261103",
+    "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
+    "pm25Knots": [[0, 0], [60, 5], [100, 45], [150, 100]],
+    "windLoss": {"none": 0, "blue": 25, "yellow": 55, "orange": 100},
+    "rainLoss": {"none": 0, "brief": 20, "light": 35, "more": 50},
+    "rainZero": {"hourlyAboveMm": 2.5, "periodAtLeastMm": 5},
+    "gold": {"scoreAtLeast": 95, "cloudMeanAtMost": 5, "pm25PeakAtMost": 25,
+             "windPeakAtMostMs": 5.4, "gustPeakAtMostMs": 7.9, "requiresNoRain": True},
+    "periods": [["上午", 6, 12], ["下午", 12, 18]],
+    "officialWarningQueried": False,
+}
+
+Cloud = Annotated[float, Field(ge=0, le=100, strict=True)]
+Pm = Annotated[float, Field(ge=0, le=5000, strict=True)]
+Wind = Annotated[float, Field(ge=0, le=150, strict=True)]
+Rain = Annotated[float, Field(ge=0, le=1000, strict=True)]
+
+
+class OutdoorHour(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    time: str
+    cloud: Cloud | None
+    pm25: Pm | None
+    wind: Wind | None
+    gust: Wind | None
+    rain: Rain | None
+    code: Annotated[StrictInt, Field(ge=0, le=99)] | None
+
+
+class OutdoorInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    date: str
+    hours: Annotated[list[OutdoorHour], Field(max_length=48)]
+
+
+def interpolate(value, knots):
+    if value >= knots[-1][0]:
+        return knots[-1][1]
+    for (x0, y0), (x1, y1) in zip(knots, knots[1:]):
+        if x0 <= value <= x1:
+            return y0 + (value - x0) * (y1 - y0) / (x1 - x0)
+    raise ValueError("INVALID_SCORING_VALUE")
+
+
+RAIN_CODES = {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 97, 99}
+MODERATE_RAIN_CODES = {63, 65, 67, 81, 82}
+# No approved scoring rules for freezing precipitation, snow or thunderstorms.
+UNREVIEWED_CODES = {48, 56, 57, 66, 71, 73, 75, 77, 85, 86, 95, 96, 97, 99}
+SUPPORTED_CODES = {0, 1, 2, 3, 45, 51, 53, 55, 61, 63, 65, 67, 80, 81, 82}
+
+
+def assess_period(name, start, end, rows):
+    result = {"name": name, "startHour": start, "endHour": end, "status": "unknown",
+              "score": None, "grade": "unknown", "character": None, "gold": False}
+    if len(rows) != end - start or any(any(getattr(row, field) is None for field in
+                                          ("cloud", "pm25", "wind", "gust", "rain", "code")) for row in rows):
+        return {**result, "reason": "关键预报数据不足"}
+    if any(row.code in UNREVIEWED_CODES or row.code not in SUPPORTED_CODES for row in rows):
+        return {**result, "reason": "该天气类型暂不评级"}
+    cloud = sum(row.cloud for row in rows) / len(rows)
+    pm = max(row.pm25 for row in rows)
+    wind, gust = max(row.wind for row in rows), max(row.gust for row in rows)
+    rain, rain_peak = sum(row.rain for row in rows), max(row.rain for row in rows)
+    wet_hours = sum(row.rain > 0 or row.code in RAIN_CODES for row in rows)
+    wind_level = "orange" if wind >= 24.5 or gust >= 28.5 else "yellow" if wind >= 17.2 or gust >= 20.8 else "blue" if wind >= 10.8 or gust >= 13.9 else "none"
+    rain_zero = rain >= 5 or rain_peak > 2.5 or any(row.code in MODERATE_RAIN_CODES for row in rows)
+    rain_level = "zero" if rain_zero else "none" if not wet_hours else "brief" if wet_hours <= 2 and rain <= 0.5 and rain_peak <= 0.2 else "light" if rain <= 2 and rain_peak <= 0.5 else "more"
+    deductions = {
+        "cloud": interpolate(cloud, RULES["cloudKnots"]),
+        "pm25": interpolate(pm, RULES["pm25Knots"]),
+        "wind": RULES["windLoss"][wind_level],
+        "rain": 100 if rain_zero else RULES["rainLoss"][rain_level],
+    }
+    zero_reasons = []
+    if pm >= 150:
+        zero_reasons.append("PM2.5达到清零门槛")
+    if wind_level == "orange":
+        zero_reasons.append("风速达到橙色以上预警风力门槛")
+    if rain_zero:
+        zero_reasons.append("中雨以上或雨量达到清零门槛")
+    score = 0 if zero_reasons else max(0, 100 - sum(deductions.values()))
+    gold = score >= 95 and cloud <= 5 and pm <= 25 and wind <= 5.4 and gust <= 7.9 and rain_level == "none"
+    grade = "gold" if gold else "excellent" if score >= 80 else "fair" if score >= 60 else "poor"
+    character = {"gold": "夯", "excellent": "夯", "fair": "可", "poor": "拉"}[grade]
+    rain_label = {"none": "无雨", "brief": "零星小雨", "light": "持续小雨" if wet_hours >= 3 else "小雨", "more": "小雨偏多", "zero": "中雨及以上"}[rain_level]
+    reason = " · ".join(zero_reasons) if zero_reasons else " · ".join(filter(None, [rain_label, "云量较多" if cloud >= 70 else "云量适中" if cloud >= 30 else "少云"]))
+    return {**result, "status": "complete", "score": score, "displayScore": round(score, 1), "grade": grade,
+            "character": character, "gold": gold, "reason": reason, "deductions": deductions,
+            "conditions": {"cloudMean": cloud, "pm25Peak": pm, "windPeak": wind, "gustPeak": gust,
+                           "rainTotal": rain, "rainPeak": rain_peak, "wetHours": wet_hours,
+                           "rainLevel": rain_level, "rainLabel": rain_label, "windLevel": wind_level}}
+
+
+@tool(args_schema=OutdoorInput)
+def outdoor_index(date: str, hours: list[OutdoorHour]) -> dict:
+    """Score two fixed daytime windows from bounded public forecast samples, without I/O or model calls."""
+    if calendar_date.fromisoformat(date).isoformat() != date:
+        raise ValueError("INVALID_REPORT_DATE")
+    by_hour = {}
+    for item in hours:
+        row = item if isinstance(item, OutdoorHour) else OutdoorHour.model_validate(item)
+        stamp = datetime.fromisoformat(row.time)
+        if stamp.tzinfo is None or stamp.utcoffset().total_seconds() != 8 * 3600 or stamp.minute or stamp.second or stamp.microsecond:
+            raise ValueError("INVALID_FORECAST_HOUR")
+        if stamp.date().isoformat() != date:
+            continue
+        if stamp.hour in by_hour:
+            raise ValueError("DUPLICATE_FORECAST_HOUR")
+        by_hour[stamp.hour] = row
+    periods = [assess_period(name, start, end, [by_hour[h] for h in range(start, end) if h in by_hour])
+               for name, start, end in RULES["periods"]]
+    complete = all(p["status"] == "complete" for p in periods)
+    if not complete:
+        return {"date": date, "version": RULES["version"], "periods": periods, "status": "unknown",
+                "recommendation": {"word": "数据不足", "suffix": "暂不评级"}}
+    best = max(periods, key=lambda p: (p["score"], p["gold"]))
+    ideal = [p for p in periods if p["score"] >= 80]
+    fair = [p for p in periods if p["score"] >= 60]
+    if ideal:
+        recommendation = {"word": "全天" if len(ideal) == 2 else ideal[0]["name"], "suffix": "宜户外活动"}
+    elif fair:
+        recommendation = {"word": "全天" if len(fair) == 2 else fair[0]["name"], "suffix": "户外条件尚可"}
+    else:
+        recommendation = {"word": "全天", "suffix": "不宜户外活动"}
+    return {"date": date, "version": RULES["version"], "status": "complete", "periods": periods,
+            "bestPeriod": best["name"], "score": best["score"], "displayScore": best["displayScore"],
+            "grade": best["grade"], "character": best["character"], "gold": best["gold"],
+            "recommendation": recommendation}
+
+
+
+if __name__ == "__main__":
+    try:
+        packet = json.loads(sys.stdin.buffer.readline(65537))
+        print(json.dumps(outdoor_index.invoke(packet), ensure_ascii=False, allow_nan=False))
+    except Exception:
+        print(json.dumps({"error": "OUTDOOR_INDEX_UNAVAILABLE"}))

@@ -1,0 +1,48 @@
+{
+  "source": "Natural Earth, Tibet Natural Resources Department, CTAmap and QWeather GeoInfo",
+  "terms": "https://www.naturalearthdata.com/about/terms-of-use/",
+  "commit": "ca96624a56bd078437bca8184e78163e5039ad19",
+  "description": "Unpublished review draft. Exceptional global lines withheld pending Chinese standard-sheet review. Chinese labels use coded administrative units, not settlement population.",
+  "tibetSource": "https://zrzyt.xizang.gov.cn/fw/zyxz/202004/P020220513410027712343.rar",
+  "tibetArchiveSha256": "49d601fdc3c1dd1000556a727d4c6bd184e60635abf7bc1c36a8befc81674a7c",
+  "taiwanCentres": "https://www.cgs.gov.cn/tzgg/tzgg/202302/t20230214_805031.html",
+  "islands": "https://www.mfa.gov.cn/diaoyudao/chn/xwdt/201209/t20120915_8523866.htm",
+  "files": [
+    {
+      "name": "ne_50m_admin_0_boundary_lines_land.geojson",
+      "size": 760189,
+      "download_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_0_boundary_lines_land.geojson",
+      "sha256": "2faac4f6b34386f3d21b6e018cf151f241f00e5c936d44dd17d7d9bfb147fa48"
+    },
+    {
+      "name": "ne_10m_admin_1_states_provinces.geojson",
+      "size": 40726851,
+      "download_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+      "sha256": "22d0e3ad85eb3e27f17cabf8ba2d50e554fbc27a87796ff891d958185da62fb5"
+    },
+    {
+      "name": "ne_10m_populated_places.geojson",
+      "size": 19359003,
+      "download_url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_populated_places.geojson",
+      "sha256": "9b8e3de09048ef00dfc70357dbb9fa324493f214b5e0ae4daf1aa79a8d10116b"
+    }
+  ],
+  "bundleSha256": "595c46347e306900e4d2fee25201e0dd7c6e8d16316074338db417864c54ca72",
+  "tiles": 274,
+  "bytes": 397923,
+  "regionalReview": {
+    "source": "https://www.mfa.gov.cn/ziliao_674904/zgdt/202607/t20260722_11989560.shtml",
+    "sheets": {
+      "portrait": {
+        "sha256": "d9c6c0d512ace25308cf03c744ff918f2da7e30b7f3959eb0cb3ddb1be53ff9c",
+        "scale": 10000000
+      },
+      "landscape": {
+        "sha256": "bddee5487ab15591f9f3b4c83dd35bc6fde077390dcb9b6ca8aeec7807c1ef74",
+        "scale": 7400000
+      }
+    },
+    "sha256": "59d4c57de54a46a33a1eef225f60d354672178dcbd8476cffa594ff8ed77ee4e",
+    "use": "Registered printed marks for internal review."
+  }
+}

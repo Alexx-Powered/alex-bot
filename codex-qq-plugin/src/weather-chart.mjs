@@ -337,7 +337,7 @@ export function renderWeatherChart(input) {
   } else placeholder(ctx, 905, `${airSeries.name} PM2.5 暂无有效数据`, '稍后刷新重试');
   const missingAir = airSeries.values.filter(value => value === null).length;
   fitText(ctx, 'PM2.5 浓度色阶', 68, 1072, 1064, 22);
-  const airNote = `CAMS 约 45 km / 3 小时插值。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
+  const airNote = `CAMS 空气质量预报。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
   fitText(ctx, airNote, 68, 1105, 1064, 22);
 
   panel(ctx, 1160, 440, '03  逐小时降水概率', 'ECMWF IFS / Open-Meteo · %');

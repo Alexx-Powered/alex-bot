@@ -68,7 +68,7 @@ test('Guangzhou compact commands fetch Guangzhou weather and air and return one 
 test('unknown place returns a brief hint without fetching forecasts; unrelated chat stays ignored',async()=>{
   let calls=0;
   const service=new WeatherCommands({locations:{resolve:async()=>{throw Object.assign(Error(),{code:'LOCATION_NOT_FOUND'});}},weather:async()=>{calls++;},air:async()=>{calls++;}});
-  assert.deepEqual(await service.handle('发天气未知城'),{text:'未找到该地点，请使用完整城市或区县名，并补充省市。'});
+  assert.deepEqual(await service.handle('发天气未知城'),{text:'未找到该地点，请补充省市县，或使用景点、山峰、村庄、步道的完整名称。'});
   assert.equal(await service.handle('今天天气广州怎样'),null);
   for(const cities of [['__proto__'],['constructor'],[null],['guangzhou','guangzhou']]) await assert.rejects(service.briefing({cities}),/INVALID_CITY/);
   assert.equal(calls,0);

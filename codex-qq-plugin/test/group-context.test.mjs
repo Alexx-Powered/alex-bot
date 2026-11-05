@@ -223,7 +223,9 @@ test('public group help and ping plus private help consume the same bounded inco
   assert.equal((await f.core.handleMessage(privateMessage('/ping','private-overflow'))).code,'BUSY');
   const status=f.core.handleMessage(privateMessage('/status','owner-status'));
   release.resolve();const results=await Promise.all([first,...accepted,status]);
-  assert.ok(results.every(item=>item.code!=='BUSY'));assert.equal(f.sent.length,3);
+  assert.ok(results.every(item=>item.code!=='BUSY'));
+  assert.deepEqual(f.sent.map(request=>request.replyTarget.msgId),['help','ping','private-help','owner-status']);
+  assert.deepEqual(f.sent.filter(request=>request.image?.mimeType==='image/png').map(request=>request.replyTarget.scope),['group','c2c']);
 });
 
 test('group pairing candidates cannot flood the queue while a model is pending',async()=>{

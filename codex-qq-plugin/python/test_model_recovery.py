@@ -11,7 +11,7 @@ class RecoveryTests(unittest.TestCase):
         calls=[]
         model=ScriptedModel(responses=[TemporaryConnectionError('SECRET'),call('radar_image',{'target':'北京'})])
         runner=worker.build_runner(model_factory=lambda cfg:model,rpc_callback=lambda *args:calls.append(args) or '图已生成')
-        result=runner.run(packet(text='北京雷达图'))
+        result=runner.run(packet(text='我在北京，想看看雷达图'))
         self.assertEqual(result['kind'],'tool');self.assertEqual(len(calls),1);self.assertEqual(len(model.seen),2)
 
     def test_exhausted_connection_and_timeout_have_safe_specific_codes(self):

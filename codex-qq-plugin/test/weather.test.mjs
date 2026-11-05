@@ -44,7 +44,7 @@ test('Beijing weather requests only the fixed ECMWF model and returns 24 labelle
   assert.equal(calls.length, 2);
   const request = new URL(calls.find((c) => c.url.includes('/v1/')).url);
   assert.equal(request.hostname, 'api.open-meteo.com');
-  assert.equal(request.searchParams.get('models'), 'ecmwf_ifs025');
+  assert.equal(request.searchParams.get('models'), 'ecmwf_ifs');
   assert.equal(request.searchParams.get('start_date'), '2026-10-28');
   assert.equal(request.searchParams.get('end_date'), '2026-10-29');
   assert.ok(calls.every((c) => c.options.redirect === 'error'));
@@ -70,7 +70,7 @@ test('two-day charts include the next day final hour and request the following m
   assert.equal(request.searchParams.get('start_date'), '2026-10-28');
   assert.equal(request.searchParams.get('end_date'), '2026-10-30');
   assert.ok(request.searchParams.get('hourly').split(',').includes('cloud_cover'));
-  assert.equal(request.searchParams.get('models'), 'ecmwf_ifs025');
+  assert.equal(request.searchParams.get('models'), 'ecmwf_ifs');
   for (const days of [0, 3, '2', null]) {
     await assert.rejects(getWeatherBrief({ days, now: NOW, fetchImpl: async () => assert.fail('No request') }), { code: 'WEATHER_DAYS_UNSUPPORTED' });
   }
@@ -89,6 +89,31 @@ test('cloud percentage validates its own units, shape and range without erasing 
     assert.ok(result.hourly.every(row => row.cloudCoverPct === null));
     assert.equal(result.summary.temperature.validHours, 24);
   }
+});
+
+test('daily summary uses the queried first calendar day and never tomorrow or the fetch day',async()=>{
+  const data=weatherFixture('2026-10-28',72),calls=[];
+  data.daily_units={weather_code:'wmo code'};data.daily={time:['2026-10-28','2026-10-29','2026-10-30'],weather_code:[2,95,65]};
+  const result=await getWeatherBrief({days:2,now:NOW,fetchImpl:fixtureFetch(data,{calls})});
+  assert.deepEqual(result.weatherSummary,{date:'2026-10-28',code:2,icon:'partly-cloudy',label:'晴间多云'});
+  assert.equal(new URL(calls[0].url).searchParams.get('daily'),'weather_code');
+  const tomorrow=weatherFixture('2026-10-29',72);
+  tomorrow.daily_units=data.daily_units;tomorrow.daily={time:['2026-10-28','2026-10-29','2026-10-30'],weather_code:[95,3,65]};
+  const next=await getWeatherBrief({days:2,day:'tomorrow',now:NOW,fetchImpl:fixtureFetch(tomorrow)});
+  assert.deepEqual(next.weatherSummary,{date:'2026-10-29',code:3,icon:'overcast',label:'阴'});
+});
+
+test('missing or malformed optional daily codes preserve the forecast without a default sunny icon',async()=>{
+  for(const daily of [undefined,{time:['2026-10-29'],weather_code:[0]},
+    {time:['2026-10-28','2026-10-28'],weather_code:[0,65]},
+    {time:['2026-10-28'],weather_code:['0']},{time:['2026-10-28'],weather_code:[false]},
+    {time:['2026-10-28'],weather_code:[0,65]}]){
+    const data=weatherFixture();data.daily_units={weather_code:'wmo code'};data.daily=daily;
+    const result=await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(data)});
+    assert.equal(result.weatherSummary,null);assert.equal(result.hourly.length,24);
+  }
+  const data=weatherFixture();data.daily_units={weather_code:'wrong'};data.daily={time:['2026-10-28'],weather_code:[0]};
+  assert.equal((await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(data)})).weatherSummary,null);
 });
 
 test('apparent temperature uses instantaneous Celsius samples and remains missing when unavailable', async () => {
@@ -145,7 +170,7 @@ test('Guangzhou weather uses its fixed coordinates and labels without substituti
   assert.equal(url.href, result.source.url);
   assert.equal(url.searchParams.get('latitude'), '23.1291');
   assert.equal(url.searchParams.get('longitude'), '113.2644');
-  assert.equal(url.searchParams.get('models'), 'ecmwf_ifs025');
+  assert.equal(url.searchParams.get('models'), 'ecmwf_ifs');
   assert.equal(url.searchParams.get('timezone'), 'Asia/Shanghai');
 });
 

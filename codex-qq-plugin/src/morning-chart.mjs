@@ -1,5 +1,6 @@
 import {createCanvas,loadImage} from '@napi-rs/canvas';
 import {renderWeatherChart} from './weather-chart.mjs';
+import {renderWeatherReportImage} from './weather-report-image.mjs';
 import {CHINESE_FONT} from './render-fonts.mjs';
 const colors={suitable:'#23805a',caution:'#a86b00',avoid:'#bb4545',unknown:'#66758a',expired:'#8792a0'};
 const labels={suitable:'较适宜',caution:'注意条件',avoid:'建议室内',unknown:'数据不足',expired:'已过时段'};
@@ -15,6 +16,7 @@ const range=(value,unit)=>value&&typeof value==='object'?`${shown(value.min)}–
 /** Morning report stays one image; no model-generated weather numbers. */
 export async function renderMorningChart({inputs,analysis,plan}){
   if(!Array.isArray(analysis.windows)||analysis.windows.length>3)throw new Error('MORNING_CHART_INVALID');
+  if(inputs.cities.length===1&&!inputs.weather.some(item=>item?.simulated===true))return renderWeatherReportImage({inputs,analysis,morning:true});
   const base=await loadImage(renderWeatherChart(inputs).buffer),rows=analysis.windows;
   const height=base.height+450+rows.length*170;
   const canvas=createCanvas(base.width,height),ctx=canvas.getContext('2d');

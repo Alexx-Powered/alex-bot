@@ -44,6 +44,7 @@ test('Beijing curve explicitly selects CAMS Global, spans 48 hourly points and l
   assert.equal(result.unit, 'μg/m³');
   assert.match(result.title, /模型预报（非实测）/);
   assert.match(result.text, /CAMS \/ ECMWF，经 Open-Meteo/);
+  assert.doesNotMatch(result.text, /公里|分辨率/);
   assert.match(result.text, /不能单凭此判断是否有雾/);
   assert.equal(result.source.nativeTemporalResolutionHours, 3);
   assert.equal(result.modelRunAt, null);

@@ -1,7 +1,7 @@
 """Content-free, bounded timing for one worker request.
 
-This recorder never stores prompts, tool arguments, results, identities or errors.
-Callbacks accept LangChain's normal objects but inspect only numeric token fields.
+Retain numeric timings, tokens and classified error codes. Omit prompts,
+tool payloads, identities and raw exceptions.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import time
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
+from trace_errors import error_fields
 
 STAGES = frozenset({"router_setup", "router_model", "chat_setup", "chat_model", "memory", "tool"})
 MODEL_PHASES = frozenset({"router_model", "chat_model"})
@@ -89,7 +90,7 @@ class PerformanceRecorder:
         self._events = []
         self._lock = RLock()
 
-    def _append(self, name, ms, started, metrics, status="ok"):
+    def _append(self, name, ms, started, metrics, status="ok", error=None):
         if not self.enabled:
             return False
         if not isinstance(name, str) or name not in STAGES or set(metrics) - TOKEN_FIELDS or not isinstance(status, str) or status not in STATUSES:
@@ -102,6 +103,8 @@ class PerformanceRecorder:
         event = {"name": name, "ms": round(elapsed, 3), "offsetMs": round(offset, 3)}
         if status != 'ok':
             event['status'] = status
+            if error is not None:
+                event.update(error_fields(error, model=name in MODEL_PHASES))
         event.update({key: _count(value) for key, value in metrics.items()})
         with self._lock:
             if len(self._events) >= MAX_EVENTS:
@@ -124,15 +127,17 @@ class PerformanceRecorder:
             raise ValueError("PERFORMANCE_METRIC_INVALID")
         started = self._clock()
         status = 'ok'
+        failure = None
         try:
             yield
-        except BaseException:
+        except BaseException as error:
             status = 'error'
+            failure = error
             raise
         finally:
             # A telemetry clock failure must not hide the original operation error.
             try:
-                self._append(name, (self._clock() - started) * 1000, started, {}, status)
+                self._append(name, (self._clock() - started) * 1000, started, {}, status, failure)
             except (ValueError, TypeError, OverflowError):
                 pass
 
@@ -177,7 +182,7 @@ class _PerformanceCallback(BaseCallbackHandler):
             if len(table) < MAX_EVENTS and key not in table:
                 table[key] = self._recorder._clock()
 
-    def _end(self, table, run_id, name, metrics=None, status='ok'):
+    def _end(self, table, run_id, name, metrics=None, status='ok', error=None):
         if not self._recorder.enabled:
             return
         key = self._key(run_id)
@@ -186,7 +191,7 @@ class _PerformanceCallback(BaseCallbackHandler):
         if started is None:
             return
         try:
-            self._recorder._append(name, (self._recorder._clock() - started) * 1000, started, metrics or {}, status)
+            self._recorder._append(name, (self._recorder._clock() - started) * 1000, started, metrics or {}, status, error)
         except (ValueError, TypeError, OverflowError):
             pass
 
@@ -206,7 +211,7 @@ class _PerformanceCallback(BaseCallbackHandler):
         self._end(self._llms, run_id, self._phase, usage)
 
     def on_llm_error(self, error, *, run_id, **kwargs):
-        self._end(self._llms, run_id, self._phase, status='error')
+        self._end(self._llms, run_id, self._phase, status='error', error=error)
 
     def on_tool_start(self, serialized, input_str, *, run_id, **kwargs):
         self._start(self._tools, run_id)
@@ -215,4 +220,4 @@ class _PerformanceCallback(BaseCallbackHandler):
         self._end(self._tools, run_id, "tool")
 
     def on_tool_error(self, error, *, run_id, **kwargs):
-        self._end(self._tools, run_id, "tool", status='error')
+        self._end(self._tools, run_id, "tool", status='error', error=error)

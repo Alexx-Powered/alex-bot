@@ -32,16 +32,19 @@ test('idle reclamation waits for queued work and starts a fresh worker on demand
   }finally{worker.close();}
 });
 
-test('heavy leaf operations run one at a time and a failed render releases its slot',async()=>{
+test('heavy operations retain FIFO order across a long render and an exception',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
   const order=[];let release;
   const hold=new Promise(r=>release=r);
   const a=withHeavyWork(async()=>{order.push('campus');await hold;throw Error('failed');});
   const b=withHeavyWork(async()=>{order.push('radar');});
   const c=withHeavyWork(async()=>{order.push('morning');});
+  const rest=Array.from({length:14},(_,i)=>withHeavyWork(async()=>order.push(i)));
   await assert.rejects(withHeavyWork(async()=>{}),/HEAVY_WORK_BUSY/);
+  t.mock.timers.tick(120_000);
   assert.deepEqual(order,['campus']);
-  release();await assert.rejects(a,/failed/);await Promise.all([b,c]);
-  assert.deepEqual(order,['campus','radar','morning']);
+  release();await assert.rejects(a,/failed/);await Promise.all([b,c,...rest]);
+  assert.deepEqual(order,['campus','radar','morning',...rest.keys()]);
 });
 
 function fakeWorker(respond,overrides={}){

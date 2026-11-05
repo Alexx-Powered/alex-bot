@@ -55,7 +55,11 @@ export function checkChatInput(raw, { media = false } = {}) {
   if (INJECTION.test(text.replace(/\s+/gu, ' '))) return reject('CHAT_INPUT_INJECTION');
   if (/```|~~~|[A-Za-z0-9_+/.=-]{80,}/u.test(text)) return reject('CHAT_INPUT_COMPLEX');
   if (media && /(?:https?|ftp|file|javascript|data):|\bwww\./iu.test(text)) return reject('CHAT_INPUT_ATTACHMENT');
-  if (!media && /(?:https?|ftp|file|javascript|data):|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|cn|io)\b|附件|上传的|\battachments?\b|(?:看|分析|读取|总结|处理|打开).{0,12}(?:文件|文档|PDF|图片|照片|视频|音频|链接|网址)|\b(?:read|summarize|analyze|open)\s+(?:(?:this|the|a)\s+)?(?:file|pdf|image|video|audio)\b|\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|mp4|mp3)\b/iu.test(text)) return reject('CHAT_INPUT_ATTACHMENT');
+  // Requests to generate a supported weather video are not uploaded attachments.
+  // Keep URL/file checks and every other input boundary on the original text.
+  const weatherVideo=/(?:云图|PM2\.?5|降水|温度|气温)/iu.test(text)&&/(?:发|生成|制作|给我|看|播放)/u.test(text)&&!/(?:上传|这个|这段|分析|读取|总结|处理|打开|视频里|视频中)/u.test(text);
+  const attachmentText=weatherVideo?text.replace(/视频/gu,'动画'):text;
+  if (!media && /(?:https?|ftp|file|javascript|data):|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|cn|io)\b|附件|上传的|\battachments?\b|(?:看|分析|读取|总结|处理|打开).{0,12}(?:文件|文档|PDF|图片|照片|视频|音频|链接|网址)|\b(?:read|summarize|analyze|open)\s+(?:(?:this|the|a)\s+)?(?:file|pdf|image|video|audio)\b|\.(?:pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|mp4|mp3)\b/iu.test(attachmentText)) return reject('CHAT_INPUT_ATTACHMENT');
   const calculation=/古月币|HU\$|马里|马时|生活费|全马|半马|工资/iu.test(text)&&!/代码|程序|编程|部署|论文|长文|千字|\d{3,}字|python|script|shell/iu.test(text);
   if (technicalTask(text)||(COMPLEX.test(text)&&!calculation)) return reject('CHAT_INPUT_COMPLEX');
   if (SENSITIVE.test(text)) return reject('CHAT_INPUT_SENSITIVE');
@@ -131,10 +135,18 @@ export class ModelRequestBudget {
     return raw.records.filter(record => record.at > now - RETENTION_MS).map(({ at, userKey, scopeKey }) => ({ at, userKey, scopeKey }));
   }
 
-  acquire(input) {
+  async acquire(input, waitForQuota) {
     let request;
     try { request = { userKey: input?.userKey, scopeKey: input?.scopeKey }; }
-    catch { return Promise.resolve(denied('MODEL_BUDGET_INVALID')); }
+    catch { return denied('MODEL_BUDGET_INVALID'); }
+    for (;;) {
+      const outcome = await this.#tryAcquire(request, typeof waitForQuota === 'function');
+      if (outcome.retryAt === undefined) return outcome;
+      if (!await waitForQuota(outcome.retryAt)) return denied('MODEL_REQUEST_CANCELLED');
+    }
+  }
+
+  #tryAcquire(request, canWait) {
     const pending = this.#tail.then(async () => {
       if (!this.#valid || !hashKey(request.userKey) || !hashKey(request.scopeKey)) return denied('MODEL_BUDGET_INVALID');
       let now;
@@ -144,10 +156,16 @@ export class ModelRequestBudget {
         const records = await this.#load(now), minute = records.filter(record => record.at > now - 60_000);
         if (records.filter(record => dayOf(record.at) === dayOf(now)).length >= this.#limits.daily) return denied('MODEL_RATE_LIMIT_DAY');
         const userRecords = records.filter(record => record.userKey === request.userKey);
-        if (userRecords.some(record => now - record.at < this.#limits.userCooldownMs)) return denied('MODEL_RATE_LIMIT_COOLDOWN');
-        if (minute.filter(record => record.userKey === request.userKey).length >= this.#limits.userPerMinute) return denied('MODEL_RATE_LIMIT_USER');
-        if (minute.filter(record => record.scopeKey === request.scopeKey).length >= this.#limits.scopePerMinute) return denied('MODEL_RATE_LIMIT_SCOPE');
-        if (minute.length >= this.#limits.globalPerMinute) return denied('MODEL_RATE_LIMIT_GLOBAL');
+        const limited = (code, rows, limit, window) => canWait
+          ? { ...denied(code), retryAt: rows.map(row => row.at).sort((a,b) => b-a)[limit-1] + window }
+          : denied(code);
+        if (userRecords.some(record => now - record.at < this.#limits.userCooldownMs))
+          return limited('MODEL_RATE_LIMIT_COOLDOWN',userRecords,1,this.#limits.userCooldownMs);
+        const userMinute=minute.filter(record => record.userKey === request.userKey);
+        const scopeMinute=minute.filter(record => record.scopeKey === request.scopeKey);
+        if (userMinute.length >= this.#limits.userPerMinute) return limited('MODEL_RATE_LIMIT_USER',userMinute,this.#limits.userPerMinute,60000);
+        if (scopeMinute.length >= this.#limits.scopePerMinute) return limited('MODEL_RATE_LIMIT_SCOPE',scopeMinute,this.#limits.scopePerMinute,60000);
+        if (minute.length >= this.#limits.globalPerMinute) return limited('MODEL_RATE_LIMIT_GLOBAL',minute,this.#limits.globalPerMinute,60000);
         if (records.length >= MAX_RECORDS) return denied('MODEL_BUDGET_FULL');
         records.push({ at: now, ...request });
         await this.#save(this.#file, { version: 1, records });

@@ -1,0 +1,37 @@
+{
+  "source": "用户提供：素材库/天气摘要图形",
+  "files": {
+    "sunny": {
+      "source": "01_晴.svg",
+      "sha256": "b197bda4973a7e2c52997d3f71043c53a277c9bf1297cde7642174e72c3975ba"
+    },
+    "partly-cloudy": {
+      "source": "02_晴间多云.svg",
+      "sha256": "b986a189794ff48631415fc0460591edaae0d8486a7dab0c167acfe1f8f21d78"
+    },
+    "overcast": {
+      "source": "03_阴.svg",
+      "sha256": "97ac1d6cfec13323a3189a20f95250b2c998655c33f171fb7569d73d03532fcd"
+    },
+    "light-rain": {
+      "source": "04_小雨.svg",
+      "sha256": "8f76f9b0a1ee9aa9d0c8bb4f35b10db63c26fbdfb19f330d8d367cba0db3eece"
+    },
+    "heavy-rain": {
+      "source": "05_大雨.svg",
+      "sha256": "8a33e903a0262227c6e378c6d7f25ccc45c1bfcb1145fe2836b10ef59f55696d"
+    },
+    "thunderstorm": {
+      "source": "06_雷阵雨.svg",
+      "sha256": "f4411027dd16dac0fb611654214b7c87c56b0f79f18c0715de84d89c3740df11"
+    },
+    "snow": {
+      "source": "07_小雪.svg",
+      "sha256": "c75a5454bd6d19d5d1067979fc065b84dd266fb2fbc5a78f2a3032576812c0e3"
+    },
+    "fog": {
+      "source": "08_雾霾.svg",
+      "sha256": "e48cd5bc8bd6580507854c3f903376abd00c7f977cd5735d0ac92254006f0f8f"
+    }
+  }
+}

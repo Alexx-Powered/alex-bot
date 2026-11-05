@@ -1,3 +1,4 @@
+import {recordRequestFailure} from './telemetry.mjs';
 // Only normalisation/routing lives in Node; LangChain/Python owns the arithmetic.
 const aliases={
   '古月币':'HU$','hu$':'HU$','人民币':'CNY','元':'CNY','cny':'CNY','rmb':'CNY','¥':'CNY','￥':'CNY',
@@ -50,6 +51,6 @@ export class ConversionToolbox{
     const args=parseConversionCommand(text);if(!args)return null;
     try{
       return await this.worker.run({type:'execute',name:'convert_units',args,...fixedToolContext(context)},async()=>{throw Error('CONVERSION_RPC_DENIED');},conversionReply);
-    }catch{return {text:'换算工具暂时不可用，请稍后再试。'};}
+    }catch(error){recordRequestFailure(error,'worker_total');return {text:'换算工具暂时不可用，请稍后再试。'};}
   }
 }

@@ -7,6 +7,11 @@ from test_agent_worker import ScriptedModel, call
 
 current = {}
 def factory(_):
+    if 'openai' in current.get('text', '').lower():
+        return ScriptedModel(responses=[call('openai_service_status', {})])
+    for provider in ('gemini', 'claude', 'kimi'):
+        if provider in current.get('text', '').lower():
+            return ScriptedModel(responses=[call('ai_service_status', {'provider': provider})])
     name = 'liang_status' if '祖' in current.get('text', '') or '变阻' in current.get('text', '') else 'deepseek_service_status'
     return ScriptedModel(responses=[call(name, {})])
 def rpc(request_id, call_id, name, args):

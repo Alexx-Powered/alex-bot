@@ -4,11 +4,31 @@
 
 ## 2026-11-03 恢复 QQ 官方 Bot（当前生产）
 
-官方版新版控制台采用分栏和 Apple 风格开关。快速匹配流程为：添加群 → 填备注 → 生成并复制指令 → 在目标群 @ 机器人发送 → 控制台确认并保存所选权限；匹配只捕获候选，不发群消息、不自动授权，不要求群成员 OpenID 等于主人私聊 OpenID。群名是备注，不能将数字 QQ 群号当作官方 group_openid。旧口令 API 的可选参数缺省行为保持兼容；新版界面始终提交明确的基础权限表，新群只默认聊天、换算和生活费预算。
+地图确认过程的基线 `linux-wxmap-62fc72e4f7e0` 的[确认版审核交接](../docs/天气地图确认版审核交接-20261104.html)包含线上同版画面、官方原图对照和逐项审核编号。由用户明确通过相应范围后，按根目录 AGENTS.md 的确认版流程直接部署并记录结果。
 
-全局“唤醒词”及群页的词库操作使用同一 revision 和固定词 ID，新增/改名/删除影响全部群，各群开关独立保存。改名不重置开关，允许空词库，全部关闭仍可 @。官方 SDK 的普通消息/@ 副本去重使用当前群词库。群功能实际在 Node 和 Python 工具边界执行，不是仅隐藏界面；关闭权限立即使旧请求失效。天气与空气、换算与预算合并显示；AI服务状态、DeepSeek余额及逐群早间日报沿用新名称。
+**2026-11-04 地图发布。** 本轮地图及 FID 368 沿河调整已由用户确认并上线，具体通过范围见确认记录；后续新增地图改动仍按开发约定核对。所有地图部署均需在切换前对候选和现行插件目录运行 `ops/map_review.py`，包括临时补丁发布。常规安装需将 `ops/install-release.py` 与同目录 `map_review.py` 一起提供。发布凭证应与全部地图资产的 SHA256 一致。官方图幅、阿里云比对和待核地段见 `docs/map-boundary-audit-20261104.md` 和 `data/weather-boundary-review.json`。
 
-逐群定时推送由官方单元 `alexbot-group-morning.timer` / `.service` 调用 `/api/group/morning/run`，与所有已屏蔽 OneBot/旧调度单元隔离。群页的“早间天气”（天气、空气与运动建议）和“三号楼自习简报”分别开关，均为每天北京时间 07:30；未开启的项目不生成、不发送。两项默认关闭，保存后从下一个 07:30 生效。旧 `morningReport` 合并开关的明确同意兼容映射到两个开关，旧 `notifications` 广播权限不授予任何定时订阅；旧 API 和 Python 参数形状保持兼容。
+本轮确认的用途包括公开群、频道及对外发布。政府原图的十个海上符号、克什米尔地区界与印巴停火线已进入本地校核图层。原图像素和曲线可用 `python scripts/verify-registered-map-ink.py` 复算。逐段结果在 `docs/map-regional-registration-20261104.md`。发布检查拒绝仍含 `review_` 图层的候选。
+
+官方通道的动态云图、PM2.5、降水和温度视频使用 1080×1080 全幅地图，12 fps 播放。云量默认使用预报；云量、温度、降水和 PM2.5 可查询未来 24 或 48 小时。明确请求历史云图时，才收录近六小时可用的卫星观测；缺测跳时，时次过渡不代表新增观测。固定命令直接调用受限 LangChain 工具。PM2.5 使用 air 权限，其他使用 weather。ECMWF IFS 与 CAMS 原始格点优先，点位降级成片明确标为简略版。部署须包含绘图模块、`weather_video_worker.py`、`weather_video_codec.py` 和 Node 视频桥。绘图子进程先写私有目录中的无损编号帧并退出，再用 `imageio-ffmpeg==0.6.0` 单线程编码和核对 MP4 样本数。官方媒体只上传发送一次。时限和资源验证见 `../docs/weather-video.md` 与 HANDOVER 最新一节。
+
+同时发布 `python/weather_map.py`、`python/weather_ground.py`、`data/weather-map.zip`、`data/weather-ground.sqlite3` 和两份 NOTICE。前一数据包提供国界与地名，后一空间索引库提供市界、省界、水域与浅地形阴影。相邻行政区的共边只存一次，跨省线段加粗。湖海按原有填色加深，岸线无独立描边。只有开发机需要原始 GIS 数据及构建依赖，ECS 只读取当前视口。温度、PM2.5 和降水保留参考 Windy 的色阶，卫星使用红外灰度。
+
+区域视频还需 `data/weather-video-regions.json`、`data/weather-region-masks.zip` 和 `python/weather_regions.py`。词表与遮罩由 `scripts/build-weather-regions.py` 对同版 CTAmap 原始市级多边形离线生成。固定指令和自然语言工具共用目录，按区域 ID 区分缓存，并核验返回视口包含所选区域。发布前分别用一个跨省卫星区域和一个大省逐小时预报验证实际取景、卫星瓦片与成品帧数。
+
+20 秒超时排查已确认发生在模型阶段，同期 DeepSeek 官方公告 API 部分中断；无本机 OOM/内存限流，生产上限保持 1500M。最新响应优化版本以 HANDOVER 首节为准：Python 对现有地名目录中的明确天气/空气/雷达请求直接调用原 LangChain Tool，未知、否定、复合、指代仍交模型；不绕过逐群权限或发送限额。动态可信上下文移至系统提示末尾，提高固定前缀复用；模型等待统一 30 秒，仍不自动重试超时。部署需同时包含 `python/quick_weather_route.py`、`agent_worker.py`、`model_transport.py` 和 Node 超时提示；地名目录仍为 `data/weather-locations.json`。单个模型请求仍可能因供应商异常失败，内存扩容不能修复其接口故障。
+
+户外指数按用户确认的 v3 自定义规则，由 `python/outdoor_index.py` 受限 LangChain Tool 计算，上午/下午取高分。普通单城市天气与早间天气共用，明天天气对应查询第 1 日；缺测或未定义天气类型不推算评级。新版狂草素材、金色档位、卡片镂空及无损条带 PNG 编码须整体发布，渲染调用需 `await`。详细规则见 `../docs/outdoor-index.md`，当前 release 和验证记录以 HANDOVER 最新节为准。
+
+天气摘要图形由同一次 ECMWF 响应的 `daily.weather_code`、请求第 1 日日期匹配。固定映射在 Python LangChain `weather_summary`，复用 `wind_brief.py` 的可选 `weather` 包并保留旧风速协议。发布必须同时包含 `weather.mjs`、`wind-summary.mjs`、两个 Python 模块、天气渲染器及 `public/weather-report/conditions/` 八个 SVG；缺失日代码显示缺数据，不能用第二天或 PM2.5 猜图形。普通天气和早报共用，无新增定时订阅或模型请求。
+
+新版帮助图已上线（`linux-help-page-25722e38d870`，后续以 HANDOVER 最新版本为准）。官方群 @ 或启用唤醒词后发送 `/help` / `帮助` / `菜单`；主人私聊 `/help`。只显示该会话已开的功能、实际唤醒词和已订阅的 07:30 项目，chat 关闭仍能查看帮助并显示红字。固定生成图片、不请求模型，额度检查在绘图前，默认不主动发送验收消息。渲染器及同目录天气目录须一并发布，保留控制台 `public/logo.png`。
+
+官方版新版控制台采用分栏和 Apple 风格开关。快速匹配流程为：添加群 → 填备注 → 生成并复制指令 → 在目标群 @ 机器人发送 → 控制台确认并保存所选权限；匹配只捕获候选，不发群消息、不自动授权，不要求群成员 OpenID 等于主人私聊 OpenID。群名是备注，不能将数字 QQ 群号当作官方 group_openid。旧口令 API 的可选参数缺省行为保持兼容；新版界面始终提交明确的基础权限表，新群默认展示聊天与固定换算。
+
+全局“唤醒词”及群页的词库操作使用同一 revision 和固定词 ID，新增/改名/删除影响全部群，各群开关独立保存。改名不重置开关，允许空词库，全部关闭仍可 @。官方 SDK 的普通消息/@ 副本去重使用当前群词库。群功能实际在 Node 和 Python 工具边界执行，不是仅隐藏界面；关闭权限立即使旧请求失效。天气与空气合并显示，固定换算独立展示；AI服务状态、DeepSeek余额及逐群早间日报沿用新名称。
+
+逐群定时推送由官方单元 `alexbot-group-morning.timer` / `.service` 调用 `/api/group/morning/run`，与所有已屏蔽 OneBot/旧调度单元隔离。群页的“早间天气”（天气、空气与户外指数）和“三号楼自习简报”分别开关，均为每天北京时间 07:30；未开启的项目不生成、不发送。两项默认关闭，保存后从下一个 07:30 生效。旧 `morningReport` 合并开关的明确同意兼容映射到两个开关，旧 `notifications` 广播权限不授予任何定时订阅；旧 API 和 Python 参数形状保持兼容。
 
 Persistent=false、不补发，执行窗口 07:30–07:45，保留逐群逐图的原幂等键及发送限额，不因拆分重新发送已投递的图片。关闭单项会取消该项在途结果，另一项仍可发送；关闭后重新开启不能复活旧结果。一项生成失败不抑制另一项，投递不确定仍暂停并停止剩余发送。旧增强配置及旧官方调度继续关闭，不因升级新增订阅。
 
@@ -113,7 +133,7 @@ Windows与Linux控制台各14项测试通过。主服务PID71859于2026-10-31 22
 | 部分 | 当前运行位置 |
 |---|---|
 | QQ官方SDK、配对、白/灰名单、前缀、限额与图片发送 | ECS `alexbot.service` |
-| DeepSeek聊天/余额、LangChain换算、生活费与运动规则 | ECS Node → Python worker |
+| DeepSeek聊天/余额、LangChain换算与户外规则 | ECS Node → Python worker |
 | 学院路全部教室JSON、全天图、即时推荐与记忆 | ECS独立校园worker、Chromium与中文字体 |
 | 普通聊天偏好、成员沟通习惯、媒体摘要与衰减情绪 | Python LangChain + `.private/chat-memory/chat-memory.sqlite3`，按私聊/群及成员隔离；具体限额见根目录HANDOVER |
 | 图片理解与可选语音识别 | 独立Python媒体worker；DeepSeek Flash视觉；QQ自带转写优先，百炼付费ASR缺省关闭；`/social`加密配置 |

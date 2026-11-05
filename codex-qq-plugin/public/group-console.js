@@ -8,8 +8,8 @@ window.createGroupConsole = ({api,action}) => {
       {keys:['memory'],label:'成员记忆',hint:'保留成员偏好，支持个人清空'},
     ]},
     {title:'查询与工具',items:[
-      {keys:['conversion','budget'],label:'换算与生活费预算',hint:'固定单位换算、生活费与发薪预算'},
-      {keys:['weather','air'],label:'天气预报与空气质量',hint:'天气图、降水与 CAMS PM2.5'},
+      {keys:['conversion'],label:'固定换算',hint:'古月币、马里、马时与常用单位换算'},
+      {keys:['weather','air'],label:'天气预报与空气质量',hint:'两日天气、空气质量、云量 / 温度 / 降水 / PM2.5 预报视频和历史云图'},
       {keys:['radar'],label:'雷达',hint:'当前降水雷达与站点目录'},
       {keys:['campus'],label:'校园与教室',hint:'空教室、自习推荐与三号楼简报'},
       {keys:['status'],label:'AI服务状态',hint:'AI 平台可用性与服务状态查询'},
@@ -61,7 +61,17 @@ window.createGroupConsole = ({api,action}) => {
         };
         copy.append(title,hint);row.append(copy,input);rows.append(row);
       }
-      block.append(heading,rows);container.append(block);
+      block.append(heading,rows);
+      if (items.some(item=>item.keys.includes('weather'))) {
+        const details=document.createElement('details');
+        const summary=document.createElement('summary');summary.textContent='天气视频怎么发？';
+        const examples=document.createElement('p');examples.className='help';
+        examples.textContent='默认看未来 24 小时。发「发 云图 南京」看预报，发「发 48h动态温度 新疆」看两天。地点可换成城市、省区或大区。';
+        const history=document.createElement('p');history.className='help';
+        history.textContent='回看近 6 小时卫星观测，发「发 历史云图 南京」。';
+        details.append(summary,examples,history);block.append(details);
+      }
+      container.append(block);
     }
   }
   function preset(container,all) {

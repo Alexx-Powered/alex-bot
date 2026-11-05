@@ -58,7 +58,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
   let configured = Boolean(await readTransportCredentials());
-  const worker = new PythonAgentWorker({home,toolTimeouts:{buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
+  const worker = new PythonAgentWorker({home,toolTimeouts:{cloud_video:190000,pm25_video:190000,precipitation_video:190000,temperature_video:190000,buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
   const campus = campusService || new CampusService({home,configStore:campusConfigStore});
   const statusTools = new PublicStatusService({home});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
@@ -73,8 +73,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     groupAddressed: (groupId,text) => core?.addressesGroupMessage(groupId,text)===true,
     canSend: request => core?.canDeliver(request) === true,
     admit: event => core?.admitsOneBotEvent(event) === true,
-    onMessage: async (message) => {
-      try { await monitoring.run({scope:message?.kind},()=>core.handleMessage(message)); } catch { /* no text or credential logging */ }
+    onMessage: async (message, replyExpiresAt) => {
+      try { await monitoring.run({scope:message?.kind},()=>core.handleMessage(message,replyExpiresAt)); } catch { /* no text or credential logging */ }
     },
     onStatus: (status) => {
       if (['blocked', 'error'].includes(status.state)) core?.setPaused(true).catch(() => {});

@@ -1,0 +1,154 @@
+{
+  "metadata": {
+    "version": 1,
+    "attribution": "© OpenStreetMap contributors; Wikimedia coordinates, per-entry provenance",
+    "scope": "Curated representative coordinates, not an exhaustive gazetteer; ambiguous village names retain multiple entries."
+  },
+  "places": [
+    {
+      "id": "osm-n-164979149",
+      "name": "珠穆朗玛峰（峰顶）",
+      "latitude": 27.9880614,
+      "longitude": 86.92521,
+      "aliases": [
+        "珠峰",
+        "珠穆朗玛峰",
+        "珠穆朗玛",
+        "Mount Everest",
+        "Everest"
+      ],
+      "source": "https://www.openstreetmap.org/node/164979149",
+      "coordinateMeaning": "representative point",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "osm-n-774523525",
+      "name": "云南·虎跳峡",
+      "latitude": 27.2044019,
+      "longitude": 100.1206446,
+      "aliases": [
+        "虎跳峡",
+        "云南虎跳峡"
+      ],
+      "source": "https://www.openstreetmap.org/node/774523525",
+      "coordinateMeaning": "representative point",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "osm-n-1693407199",
+      "name": "云南·德钦·雨崩上村",
+      "latitude": 28.4006211,
+      "longitude": 98.7912893,
+      "aliases": [
+        "雨崩",
+        "雨崩村",
+        "雨崩上村",
+        "云南雨崩上村"
+      ],
+      "source": "https://www.openstreetmap.org/node/1693407199",
+      "coordinateMeaning": "representative point",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "osm-n-1693407321",
+      "name": "云南·德钦·雨崩下村",
+      "latitude": 28.3926095,
+      "longitude": 98.7927169,
+      "aliases": [
+        "雨崩",
+        "雨崩村",
+        "雨崩下村",
+        "云南雨崩下村"
+      ],
+      "source": "https://www.openstreetmap.org/node/1693407321",
+      "coordinateMeaning": "representative point",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "osm-n-3884441391",
+      "name": "北京·故宫博物院",
+      "latitude": 39.9174311,
+      "longitude": 116.3907817,
+      "aliases": [
+        "北京故宫",
+        "故宫博物院",
+        "北京故宫博物院"
+      ],
+      "source": "https://www.openstreetmap.org/node/3884441391",
+      "coordinateMeaning": "representative point",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "landmark-huashan",
+      "name": "陕西·华山（山体代表点）",
+      "latitude": 34.483,
+      "longitude": 110.083,
+      "aliases": [
+        "华山",
+        "陕西华山",
+        "西岳华山",
+        "Mount Hua"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Mount_Hua",
+      "coordinateMeaning": "named representative point; not whole-route forecast",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "landmark-wugongshan",
+      "name": "江西·武功山（金顶）",
+      "latitude": 27.45528,
+      "longitude": 114.17333,
+      "aliases": [
+        "武功山",
+        "江西武功山",
+        "武功山金顶"
+      ],
+      "source": "https://zh.wikipedia.org/wiki/武功山",
+      "coordinateMeaning": "named representative point; not whole-route forecast",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "landmark-siguniang",
+      "name": "四川·四姑娘山（幺妹峰）",
+      "latitude": 31.10667,
+      "longitude": 102.90167,
+      "aliases": [
+        "四姑娘山",
+        "幺妹峰",
+        "四川四姑娘山"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Mount_Siguniang",
+      "coordinateMeaning": "named representative point; not whole-route forecast",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "landmark-beijing-xiangshan",
+      "name": "北京·香山公园",
+      "latitude": 39.9909972,
+      "longitude": 116.1796917,
+      "aliases": [
+        "北京香山",
+        "北京香山公园",
+        "海淀香山公园"
+      ],
+      "source": "https://en.wikipedia.org/wiki/Fragrant_Hills",
+      "coordinateMeaning": "named representative point; not whole-route forecast",
+      "checkedAt": "2026-11-03"
+    },
+    {
+      "id": "landmark-maclehose",
+      "name": "香港·麦理浩径（北潭涌代表点）",
+      "latitude": 22.3973323,
+      "longitude": 114.3190286,
+      "aliases": [
+        "麦理浩径",
+        "麥理浩徑",
+        "香港麦理浩径",
+        "MacLehose Trail"
+      ],
+      "source": "https://www.openstreetmap.org/node/1200171915",
+      "coordinateMeaning": "named representative point; not whole-route forecast",
+      "checkedAt": "2026-11-03"
+    }
+  ]
+}

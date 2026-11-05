@@ -1,3 +1,5 @@
+import {WEATHER_TOOLS} from './weather-catalog.mjs';
+
 export const MORNING_PART_FEATURES = Object.freeze({weather:'morningWeather',campus:'morningCampus'});
 export const MORNING_FEATURE_KEYS = Object.freeze(Object.values(MORNING_PART_FEATURES));
 export const isMorningFeature = key => MORNING_FEATURE_KEYS.includes(key);
@@ -5,7 +7,7 @@ export const isMorningFeature = key => MORNING_FEATURE_KEYS.includes(key);
 export const GROUP_FEATURES = Object.freeze([
   {key:'chat',label:'模型聊天'},
   {key:'conversion',label:'固定换算'},
-  {key:'budget',label:'生活费预算'},
+  {key:'budget',hidden:true},
   {key:'weather',label:'天气预报'},
   {key:'air',label:'空气质量'},
   {key:'radar',label:'雷达与目录'},
@@ -38,9 +40,9 @@ export function featureEnabled(context, feature) {
   return (context.features ?? defaultGroupFeatures(context.access))[feature]===true;
 }
 const tools = {
-  weather_image:'weather',air_quality_image:'air',radar_image:'radar',radar_catalog:'radar',
+  ...Object.fromEntries(WEATHER_TOOLS.map(({tool,feature})=>[tool,feature])),
   local_weather_briefing:'weather',convert_units:'conversion',convert_previous_result:'conversion',
-  living_cost_budget:'budget',openai_service_status:'status',deepseek_service_status:'status',liang_status:'status',
+  living_cost_budget:'budget',openai_service_status:'status',deepseek_service_status:'status',ai_service_status:'status',liang_status:'status',
   deepseek_account_balance:'balance',buaa_classroom_query:'campus',buaa_classroom_recommend:'campus',
 };
 export const toolFeature = name => tools[name];
