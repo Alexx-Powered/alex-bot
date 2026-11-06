@@ -47,7 +47,14 @@ jobs:
             git -C "$target" checkout -B main FETCH_HEAD
           fi
           cp -R "$RUNNER_TEMP/public-readme-export/." "$target/"
-          git -C "$target" add -- README.md .public-readme-sync.json docs/images/*.webp docs/public-assets.md codex-qq-plugin/public/logo.png
+          python3 - "$target" <<'PY'
+          from pathlib import Path
+          import json, subprocess, sys
+          target = Path(sys.argv[1])
+          manifest = '.public-readme-sync.json'
+          files = json.loads((target / manifest).read_text())['files']
+          subprocess.run(['git', '-C', str(target), 'add', '--', manifest, *files], check=True)
+          PY
           if git -C "$target" diff --cached --quiet; then
             echo 'Public README and images are already current.'
             exit 0

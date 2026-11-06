@@ -11,7 +11,7 @@ python -m unittest discover -s scripts/tests -p test_public_readme.py
 python scripts/export_public_readme.py --output codex-qq-plugin/test-output/public-readme-preview
 ```
 
-输出目录须为空。同步后的 `.public-readme-sync.json` 记录导出文件的 SHA256，可用于远端回读。无内容变化时不创建空提交。
+输出目录须为空。同步后的 `.public-readme-sync.json` 记录导出文件的 SHA256，可用于远端回读。工作流严格按这份清单暂存文件，WebP、GIF 及展开后的完整图走同一同步流程。无内容变化时不创建空提交。
 
 认证使用仅登记在目标仓库上的可写 deploy key；私钥保存在源仓库 Actions secret `ALEX_BOT_PUBLIC_DEPLOY_KEY`。主工作流的 `GITHUB_TOKEN` 只有源仓库读取权限，checkout 禁止持久保存凭据。SSH 主机公钥来自 GitHub `/meta`，固定在 `github-known-hosts`。部署密钥的权限依据见 [GitHub 官方说明](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys)。
 
