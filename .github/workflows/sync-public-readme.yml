@@ -1,0 +1,56 @@
+name: Sync public README
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-readme-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'Alexx-Powered/alex-bot' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate and export public content
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_public_readme.py
+          python3 scripts/export_public_readme.py --output "$RUNNER_TEMP/public-readme-export"
+      - name: Sync README and images
+        env:
+          PUBLIC_DEPLOY_KEY: ${{ secrets.ALEX_BOT_PUBLIC_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$PUBLIC_DEPLOY_KEY"
+          umask 077
+          key="$RUNNER_TEMP/alex-bot-public.key"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$PUBLIC_DEPLOY_KEY" > "$key"
+          unset PUBLIC_DEPLOY_KEY
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$GITHUB_WORKSPACE/.github/github-known-hosts"
+          target="$RUNNER_TEMP/alex-bot-public"
+          git init --initial-branch=main "$target"
+          git -C "$target" remote add origin git@github.com:Alexx-Powered/alex-bot-public.git
+          git -C "$target" ls-remote --heads origin refs/heads/main > "$RUNNER_TEMP/public-main-ref"
+          if test -s "$RUNNER_TEMP/public-main-ref"; then
+            git -C "$target" fetch --depth=1 origin main
+            git -C "$target" checkout -B main FETCH_HEAD
+          fi
+          cp -R "$RUNNER_TEMP/public-readme-export/." "$target/"
+          git -C "$target" add -- README.md .public-readme-sync.json docs/images/*.webp docs/public-assets.md codex-qq-plugin/public/logo.png
+          if git -C "$target" diff --cached --quiet; then
+            echo 'Public README and images are already current.'
+            exit 0
+          fi
+          git -C "$target" -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'docs: sync README and feature previews'
+          git -C "$target" push origin HEAD:main

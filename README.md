@@ -19,7 +19,11 @@
 
 ### 两日天气与户外指数
 
-将天气摘要、空气质量和适合户外活动的时段放在一起，下方继续展示逐小时曲线。户外指数使用项目自定义规则，说明见[评分规则](codex-qq-plugin/docs/outdoor-index.md)。
+将天气摘要、空气质量和适合户外活动的时段放在一起，下方继续展示逐小时曲线。户外指数使用项目自定义规则。
+
+<!-- public-readme:private:start -->
+详细规则见[评分规则](codex-qq-plugin/docs/outdoor-index.md)。
+<!-- public-readme:private:end -->
 
 <a href="docs/images/weather.webp"><img src="docs/images/weather-summary.webp" width="640" alt="广州天气摘要：温度范围、降水、风、湿度与户外指数"></a>
 
@@ -86,10 +90,15 @@
 
 **Node.js** 负责 QQ 官方 SDK、授权、唤醒词、消息队列、发送与控制台；**Python LangChain** 负责受限工具和自然语言路由。固定指令、自然语言和定时任务复用业务实现。图片与视频按队列处理，数据下载使用受限并发与缓存。
 
-响应监控可查看排队、数据获取、解码、绘图、H.264 编码和 QQ 投递耗时。启用 LangSmith 后，trace 包含触发消息原文、工具参数和错误信息；详见[监控说明](codex-qq-plugin/docs/latency-monitoring-20261029.md)。
+响应监控可查看排队、数据获取、解码、绘图、H.264 编码和 QQ 投递耗时。启用 LangSmith 后，trace 包含触发消息原文、工具参数和错误信息。
+
+<!-- public-readme:private:start -->
+详见[监控说明](codex-qq-plugin/docs/latency-monitoring-20261029.md)。
+<!-- public-readme:private:end -->
 
 正式实例运行在 ECS，通过 SSH 隧道访问本机控制台。当前仅使用 **QQ 官方 Bot**；OneBot 已退役。部署会保留运行状态，执行备份、回归、地图资产校验与进程核验。
 
+<!-- public-readme:private:start -->
 ### 开发准备
 
 需要 Node.js 22+、Python 3.10+。Windows 开发环境：
@@ -124,3 +133,6 @@ node --test test/*.test.mjs
 | [buaa-classrooms](buaa-classrooms/README.md) | 校园采集原型 |
 
 第三方数据、字体和标志的来源分别保留在 `codex-qq-plugin/data/*NOTICE*` 与 `public/` 对应素材目录。地图使用项目已确认的资产与核对流程；未附带的个人凭据、运行状态和本机素材不进入仓库。
+<!-- public-readme:private:end -->
+
+[展示图与素材来源](docs/public-assets.md)
