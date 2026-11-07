@@ -34,7 +34,7 @@ ECMWF IFS 经 Open-Meteo 同一批多点请求，15秒、无自动重试；检�
 
 ## 核验与运行
 
-LangSmith 增加 `hiking_route`、`hiking_locate`、`hiking_fetch`、`hiking_render`，保留原文 Input 规则，数据源失败带固定错误码。仅管理员可使用 `/api/hiking/check` 的固定公开样本；不发送QQ、不允许任意路径、URL、收件人。`/api/rag/index` 仅管理员触发一次空闲索引。
+LangSmith 增加 `hiking_route`、`hiking_locate`、`hiking_fetch`、`hiking_render`，保留原文 Input 规则，数据源失败带固定错误码。仅管理员可使用 `/api/hiking/check` 的固定公开样本；不发送QQ、不允许任意路径、URL、收件人。预览返回的 `mediaReady` 表示同版官方适配器已校验PNG格式和大小，不表示实际QQ送达；renderer统一返回 `{buffer,mimeType}`，端到端离线发送回归必须覆盖核心与QQAdapter。`/api/rag/index` 仅管理员触发一次空闲索引。
 
 生产维护前保留加密备份；研究队列里的新增路线和坐标表随既有 SQLite 备份恢复。候选需通过 map_review（本次不变更地图），本机全量回归，ECS 仅128MiB/50%CPU/无swap串行专项；切换后核对清单哈希、实际监听PID、argv、源码目录及启动时间。
 

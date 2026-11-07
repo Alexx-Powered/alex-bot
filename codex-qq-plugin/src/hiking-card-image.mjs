@@ -32,7 +32,10 @@ export function parseHikingCommand(text){
 
 export async function renderHikingCard(value){
   const v=validateHikingCard(value);setTraceOperation('hiking.trip');
-  return withHeavyWork(()=>measureSpan('hiking_render',()=>draw(v)));
+  const buffer=await withHeavyWork(()=>measureSpan('hiking_render',()=>draw(v)));
+  // Same media contract as weather/help images; the QQ boundary rejects a raw
+  // Buffer before upload, even when it contains a perfectly valid PNG.
+  return {buffer,mimeType:'image/png'};
 }
 
 async function draw(v){

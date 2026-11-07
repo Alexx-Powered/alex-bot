@@ -27,7 +27,7 @@ test('card bounds reject oversized or malformed worker payloads',()=>{
   assert.throws(()=>validateHikingCard(fixture(15)),/INVALID/);
 });
 test('3 and 14 walking days retain readable day width within canvas memory budget',async()=>{
-  const small=await loadImage(await renderHikingCard(fixture(3))),long=await loadImage(await renderHikingCard(fixture(14)));
+  const small=await loadImage((await renderHikingCard(fixture(3))).buffer),long=await loadImage((await renderHikingCard(fixture(14))).buffer);
   assert.ok(small.width>2000);assert.ok(long.width>small.width);
   assert.ok(long.width<=6001);assert.ok(long.width*long.height<=18_020_000);
 });
@@ -46,6 +46,6 @@ test('real Node to Python LangChain produces image without model config or QQ',a
   try{
     const agent=new ConversationAgent({worker,ragEnabled:true,configStore:{read(){throw Error('MODEL_CONFIG_DENIED');}},modelBudget:{acquire(){throw Error('MODEL_BUDGET_DENIED');}}});
     const reply=await agent.handle('发 徒步 合成测试山',{scope:'c2c',sessionKey:'a'.repeat(64)});
-    assert.equal(reply.text,'');assert.ok(Buffer.isBuffer(reply.image));assert.ok((await loadImage(reply.image)).width>1000);
+    assert.equal(reply.text,'');assert.ok(Buffer.isBuffer(reply.image.buffer));assert.equal(reply.image.mimeType,'image/png');assert.ok((await loadImage(reply.image.buffer)).width>1000);
   }finally{worker.close();await new Promise(r=>setTimeout(r,200));await rm(home,{recursive:true,force:true});}
 });

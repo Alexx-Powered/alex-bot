@@ -1,3 +1,13 @@
+## 徒步出图后无回复已修复（2026-11-08 00:30 CST）
+
+截图中11-07 23:42、23:51及11-08 00:22三次徒步请求均已完成理解、取数和绘图，但没有进入qq_send。00:22总耗时8.265秒、绘图1.006秒，官方connected/未暂停/当日发送尝试0。根因：`renderHikingCard`返回裸Buffer，核心要求`{buffer,mimeType}`，上传前返回INVALID_INPUT；此前预览验收漏测了发送边界。现统一天气/帮助图媒体契约，不放宽核心或QQ校验；管理员预览也调用官方`imageBase64`并返回`mediaReady:true`。
+
+新增`test/hiking-delivery.test.mjs`贯穿实际renderer→ConversationAgent→BridgeCore→QQAdapter，只替代模型/数据和SDK网络。私聊/群聊×固定/自然语言4种路径在旧实现全复现INVALID_INPUT，修复后验证一上传、一图片提交、无附加文字、去重和chat关闭仍可用工具。本机75项相关回归（含实际Node→Python→LangChain）通过；ECS独立128MiB/Swap0/CPU50%、600MiB余量，串行7项及map_review通过，地图未变。
+
+当前release `linux-hiking-media-a3816034b076`，基线`linux-hiking-1e21f5e9d75e`，19327实际监听PID204949，启动2026-11-08 00:30:47 CST；1397文件哈希、argv/cwd、官方transport及源码早于启动均验证。在线库拉岗日自然语言预览5.468秒、3日PNG978297字节、mediaReady=true；管理员验收未发QQ，已请用户重发原话复测。群配置/订阅/账本保持，07:28/07:30定时器active/enabled，OneBot和旧早报masked。本机SSH PID28896、11-06 09:13:35启动不变。图后主cgroup约344MiB、可用793MiB，上限1500MiB不变。
+
+切换前27文件加密备份`/var/backups/alexbot/alexbot-20261107T163047341Z.json`，275830字节，SHA256 `39e506670978bf73788cae87e4f8f2e8a2da729919c5f10af401d2c79935d4fb`。回执`/var/backups/alexbot-hiking/20261108-delivery-fix/`，本机`codex-qq-plugin/test-output/hiking-delivery-fix/ecs-receipt.json`。只切换5个源/测试文件，未改知识库/账户/地图/定时配置；回滚保留最新状态。沿上一轮授权同步GitHub修复，公开展示内容不变，既有workflow仍核对同步。
+
 ## 沿线徒步天气卡片与受限 RAG 更新已上线（2026-11-08）
 
 用户确认第二版预览并授权开发、ECS 上线、更新 RAG 和 GitHub。本次最终 release `linux-hiking-1e21f5e9d75e`，前一生产基线 `linux-morning-d2bc198235cc`；最终一次补丁基线 `linux-hiking-1a9e6d7e126c`。19327 实际监听 PID `203384`，启动 `2026-11-08 00:01:30 CST`，1396 文件清单哈希、源码早于启动、官方 transport、argv 和 cwd 均验证。官方 connected、未暂停、未决0；本轮全部验收通过管理员预览接口，没有发送测试 QQ。OneBot、旧早报仍 masked，既有授权、订阅和投递账本保持，07:28 准备及07:30 发送 timer 均 enabled/active。本机仍为 SSH 隧道 PID28896（2026-11-06 09:13:35启动）。

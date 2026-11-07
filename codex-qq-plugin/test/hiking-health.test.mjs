@@ -24,6 +24,6 @@ test('hiking preview and index maintenance are administrator only and cannot sen
     }
     assert.equal(calls,0);
     const r=await fetch(base+'/api/hiking/check',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+store.token},body:JSON.stringify({sample:'haba'})});
-    assert.equal(r.status,200);assert.equal((await r.json()).qqSent,false);assert.equal(sent,0);
+    assert.equal(r.status,200);const result=await r.json();assert.equal(result.qqSent,false);assert.equal(result.mediaReady,true);assert.equal(result.mimeType,'image/png');assert.equal(sent,0);
   }finally{await app.close();}
 });

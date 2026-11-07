@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {renderHikingCard} from './hiking-card-image.mjs';
+import {imageBase64} from './qq-adapter.mjs';
 const SESSION=createHash('sha256').update('alexbot:admin:hiking-check:v1').digest('hex');
 const SAMPLES=Object.freeze({dangling:'党岭',wugong:'武功山',kula:'库拉岗日',haba:'哈巴西坡'});
 export class HikingHealthCheck{
@@ -17,7 +18,7 @@ export class HikingHealthCheck{
       const result=await this.worker.run(packet,async()=>{throw Error('HIKING_CHECK_RPC_DENIED');},v=>v);
       if(!result.hikingCard)throw Error('HIKING_CHECK_NO_CARD');
       const image=await renderHikingCard(result.hikingCard);
-      return {statusCode:200,body:{ok:true,card:result.hikingCard,image:image.toString('base64'),mimeType:'image/png',elapsedMs:Math.round(performance.now()-tick),qqSent:false}};
+      return {statusCode:200,body:{ok:true,card:result.hikingCard,image:imageBase64(image),mimeType:image.mimeType,mediaReady:true,elapsedMs:Math.round(performance.now()-tick),qqSent:false}};
     }catch{return {statusCode:503,body:{ok:false,code:'HIKING_CHECK_FAILED',elapsedMs:Math.round(performance.now()-tick)}};}
     finally{this.#busy=false;}
   }
