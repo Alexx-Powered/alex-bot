@@ -1,0 +1,24 @@
+{
+  "schema_version": "climate.locations.v1",
+  "locations": [
+    {
+      "place_id": "beijing",
+      "name": "北京代表点",
+      "latitude": 39.905,
+      "longitude": 116.4053,
+      "timezone": "Asia/Shanghai",
+      "source": "repo://data/weather-locations.json#qweather-101010100",
+      "coordinate_meaning": "representative_point"
+    },
+    {
+      "place_id": "dangling",
+      "name": "四川丹巴党岭代表点",
+      "latitude": 31.0733589,
+      "longitude": 101.4052803,
+      "timezone": "Asia/Shanghai",
+      "source": "https://www.openstreetmap.org/node/3790391144",
+      "coordinate_meaning": "representative_point_not_trail_or_campsite",
+      "checked_at": "2026-11-06"
+    }
+  ]
+}

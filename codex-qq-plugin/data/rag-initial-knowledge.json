@@ -1,0 +1,17 @@
+{
+  "schema_version": "rag.import.v1",
+  "documents": [
+    {"doc_id":"bot-wakeup","namespace":"shared","visibility":"shared","domain":"bot","title":"群聊如何唤醒机器人","text":"群聊可以直接官方 @ 机器人，无需添加前缀。没有 @ 时，使用该群已启用的唤醒词，词后接空格再输入问题。词库的增删改是全局操作，各群独立选择启用哪些词。","source_ref":"repo://AGENTS.md#群聊唤醒约定"},
+    {"doc_id":"bot-help","namespace":"shared","visibility":"shared","domain":"bot","title":"帮助和可用功能","text":"发送 /help 可以生成当前聊天的帮助图。帮助内容按当前聊天开放的功能和实际唤醒词生成；各群可用功能可能不同，以当次帮助图为准。","source_ref":"repo://README.md#怎么问"},
+    {"doc_id":"bot-tools-chat","namespace":"shared","visibility":"shared","domain":"bot","title":"自然语言工具与普通聊天","text":"普通聊天可以单独关闭，仍然可以通过自然语言调用当前聊天已开放的工具。固定指令直接调用工具，无需 DeepSeek 理解自然语言。","source_ref":"repo://README.md#能做什么"},
+    {"doc_id":"bot-morning","namespace":"shared","visibility":"shared","domain":"bot","title":"早间定时推送","text":"早间天气和三号楼自习简报分别订阅，每天北京时间 07:30 推送。两项默认关闭，保存开启后从下一个 07:30 生效；关闭的项目不生成、不发送，不补发错过的定时任务。","source_ref":"repo://codex-qq-plugin/ops/README.md#官方逐群定时推送"},
+    {"doc_id":"bot-ai-status","namespace":"shared","visibility":"shared","domain":"bot","title":"AI 服务状态查询","text":"支持查询 OpenAI、DeepSeek、Gemini、Claude、Kimi 的官方服务状态。有故障时，报告列出受影响服务、事件说明和最新处理进展。官方聚合状态不保证个人账户或网络一定可用。","source_ref":"repo://README.md#AI服务状态"},
+    {"doc_id":"campus-supported-regions","namespace":"shared","visibility":"shared","domain":"campus","title":"学院路支持查询的区域","text":"当前教室查询按学院路校区的区域目录处理，包含三号楼、主楼、主M、主北、主南和新主楼 A 至 G 座。可以指定单个区域或组合区域。沙河校区不属于当前已实现的查询范围。","source_ref":"repo://codex-qq-plugin/python/campus_regions.py#REGIONS"},
+    {"doc_id":"campus-building-aliases","namespace":"shared","visibility":"shared","domain":"campus","title":"教学楼名称与别名","text":"三号楼也可写作 3 号楼或第三教学楼。老主楼、旧主楼按主楼处理。单说新主楼表示目录中的 A 至 G 座，指定新主楼 A 座只查询该座。","source_ref":"repo://codex-qq-plugin/python/campus_regions.py#resolve_regions"},
+    {"doc_id":"campus-query-dates","namespace":"shared","visibility":"shared","domain":"campus","title":"教室查询日期范围","text":"教室查询未指定日期时使用北京时间今天。明确日期必须在今天至今天之后第 7 天之间，并使用有效日期；不查询已经过去的日期。接口成功与否仍取决于当次校园数据服务。","source_ref":"repo://codex-qq-plugin/python/campus_classrooms.py#query_day"},
+    {"doc_id":"campus-cache-rules","namespace":"shared","visibility":"shared","domain":"campus","title":"教室推荐的缓存时效","text":"教室推荐要求缓存日期与请求日期一致。获取时间超过 24 小时，或获取时间异常地晚于当前时间超过 5 分钟时，缓存不可用，需要重新查询。没有对应日期缓存时不凭旧记录推断空闲状态。","source_ref":"repo://codex-qq-plugin/python/campus_recommendations.py#recommend"},
+    {"doc_id":"campus-seat-limit","namespace":"shared","visibility":"shared","domain":"campus","title":"空教室数据的含义","text":"校园工具提供课程占用与空闲课节信息。课程未占用不能证明现场有空座、插座可用或环境安静。这些设施和现场情况缺少可靠依据时保持未知，不能当作已满足的硬性条件。","source_ref":"repo://codex-qq-plugin/docs/agentic-roadmap-20261106.md#主场景的任务定义"},
+    {"doc_id":"weather-video-window","namespace":"shared","visibility":"shared","domain":"weather","title":"预报云图与历史云图","text":"动态云图默认展示总云量预报，云量、温度、降水和 PM2.5 视频可查询未来 24 或 48 小时。明确请求历史云图时才回看近 6 小时的可用卫星观测。预报与历史观测不能混作同一种数据。","source_ref":"repo://README.md#24与48小时动态预报"},
+    {"doc_id":"weather-pm-meaning","namespace":"shared","visibility":"shared","domain":"weather","title":"PM2.5 预报的解释范围","text":"项目 PM2.5 图使用 CAMS 浓度模型预报。它不是附近监测站的实时测量，也不是综合 AQI、能见度或实况雾霾诊断。需要结合图中的有效时间理解，缺失数据不能按零值解释。","source_ref":"repo://HANDOVER.md#天气数据与图表语义"}
+  ]
+}

@@ -46,6 +46,7 @@ const validId = (value) => typeof value === 'string' && value.length > 0 && valu
 const validGroupId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const validGroupName = (value) => typeof value === 'string' && value.trim() === value && value.length > 0 && value.length <= 80 && !/[\u0000-\u001f\u007f]/u.test(value);
 const validGroupKey = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const validDeliveryDeadline = value => value===undefined || (Number.isSafeInteger(value)&&value>=0&&value<=8_640_000_000_000_000);
 const groupKeyFor = (id) => hash(`group:${id}`);
 const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white') => ({
   name,groupKey:groupKeyFor(id),groupHint:`sha256:${groupKeyFor(id).slice(0,12)}`,
@@ -149,6 +150,9 @@ function restoreState(raw) {
 // Only return fixed categories. Upstream error text, URLs, message bodies and
 // credentials must never reach status(), persisted state or API responses.
 function classifyError(error) {
+  // Preserve the existing settled-ledger vocabulary so an older release can
+  // still read the latest state during rollback. The API keeps the exact cause.
+  if(error?.code==='QQ_REQUEST_EXPIRED'&&error?.messageAttempted===false)return {code:'REQUEST_EXPIRED',persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false};
   if(error?.timedOut===true){
     if(error.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false,timeoutText:'图片上传到QQ超时（120秒时限），图片消息尚未提交，请稍后重试'};
     return {code:'DELIVERY_UNCERTAIN',pause:true,uncertain:true};
@@ -262,6 +266,11 @@ export class BridgeCore {
     return pending;
   }
 
+  // Orchestrators may wait for pending settings saves before checking captured
+  // permissions. A transient restriction during an unrelated save is not a
+  // permanent cancellation of another morning subscription.
+  waitForPendingOperations() {return this.#enqueue(()=>undefined,false);}
+
   #wakeWaitingCommands() {
     this.#policyChange.abort();
     this.#policyChange = new AbortController();
@@ -362,7 +371,8 @@ export class BridgeCore {
     return groupId===undefined || (this.groupEnabled(groupId) && this.groupFeatures(groupId)[feature]===true);
   }
 
-  canDeliver({groupId,requiredAccess='chat',requiredFeature,proactiveGroup=false}={}) {
+  canDeliver({groupId,requiredAccess='chat',requiredFeature,proactiveGroup=false,deliveryDeadline}={}) {
+    if(!validDeliveryDeadline(deliveryDeadline)||(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline))return false;
     if(!this.sendingEnabled())return false;
     if(groupId===undefined)return true;
     return this.#groupCanDeliver(groupId,requiredAccess,requiredFeature,proactiveGroup);
@@ -1010,12 +1020,13 @@ export class BridgeCore {
   }
 
   /** Internal generated-image operation; callers cannot choose recipients. */
-  async notifyImageAllAllowed({image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets}={}) {
+  async notifyImageAllAllowed({image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets,deliveryDeadline}={}) {
+    if(!validDeliveryDeadline(deliveryDeadline))return result(false,'INVALID_INPUT',{results:[],attempted:0,sent:0});
     if (!Buffer.isBuffer(image?.buffer) || image.buffer.length < 8 || image.buffer.length > 5 * 1024 * 1024 ||
         !['image/png','image/jpeg'].includes(image.mimeType)) {
       return result(false, 'INVALID_INPUT', { results: [], attempted: 0, sent: 0 });
     }
-    return this.#notifyAllAllowed({text:'',image,idempotencyKey,groupsOnly,requiredFeature,groupTargets});
+    return this.#notifyAllAllowed({text:'',image,idempotencyKey,groupsOnly,requiredFeature,groupTargets,deliveryDeadline});
   }
 
   captureMorningTargets(feature) {
@@ -1045,9 +1056,24 @@ export class BridgeCore {
     }));
   }
 
-  async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets}) {
+  // Generation only: an unrelated settings save temporarily blocks sending,
+  // but must not discard another unchanged morning part. The synchronous
+  // per-part revision already invalidates closed/reopened or removed targets.
+  hasMorningPreparationTarget(date,groupTargets,part) {
+    if(!['weather','campus'].includes(part))return false;
+    const feature=MORNING_PART_FEATURES[part];
+    const operation=hash('broadcast:group-morning-'+date+'-'+part);
+    return [...this.#state.allowedGroups,...this.#state.grayGroups].some(g=>g.enabled!==false&&
+      (g.features??defaultGroupFeatures(this.#state.allowedGroups.some(a=>a.id===g.id)?'white':'gray'))[feature]===true&&
+      groupTargets.some(t=>t.groupKey===groupKeyFor(g.id)&&t.morningRevisions?.[feature]===(this.#morningRevisions.get(g.id)?.[feature]||0))&&
+      !this.#state.deliveries.some(d=>d.key===hash('outgoing:broadcast:'+operation+':'+groupKeyFor(g.id))));
+  }
+
+  async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets,deliveryDeadline}) {
     return this.#enqueue(async () => {
       const empty = code => result(false, code, { results: [], attempted: 0, sent: 0 });
+      if(!validDeliveryDeadline(deliveryDeadline))return empty('INVALID_INPUT');
+      if(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline)return empty('REQUEST_EXPIRED');
       if (this.#oneBotMode && this.#oneBotMode !== 'normal') return empty(this.#oneBotMode === 'receive-only' ? 'RECEIVE_ONLY' : 'PILOT_BROADCAST_DISABLED');
       if (!this.#ready) return empty('NOT_READY');
       if (!this.#state.ownerId) return empty('NOT_PAIRED');
@@ -1074,12 +1100,16 @@ export class BridgeCore {
       const results = []; let attempted = 0, sent = 0, stoppedCode = null;
       for (const target of targets) {
         if (target.existing) { results.push(duplicate(target)); continue; }
+        if(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline){
+          stoppedCode??='REQUEST_EXPIRED';
+          results.push({destination:target.destination,ok:false,code:'REQUEST_EXPIRED'});continue;
+        }
         if (stoppedCode || this.#state.paused || this.#pauseRequested) {
           const code = this.#state.paused || this.#pauseRequested ? 'PAUSED' : 'NOT_ATTEMPTED';
           stoppedCode ??= code;
           results.push({ destination: target.destination, ok: false, code }); continue;
         }
-        const delivery = await this.#notify({ text, ...(image !== undefined ? {image} : {}), ...(requiredFeature?{requiredFeature}:{}), idempotencyKey: target.idempotencyKey }, undefined, target.groupId, target.groupId !== undefined);
+        const delivery = await this.#notify({ text, ...(image !== undefined ? {image} : {}), ...(requiredFeature?{requiredFeature}:{}), ...(deliveryDeadline!==undefined?{deliveryDeadline}:{}), idempotencyKey: target.idempotencyKey }, undefined, target.groupId, target.groupId !== undefined);
         if (this.#state.deliveries.some(entry => entry.key === target.key)) attempted++;
         if (delivery.code === 'SENT') sent++;
         results.push({ destination: target.destination, ok: delivery.ok, code: delivery.code,
@@ -1091,6 +1121,8 @@ export class BridgeCore {
   }
 
   async #notify(input, replyTarget, groupId, proactiveGroup = false) {
+    if(!validDeliveryDeadline(input?.deliveryDeadline))return result(false,'INVALID_INPUT');
+    if(input?.deliveryDeadline!==undefined&&this.#time()>=input.deliveryDeadline)return result(false,'REQUEST_EXPIRED');
     const ticket = this.#officialRequest.getStore();
     const stop = ticket && this.#commandStop(ticket);
     if (stop) return result(false, stop);
@@ -1135,7 +1167,7 @@ export class BridgeCore {
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
     let failure = null, receiptHash;
     try {
-      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
+      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.deliveryDeadline!==undefined?{deliveryDeadline:input.deliveryDeadline}:{}), ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
       if (response?.ok === false) throw response;
       if (this.#oneBotMode) {
         if (response?.ok !== true || !/^[a-f0-9]{64}$/.test(response.receiptHash ?? '')) throw Error('ONEBOT_DELIVERY_UNKNOWN');
@@ -1146,7 +1178,7 @@ export class BridgeCore {
     const record = finished.deliveries.find((entry) => entry.key === key);
     if (receiptHash) record.receiptHash = receiptHash;
     record.state = failure ? (failure.uncertain ? 'uncertain' : 'rejected') : 'sent';
-    record.code = failure?.code ?? 'SENT';
+    record.code = failure?.persistedCode ?? failure?.code ?? 'SENT';
     finished.lastDeliveryCode = record.code;
     if (failure?.pause) {
       this.#pauseEpoch++;

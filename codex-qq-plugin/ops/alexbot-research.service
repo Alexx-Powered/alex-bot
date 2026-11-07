@@ -1,0 +1,32 @@
+[Unit]
+Description=One bounded outdoor research queue job
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=QQ_RAG_CONFIG=/var/lib/alexbot/.private/rag-config.json
+Environment=QQ_PYTHON=/opt/alex-bot-runtime/python/app-venv/bin/python
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=UV_THREADPOOL_SIZE=1
+Environment=TZ=Asia/Shanghai
+LoadCredential=master.key:/etc/alexbot/master.key
+ExecCondition=/opt/alex-bot-runtime/python/app-venv/bin/python -B /opt/alex-bot/current/codex-qq-plugin/python/research_service.py --check-memory
+ExecStart=/usr/local/bin/node --v8-pool-size=1 --max-old-space-size=32 /opt/alex-bot/current/codex-qq-plugin/ops/research-runner.mjs
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/alexbot/.private/research /var/lib/alexbot/.private/rag
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%
+TasksMax=16
+TimeoutStartSec=35
+TimeoutStopSec=2
+KillMode=control-group
+LimitCORE=0

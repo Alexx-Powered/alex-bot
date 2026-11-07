@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getWeatherBrief, ForecastDataError, HOUR_MS, localTime } from '../src/weather.mjs';
 
+test('only internal scheduled weather uses the bounded longer HTTP timeout',async t=>{
+  const timeouts=[],original=AbortSignal.timeout.bind(AbortSignal);
+  t.mock.method(AbortSignal,'timeout',ms=>{timeouts.push(ms);return original(ms);});
+  await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(),fetchTimeoutMs:45000});
+  assert.deepEqual(timeouts,[15000,15000]);timeouts.length=0;
+  await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(),scheduledMorning:true,fetchTimeoutMs:42000});
+  assert.deepEqual(timeouts,[42000,42000]);
+  await assert.rejects(getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(),scheduledMorning:true,fetchTimeoutMs:45001}),{code:'FORECAST_TIMEOUT_INVALID'});
+});
+
 const NOW = Date.parse('2026-10-28T10:15:00Z');
 function weatherFixture(date = '2026-10-28', hours = 48) {
   const midnight = Date.parse(date + 'T00:00:00+08:00');

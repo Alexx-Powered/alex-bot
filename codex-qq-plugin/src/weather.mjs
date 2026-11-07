@@ -28,10 +28,11 @@ export function finiteValue(value, minimum, maximum) {
 
 // URL is supplied only by the two source modules, never by a QQ message.
 // Bound response size and duration, disallow redirects, and do not retry.
-export async function fetchForecastJson(url, { fetchImpl = globalThis.fetch, now }) {
+export async function fetchForecastJson(url, { fetchImpl = globalThis.fetch, now, timeoutMs = 15_000 }) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 45_000) throw new ForecastDataError('FORECAST_TIMEOUT_INVALID');
   try {
     const response = await fetchImpl(url, { method: 'GET', redirect: 'error', cache: 'no-store',
-      headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
+      headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new ForecastDataError(response.status === 429 ? 'FORECAST_SOURCE_RATE_LIMITED' : 'FORECAST_SOURCE_HTTP_ERROR');
     const contentType = response.headers.get('content-type') || '';
     if (!/\bapplication\/json\b/i.test(contentType)) throw new ForecastDataError('FORECAST_RESPONSE_INVALID');
@@ -140,7 +141,7 @@ export function assessRain(hourly) {
 }
 const shown = (value, suffix = '') => value === null ? '缺数据' : `${Math.round(value * 10) / 10}${suffix}`;
 
-export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch } = {}) {
+export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch, scheduledMorning = false, fetchTimeoutMs = 45_000 } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('WEATHER_CITY_UNSUPPORTED');
@@ -157,7 +158,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     daily: 'weather_code', start_date: date, end_date: localDate(nextMidnight), temperature_unit: 'celsius', precipitation_unit: 'mm' }).toString();
   url.searchParams.set('wind_speed_unit','ms');
   const [forecast, metadata] = await Promise.all([
-    fetchForecastJson(url.href, { fetchImpl, now }), fetchForecastJson(WEATHER_METADATA, { fetchImpl, now }),
+    fetchForecastJson(url.href, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }), fetchForecastJson(WEATHER_METADATA, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }),
   ]);
   const freshness = validateModelMetadata(metadata.data, { now, requiredEnd: nextMidnight, maxRunAgeHours: 24 });
   const data = forecast.data;

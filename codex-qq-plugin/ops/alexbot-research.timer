@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll the bounded outdoor research queue independently of QQ
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=15s
+AccuracySec=1s
+Persistent=false
+Unit=alexbot-research.service
+
+[Install]
+WantedBy=timers.target

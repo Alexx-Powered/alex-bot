@@ -2,13 +2,14 @@ import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
-import {beginSpan,hasActiveTrace,recordTiming,setTraceOperation,videoWorkerStages} from './telemetry.mjs';
+import {beginSpan,hasActiveTrace,recordTiming,recordRequestFailure,setTraceOperation,videoWorkerStages} from './telemetry.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 export function pythonEnvironment(source=process.env){
-  const env={};for(const key of ['SystemRoot','WINDIR','PATH','TEMP','TMP','TMPDIR','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','PLAYWRIGHT_BROWSERS_PATH','QQ_FONT_REGULAR','QQ_FONT_BOLD'])if(source[key])env[key]=source[key];
+  const env={};for(const key of ['SystemRoot','WINDIR','PATH','TEMP','TMP','TMPDIR','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','PLAYWRIGHT_BROWSERS_PATH','QQ_FONT_REGULAR','QQ_FONT_BOLD','QQ_RAG_CONFIG'])if(source[key])env[key]=source[key];
   return {...env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8',PYTHONDONTWRITEBYTECODE:'1',LANGCHAIN_TRACING:'false',LANGCHAIN_TRACING_V2:'false',LANGSMITH_TRACING:'false',LANGCHAIN_VERBOSE:'false'};
 }
 const failure=()=>Object.assign(new Error('PYTHON_AGENT_UNAVAILABLE'),{code:'PYTHON_AGENT_UNAVAILABLE'});
+const RAG_ERRORS=new Set(['RAG_DISABLED','RAG_VECTOR_NOT_CONFIGURED','RAG_VECTOR_UNAVAILABLE','RAG_STORE_UNAVAILABLE','RAG_INDEX_MANIFEST_MISMATCH','RAG_EMBEDDING_MISMATCH','EMBEDDING_DIMENSION_MISMATCH','RAG_EXPLICIT_SAVE_REQUIRED','RAG_EXPLICIT_DELETE_REQUIRED','HIKING_FORECAST_TIMEOUT','HIKING_FORECAST_UNAVAILABLE']);
 export class PythonAgentWorker{
   #child;#current;#tail=Promise.resolve();#buffer='';#closed=false;
   #idleTimer;#queued=0;
@@ -31,6 +32,7 @@ export class PythonAgentWorker{
   }
   #timeout(){const task=this.#current;this.#stop({timedOut:true,timeoutMs:task?.limitMs??this.timeoutMs,stage:task?.stage});}
   close(){this.#closed=true;clearTimeout(this.#idleTimer);this.#stop();}
+  get busy(){return this.#queued>0||Boolean(this.#current)||this.#closed;}
   prewarm(){if(this.#closed)return false;try{this.#start();this.#scheduleIdle();return true;}catch{return false;}}
   warmup(){return this.run({type:'warmup'},async()=>{throw Error('WARMUP_RPC_DENIED');},()=>true);}
   #write(value){if(!this.#child?.stdin.writable)throw failure();this.#child.stdin.write(JSON.stringify(value)+'\n');}
@@ -81,16 +83,32 @@ export class PythonAgentWorker{
       }catch(error){if(this.#current===task){task.toolError=error instanceof Error?error:new Error('WEATHER_TOOL_ERROR');this.#write({type:'tool_result',id:task.id,callId:value.callId,content:'工具暂不可用。'});}}
       return;
     }
-    if(value.type!=='result'||!['tool','conversion','reasoned','balance','chat','clarify','ignore','error','analysis','campus'].includes(value.kind))throw failure();
-    const workerError=task.toolError??(value.kind==='error'?{reason:value.code}:value.data?.ok===false?{code:value.data.code}:undefined);
+    if(value.type!=='result'||!['tool','conversion','reasoned','balance','chat','clarify','ignore','error','analysis','campus','rag'].includes(value.kind))throw failure();
+    const ragFailure=value.kind==='rag'&&['unavailable','denied','invalid','rejected'].includes(value.status);
+    const ragError=value.kind==='rag'&&RAG_ERRORS.has(value.errorCode)?{code:value.errorCode}:undefined;
+    const workerError=task.toolError??(value.kind==='error'?{reason:value.code}:ragFailure?(ragError??{code:'RAG_STORE_UNAVAILABLE'}):value.data?.ok===false?{code:value.data.code}:undefined);
     task.videoSpan?.end('error',undefined,workerError);
     task.record('worker_total',performance.now()-task.startedAt,{status:workerError?'error':'ok',error:workerError});
     if(Number.isFinite(value.startupMs))task.record('worker_startup',value.startupMs,{startedAtMs:task.sentAtMs});
     for(const timing of Array.isArray(value.timings)?value.timings.slice(0,32):[])if(timing&&typeof timing==='object')task.record(timing.name,timing.ms,{...timing,...Number.isFinite(timing.offsetMs)&&Number.isFinite(value.startupMs)?{startedAtMs:task.sentAtMs+value.startupMs+timing.offsetMs}:{}});
+    if(value.kind==='rag'){
+      const timing=value.ragTimings??{},valid=x=>typeof x==='number'&&Number.isFinite(x)&&x>=0&&x<=600000;
+      const total=valid(timing.total_ms)?timing.total_ms:0;
+      let cursor=valid(value.ragStartedAtMs-task.sentAtMs)?value.ragStartedAtMs:task.sentAtMs;
+      for(const stage of ['lexical','embedding','vector','source_verify','hiking_route','hiking_locate','hiking_fetch']){
+        const ms=timing[stage+'_ms'];if(!valid(ms))continue;
+        const failed=ragError&&value.ragFailedStage===stage;
+        task.record(stage.startsWith('hiking_')?stage:'rag_'+stage,ms,{startedAtMs:cursor,...(failed?{status:ragFailure?'error':'fallback',error:ragError}:{})});cursor+=ms;
+      }
+      if(ragError&&!value.ragFailedStage)task.record('rag_vector',0,{status:ragFailure?'error':'fallback',error:ragError});
+      task.record('rag_retrieval',total,{...(ragFailure?{status:'error',error:workerError}:{})});
+      if(ragFailure)task.failTrace(workerError,'rag_retrieval');
+    }
     if(value.kind==='campus'&&task.requestType!=='campus')throw failure();
+    if(value.kind==='rag'&&(!['request','rag','rag_control'].includes(task.requestType)||!['campus','weather','memory'].includes(value.requiredFeature)||typeof value.text!=='string'||value.text.length>1600))throw failure();
     if(value.kind==='balance'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='deepseek_account_balance'))throw failure();
     if(value.kind==='reasoned'&&!['request','campus_advice'].includes(task.requestType))throw failure();
-    if(value.kind==='analysis'&&!['morning','social','media','insight','social_insight_save','public_status','global_radar','weather_video'].includes(task.requestType))throw failure();
+    if(value.kind==='analysis'&&!['morning','social','media','insight','social_insight_save','public_status','global_radar','weather_video','rag_index'].includes(task.requestType))throw failure();
     if(value.kind==='conversion'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='convert_units'))throw failure();
     if(value.kind==='error'){
       const allowed=new Set(['MODEL_AUTH_ERROR','MODEL_BALANCE_INSUFFICIENT','MODEL_PROVIDER_RATE_LIMITED','MODEL_PROVIDER_UNAVAILABLE','MODEL_TIMEOUT','MODEL_CONNECTION_ERROR','MODEL_TOOL_ROUTING_FAILED']);
@@ -107,11 +125,12 @@ export class PythonAgentWorker{
     if(payload.type==='public_status')setTraceOperation('service.status',true);
     if(payload.type==='execute'&&payload.name==='convert_units')setTraceOperation('tools.convert',true);
     if(payload.type==='request')setTraceOperation('agent.request',true);
+    if(['rag','rag_control'].includes(payload.type))setTraceOperation('knowledge.query',true);
     clearTimeout(this.#idleTimer);
     this.#queued++;
     const queuedAt=performance.now();
     const operation=this.#tail.then(()=>new Promise((resolveTask,reject)=>{
-      try{if(this.#closed)throw failure();recordTiming('worker_queue',performance.now()-queuedAt);this.#start();const id=randomUUID(),sentAtMs=Date.now();this.#current={id,sentAtMs,startedAt:performance.now(),record:AsyncLocalStorage.bind(recordTiming),begin:AsyncLocalStorage.bind(beginSpan),requestType:payload.type,requestName:payload.name,execute:AsyncLocalStorage.bind(execute),finish:AsyncLocalStorage.bind(finish),resolve:resolveTask,reject,called:false,completed:false,limitMs:this.timeoutMs,stage:payload.name,timer:setTimeout(()=>this.#timeout(),this.timeoutMs)};this.#write({...payload,id,_sentAtMs:sentAtMs,...(payload.type==='weather_video'&&hasActiveTrace()?{_traceVideo:true}:{})});}
+      try{if(this.#closed)throw failure();recordTiming('worker_queue',performance.now()-queuedAt);this.#start();const id=randomUUID(),sentAtMs=Date.now();this.#current={id,sentAtMs,startedAt:performance.now(),record:AsyncLocalStorage.bind(recordTiming),failTrace:AsyncLocalStorage.bind(recordRequestFailure),begin:AsyncLocalStorage.bind(beginSpan),requestType:payload.type,requestName:payload.name,execute:AsyncLocalStorage.bind(execute),finish:AsyncLocalStorage.bind(finish),resolve:resolveTask,reject,called:false,completed:false,limitMs:this.timeoutMs,stage:payload.name,timer:setTimeout(()=>this.#timeout(),this.timeoutMs)};this.#write({...payload,id,_sentAtMs:sentAtMs,...(payload.type==='weather_video'&&hasActiveTrace()?{_traceVideo:true}:{})});}
       catch{this.#stop();reject(failure());}
     })).finally(()=>{this.#queued--;this.#scheduleIdle();});
     this.#tail=operation.catch(()=>{});return operation;

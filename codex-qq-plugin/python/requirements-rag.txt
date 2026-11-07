@@ -1,0 +1,5 @@
+# Optional local RAG development stack; do not install on the 2GB ECS by default.
+# Milvus Lite 3.x storage is not compatible with 2.x files.
+pymilvus==3.0.2
+milvus-lite==3.2.2
+fastembed==0.9.1

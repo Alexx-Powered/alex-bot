@@ -55,6 +55,7 @@ export function prepareHelpContent({features = {}, words = [], privateChat = fal
     if(t.tool==='cloud_video') rows.push({command:prefix('梁圣')+'发 历史云图 南京',tag:'近 6 小时观测'});
     return rows;
   });
+  if(enabled('weather'))weather.push({command:prefix('梁圣')+'发 徒步 党岭',tag:'沿线天气与住宿'});
   const activeTools = tools.filter(t=>enabled(t.feature));
   const utilities = activeTools.map(t=>({...t,command:prefix('大肥鱼')+t.command}));
   if (enabled('voice')) utilities.push({group:'图片、语音与记忆',command:'发语音，说出问题',tag:'语音理解'});

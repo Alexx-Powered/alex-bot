@@ -1,0 +1,195 @@
+{
+  "schema_version": "research.unknown-samples.v1",
+  "checked_at": "2026-11-07",
+  "purpose": "为真实 DeepSeek 后台补缺测试提供人工核对的陌生主题与独立来源对照；不是搜索服务或生产入库成功回执。",
+  "baseline": {
+    "scope": "data/rag-initial-knowledge.json、rag-outdoor-knowledge.json 和三个 rag-routes 分区共享语料；标题、正文及全部元数据字符串规范化后逐别名检查。",
+    "match_method": "Unicode NFKC + casefold 后精确子串匹配；每个样本所有别名命中数为0。此结果不等于向量检索没有相似的泛用材料。",
+    "files": [
+      {
+        "path": "data/rag-initial-knowledge.json",
+        "sha256": "33060a635b0ac58bbbad624364af46e12ac9ab67ba104a3174d91cf9a7afab09",
+        "documents": 12
+      },
+      {
+        "path": "data/rag-outdoor-knowledge.json",
+        "sha256": "e05c6f65841e724d097a1c1b0b588127fdfb1209100c28360a5c44b4703ce036",
+        "documents": 21
+      },
+      {
+        "path": "data/rag-routes-east-20261106.json",
+        "sha256": "88b1bed54e60f6448598517b2b69d23ea438f6f1b2ac03beafb51264f2a2c615",
+        "documents": 16
+      },
+      {
+        "path": "data/rag-routes-plateau-20261106.json",
+        "sha256": "b399ac830de6ea8d6279081e593f5ed58f78c20e58d1cb763b3f837dbc50aa95",
+        "documents": 21
+      },
+      {
+        "path": "data/rag-routes-west-20261106.json",
+        "sha256": "8ac94b8e54ea28bd5fffc16352746dab755f70040d69ef796c84ae7326cd0992",
+        "documents": 21
+      }
+    ],
+    "documents_checked": 91
+  },
+  "samples": [
+    {
+      "id": "mogan-forest-trails",
+      "topic": "莫干山国家登山健身步道",
+      "type": "低山竹林与分级健身步道",
+      "aliases_checked": [
+        "莫干山",
+        "莫干山国家登山健身步道",
+        "后坞村"
+      ],
+      "prior_exact_hits": [],
+      "question": "莫干山国家登山健身步道主要是什么景观，普通徒步应该如何选择难度？请区分历史资料和现在的路况。",
+      "search_query": "莫干山 国家登山健身步道 site:gov.cn",
+      "source": {
+        "url": "https://www.sport.gov.cn/n20001280/n20745751/n20767239/c21821628/content.html",
+        "title": "登山健身步道让后坞村民体会品质生活",
+        "publisher": "国家体育总局",
+        "published_at": null,
+        "date_basis": "已读取正文未显示发布日期；正文记载2014年10月9日开放等历史事件，不能把事件日期填作发稿日期。",
+        "body_read": true,
+        "provider_domain_allowed": true,
+        "source_class": "government_site_historical_feature",
+        "verified_summary": "国家体育总局文章将该步道描述为德清莫干山一带串联村落、竹林和户外运动场地的线路网络，主要涉及后坞村，并记载其按难度分成四条步道。可用于说明景观类型和应按分级选择路线。",
+        "limitations": [
+          "文章属于历史背景，不能证明2026年路况、当日开放、营地或通行安排。",
+          "同期另一体育总局赛事报道的总里程与本文不同，测试不要求生成唯一全程里数。",
+          "不能由文中的个别带娃采访推断所有支线都适合儿童。"
+        ]
+      },
+      "expected_behavior": "回答竹林/村落/分级选择，给出处并标历史性；当前路况和具体支线不明时保留缺项，不编造最佳月份或实时天气。"
+    },
+    {
+      "id": "dongqian-lake-access",
+      "topic": "东钱湖环湖步道",
+      "type": "湖滨徒步的公共交通与慢行接驳",
+      "aliases_checked": [
+        "东钱湖",
+        "环东钱湖",
+        "东钱湖环湖步道"
+      ],
+      "prior_exact_hits": [],
+      "question": "去东钱湖环湖徒步，可以怎样考虑公共交通接驳？有哪些已有官方资料，哪些实时信息还需要确认？",
+      "search_query": "东钱湖 环湖 步道 site:gov.cn",
+      "source": {
+        "url": "https://zjic.zj.gov.cn/ywdh/shjs/202510/t20251015_23744962.shtml",
+        "title": "宁波：创新交通治堵模式 破解景区拥堵困境",
+        "publisher": "浙江省经济信息中心（来源标注浙江日报）",
+        "published_at": null,
+        "url_date_hint": "2025-10-15",
+        "date_basis": "正文日期栏为空；URL带2025-10-15，只保留路径日期线索，不作为已核实发布时间。内容讨论当年国庆和中秋。",
+        "body_read": true,
+        "provider_domain_allowed": true,
+        "source_class": "government_site_republished_transport_report",
+        "verified_summary": "该报道介绍东钱湖景区采用停车换乘、公交改进和水陆接驳等措施，提及铁路宁波站到景区的观光巴士以及环湖观光巴士，可作为规划公共交通往返和分段慢行的历史背景。",
+        "limitations": [
+          "本文不提供完整徒步线路、里程、爬升或逐段路况。",
+          "巴士班次、票价、节假日措施和水路运营均可能变化，不能把旧报道当2026年实时班表。",
+          "不把附近景点流量或道路拓宽推导成整圈步道已开放、已贯通。"
+        ]
+      },
+      "expected_behavior": "能补充公共交通和分段接驳思路，同时承认缺实时班次和具体步道数据；不得捏造环湖距离或保证全线通行。"
+    },
+    {
+      "id": "fairylake-garden-loop",
+      "topic": "仙湖植物园环湖步道",
+      "type": "城市植物园短环线与支线边界",
+      "aliases_checked": [
+        "仙湖植物园",
+        "仙湖",
+        "两宜亭",
+        "棕榈径"
+      ],
+      "prior_exact_hits": [],
+      "question": "仙湖植物园环湖步道大概多长、走多久，可以看什么？旁边的桫椤径是否和它一样直接走？",
+      "search_query": "由东钱湖搜索结果中出现的深圳城管官方步道页面选择，不另扩展搜索。",
+      "source": {
+        "url": "https://cgj.sz.gov.cn/xsmh/xhzwy/rxbd/",
+        "title": "人行步道和登山道",
+        "publisher": "深圳市城市管理和综合执法局 · 仙湖植物园",
+        "published_at": null,
+        "date_basis": "已读官方常设介绍页，没有明确发布时间；核查日期单独记录。",
+        "body_read": true,
+        "provider_domain_allowed": true,
+        "source_class": "official_garden_route_guide",
+        "verified_summary": "官方环湖介绍以两宜亭为环线起终点，经过棕榈区、湖边、水生园及桥亭等节点，标注约2公里、45分钟，可看湖景和多种植物。另列的桫椤径约300米，官方说明其道路湿滑、崎岖，按预约导赏或自然教育活动开放。",
+        "limitations": [
+          "2公里、45分钟是官方概览值，不是对每位游客的到达保证。",
+          "桫椤径的预约限制属于另一条支线，不能套用到整个环湖步道。",
+          "本页不证明当日入园预约、门票、临时关闭或天气条件。"
+        ]
+      },
+      "expected_behavior": "正确区分环湖线与桫椤径，回答长度/大致耗时/景观；限制仅一句且具体到桫椤径，不写成整个植物园禁入。"
+    },
+    {
+      "id": "fuzhou-fudao-canopy",
+      "topic": "福州福道",
+      "type": "城市山体高架森林步道与分入口游览",
+      "aliases_checked": [
+        "福州福道",
+        "福道",
+        "金牛山",
+        "梅峰山",
+        "左海"
+      ],
+      "prior_exact_hits": [],
+      "question": "福州福道适合怎样的半日散步？想看山林和城市景观，入口怎么选，穿什么鞋比较合适？",
+      "search_query": "福州 福道 五山 三公园 site:gov.cn",
+      "source": {
+        "url": "https://tyj.fj.gov.cn/ztzl/bmms/bmfc/202510/t20251009_7018964.htm",
+        "title": "跟着运动打卡福建① | 福州：“走”中阅山水，主打一个惬意",
+        "publisher": "福建省体育局（来源福建体育融媒体）",
+        "published_at": "2025-10-01T17:07:00+08:00",
+        "date_basis": "以正文日期2025-10-01为准；URL中的2025-10-09不替代正文日期。",
+        "body_read": true,
+        "provider_domain_allowed": true,
+        "source_class": "official_sports_tourism_guide",
+        "verified_summary": "省体育局介绍福道是一条连接城市山林、公园与江湖景观的步道网络；3号口对应梅峰山地公园，可观城市景色，5号口对应金牛山体育公园，可看闽江。页面提醒步道多为镂空钢架，鞋具宜平底，并强调补水、体力分配与关注天气。",
+        "limitations": [
+          "半日游应选段，不把报道中的约19公里总网络默认当一次必须走完的路线。",
+          "文中2025年开放/亮灯时刻是历史页面信息，不能未经核查称为2026年当日实时安排。",
+          "不把不同福道、福山郊野公园或文内其他山线的里程混在本线路。"
+        ]
+      },
+      "expected_behavior": "根据观景目标给出有据的分入口、分段思路和鞋具建议；不输出臆造班次/现时开放，不自动扩充搜索。"
+    }
+  ],
+  "failed_candidates": [
+    {
+      "topic": "苍山玉带云游路",
+      "aliases_checked": [
+        "苍山",
+        "玉带云游路",
+        "玉带路"
+      ],
+      "prior_exact_hits": [],
+      "url": "https://tyj.yn.gov.cn/tyzx/tycy/202310/t20231021_3417324.html",
+      "result": "HTTP405，正文未取得；不以搜索摘要作为已读证据。两条搜索后停止。"
+    },
+    {
+      "topic": "张家界金鞭溪",
+      "aliases_checked": [
+        "张家界",
+        "金鞭溪"
+      ],
+      "prior_exact_hits": [],
+      "url": "https://whhlyt.hunan.gov.cn/whhlyt/wldhlylx/202208/t20220816_27584142.html",
+      "result": "两次正文打开超时，第二条限定站点搜索无有用替代；停止追索，不把摘要计入已读。"
+    }
+  ],
+  "negative_control": {
+    "topic": "哈巴西坡",
+    "reference": "test-output/bounded-search/haba-research.json",
+    "original_checked_at": "2026-11-06",
+    "requeried_now": false,
+    "reason": "前次官方季节页405；媒体只支持特定西坡登顶野线事件与带日期的局部公告，不能核实所有西坡线路、当前物候或开放。",
+    "expected_behavior": "预算耗尽及时结束，保存缺口；不能把传统北坡开放或西坡登顶事件套为整个西坡的结论，也不能靠重复循环补齐缺失事实。"
+  },
+  "verification_boundary": "上述网页由助手web工具读到正文；不表示ECS或机器人网络provider已成功访问，主代理仍须真实后台测试。未修改正式语料、知识库、索引、地图、生产或QQ发送。"
+}

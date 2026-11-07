@@ -1,5 +1,19 @@
 # ECS 运行与密钥交接
 
+## 沿线徒步卡片与知识更新（2026-11-08）
+
+当前正式 release `linux-hiking-1e21f5e9d75e`，实际19327监听 PID203384，启动00:01:30 CST；1396文件清单和官方连接已验证。`hiking_trip_card` 沿用 weather 权限，按步行日、沿途点和住宿点生成图片；帮助、控制台、README同步展示。自然语言询问住店替代时同时保留主线路，明确不露营才改为住店主方案。数据及缺测边界见 [徒步说明](../docs/hiking-cards.md)，验收见 [上线记录](../docs/hiking-release-validation-20261108.md)。
+
+研究 service 的 ReadWritePaths 增加既有 `rag` 目录，用于受限来源与有证据行程的规范 SQLite 写入；其20秒硬截止、搜索/页数/队列/内存上限保持。只有主 Python 进程空闲时消费一条向量索引 outbox，不从研究进程打开 Milvus。人工/自动路线文档 ID 分离，到期资料不得继续当成现行资料。首批4种参考行程由 `ops/seed-hiking.py` 写入规范库，不操作向量文件；研究队列新增的路线和地名缓存随既有备份保存。
+
+本次无地图修改，map_review通过；ECS专项在128MiB/Swap0/CPU50%独立单元串行完成。高清Canvas输出后主动释放画布，主进程1500MiB上限不变。07:28/07:30两个timer、群授权及账本保持，OneBot与旧早报继续masked。最新加密备份及回滚信息见根 HANDOVER 首节；禁止用历史状态覆盖新账本。
+
+## 07:28 准备、07:30 发送（2026-11-07）
+
+当前官方逐群定时早报新增 `alexbot-group-morning-prepare.timer/.service`，07:28仅预生成订阅项目，原 `alexbot-group-morning.timer` 保持07:30发送。准备不消耗发送额度、不持控制台配置锁；两项各自就绪即可发送。天气/空气定时HTTP45秒、分支最多一次重试/约105秒获取预算，关键数据仍缺失时跳过该图，不发送缺数据早报；普通查询15秒不变。校园定时导航45秒、登录60秒、查询45秒，worker仍210秒。
+
+两定时器均Persistent=false，07:45截止贯穿排队与媒体上传，原逐群逐图幂等与订阅保持。内存仅缓存本日两图，重启后730入口重新准备；新订阅从下次准备开始。状态增加prepareTime、prepareActive和preparation，不把prepared计为sent。完整运行边界、回退和测试见 [提前准备说明](../docs/morning-preparation.md) 与 HANDOVER。
+
 2026-10-29 已迁移。开发工作区仍为 `D:\Projects\Alex Bot`，GitHub 仅在用户明确要求时更新。
 
 ## 2026-11-03 恢复 QQ 官方 Bot（当前生产）
@@ -189,6 +203,38 @@ runuser -u alexbot -- /usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/
 服务设置`NODE_OPTIONS=--network-family-autoselection-attempt-timeout=1500`，避免默认250ms在到海外预报服务的连接中过早放弃IPv4；HTTP总超时、时效与缺失校验不变。公开接口和学校搜索偶发超时仍返回固定失败码，不做无限重试。
 
 ## 备份与回退
+
+### 受限后台搜索（当前正式配置）
+
+最终版本、实际进程和原始验收见根HANDOVER最新记录。`QQ_RAG_CONFIG.research` 同时受顶层enabled约束，queue_path为`.private/research/queue.sqlite3`。`alexbot-research.timer`每15秒消费一项；独立128M/Swap0/CPU50%/TasksMax16，ExecCondition要求600MiB可用，网络子进程20秒硬结束、服务35秒上限。不要从主worker同步调用run_next，也不要另开Milvus写入者。通过`current`软链接启动Node入口须用`isEntrypoint`，不能仅比对argv字符串与真实模块路径。
+
+启用前创建0700研究目录、初始化空队列；后台probe无任务不建库、不读Key。`research-runner.mjs`只从现有AgentConfigStore取DeepSeekKey，经stdin交给独立Python，不允许日志/argv/环境变量输出Key。关闭research.enabled或顶层enabled均停消费；低内存保留排队但不放宽门槛，排队超过10分钟取消，不无限补跑。
+
+现有加密备份自动纳入候选库，三库分别一致，合计仍受16MiB保护。恢复重写研究路径且research.enabled=false。不要复制活动Milvus；新候选仅独立缓存，来源日期不等于当前有效性，正式知识仍需独立核验。
+
+管理员`POST /api/research/check`可按固定sample（moganshan/dongqianhu/xianhu/fudao/haba）验收，默认tool模式、mode=natural使用一次真实路由模型；不接受任意正文或URL，集成令牌403，不发QQ。不要把读取成功等同当前开放已核实，或把自然语言模型短名等同完整地点：前台以原文明示城市限定绑定队列及缓存。
+
+### RAG 原文和气候数据库（2026-11-06）
+
+已部署版本与真实进程以根 HANDOVER 首节为准。新增 `alexbot-rag-backup.timer` 每天北京时间04:10加密备份，`alexbot-climate-refresh.timer` 每天03:40有界刷新北京与党岭的ERA5缓存；均不补跑，维护服务保留128M、禁swap、CPU50%限制。备份单元已实际成功执行并完成本机隔离恢复演练；气候单元实跑成功，党岭命中缓存、北京补入1991年；定时器按时触发尚待观察。下方“未新增定时器”及旧迁移回退段落仅描述历史迁移，不适用于当前官方生产回退。
+
+管理员可通过 `POST /api/rag/check`，正文 `{"check":"knowledge"}` 或 `{"check":"outdoor"}`，只读检查现有主worker的固定共享检索及党岭明后两日复合查询。不接受集成令牌、任意问题、路径或收件人，不发QQ。knowledge须vectorVerified=true；outdoor可能partial，需检查正文实际缺项。不要另起进程打开正在使用的Lite目录。当前共享资料91条、路线主题30个，复合目的地目录仍只有北京和党岭；不得把知识覆盖当全量气候支持。
+
+新版 `backup.mjs create` 自动读取操作员设置的绝对路径 `QQ_RAG_CONFIG`；未设置时使用 `/var/lib/alexbot/.private/rag-config.json`。配置不存在且未显式指定时兼容旧备份。配置存在后，所引用的原文或气候库缺失、路径不安全、快照超限或校验失败都会使整次备份失败，不能生成漏库的“成功”回执。现有周期备份单元无需为固定路径额外配置环境变量。
+
+配置、`store_path` 和 `outdoor.climate_path` 必须是运行目录 `.private` 下无符号链接的绝对路径。默认生产路径为 `.private/rag/rag-store.sqlite3` 和 `.private/rag/climate-history.sqlite3`。操作员 helper `ops/rag_backup.py` 使用 SQLite `backup()` 捕获每库已提交状态，包括 WAL 中尚未 checkpoint 的记录；两个独立数据库分别一致，不宣称跨库同一事务。快照只在内存生成，并与配置、SHA-256 清单一起进入原 AES-GCM/RSA 加密包，helper 的 stdout 是私密数据，不能单独运行后打印到日志。
+
+不复制活跃 `vectors.db`、Milvus Lite 配套目录或 `/opt/alex-bot-runtime/rag-models` 模型缓存。原文库包含版本、删除状态、作用域及 outbox，可据此重建向量。RAG 配置加两库的原始快照合计上限 16 MiB，现有全包解压后 32 MB 上限保留；超限需要操作员安排流式备份格式升级，不通过截断或遗漏数据通过校验。
+
+原 `verify` 命令增加内存中的 SQLite 完整性、schema、共享/私有作用域、文件摘要及配置路径对应校验，输出只有计数与布尔结果，不输出原文或密钥。可在 Windows 用本机恢复身份把本套 RAG 资料恢复到**空的隔离目录**：
+
+```powershell
+node ops/backup.mjs restore-rag '<加密备份绝对路径>' 'D:\Projects\Alex Bot\codex-qq-plugin' '<空恢复目录绝对路径>'
+```
+
+此命令显式写出明文的受目录权限保护的原文库、气候库与配置；不恢复 QQ 发送状态、不启动 Bot、不连接服务。配置中的数据库路径会改到恢复目录，移除旧向量连接及模型缓存路径，先使用原文关键词检索。恢复后须人工配置当前只读模型资产和新的向量位置，再运行 `scripts/index-knowledge.py` 重建；不能直接把旧 Lite 目录覆盖到运行进程。非空目录拒绝恢复，生产替换仍需先备份、停用相关读写进程并按发布流程核验。旧气候刷新 lease 自行短期到期，失败计数和缓存新鲜度保留。
+
+本机专项包括 WAL 已提交/未提交隔离、原文共享和私有命中隔离、Linux 路径包在 Windows 的验证恢复、路径逃逸/篡改/错作用域拒绝、缺库失败和真实 Node→Python 桥。新发布包须同时包含 `ops/backup.mjs`、`ops/rag-backup.mjs`、`ops/rag_backup.py`；Python helper 仅用标准库，不加载 Milvus、模型或网络。
 
 `ops/backup.mjs create`在ECS运行，systemd临时提供root保存的恢复公钥，输出`/var/backups/alexbot/alexbot-<时间>.json`：
 

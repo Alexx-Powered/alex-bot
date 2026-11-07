@@ -1,0 +1,236 @@
+{
+  "schema_version": "rag.import.v1",
+  "documents": [
+    {
+      "doc_id": "route-tanientaweng-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "他念他翁｜雪山湖群穿越背景",
+      "text": "资料类型：路线背景。别称及查询词：他念他翁、他念他翁穿越、他念他翁徒步。昌都市政府 2024-02-20 介绍的徒步目的地位于芒康县境内，属于横断山地区，以达美拥雪山、揉错、错浪波等雪山与高山湖群景观为特色；山体破碎、山地起伏明显。这是山地穿越类目的地，不能按普通景区栈道理解。该文不是现行开放公告，未据此补写轨迹、固定里程或最佳月份。",
+      "source_ref": "https://www.changdu.gov.cn/cdrmzf/c100359/202402/dab2a03073394820b1ccb8c2b91d0db8.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-tanientaweng-access-history",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "他念他翁｜芒康境内防火期管制记录",
+      "text": "资料类型：带期限的历史管制。他念他翁（芒康县辖区）未开发徒步路线及周边林区曾受 2025-11-15 至 2026-05-31 防火期禁入要求约束；芒康县森防指办 2025-11-26 公告还规定不得组织或协助违规进山，期后按常态管理执行。截至 2026-11-06，本轮未核定常态管理的完整范围及新一季具体通行规则，当前开放状态未知；不能将到期当作自动开放，也不能延长旧防火期限。",
+      "source_ref": "https://mangkang.changdu.gov.cn/mkx/c101895/202512/085c35c625c841ce97c9998f5df64e34.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-kulagangri-lakes",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "库拉岗日｜白玛林错与环湖型徒步",
+      "text": "资料类型：路线与景观背景。库拉岗日位于山南洛扎县，常见徒步关注白玛林错（白玛林措、白玛林湖）、介久错和折公三错的雪山环湖景观，徒步并非攀登库拉岗日主峰。西藏文旅厅 2026-02-23 的介绍描述秋冬晴日雪山、冰川与湖泊相映的景象；这是季节景观描述，不能保证某次行程晴天或无冰雪。规划应先确定具体湖区、起点及返回方式。",
+      "source_ref": "https://wlt.xizang.gov.cn/xccx/lytg/202602/t20260223_525684.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-kulagangri-branch-access",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "库拉岗日｜吉堆与白沙两条支线管制",
+      "text": "资料类型：局部路线通知。洛扎县 2025-02-06 发布吉堆社区至库拉岗日、白沙村至库拉岗日两条徒步线路暂时关闭，恢复时间另告，理由包括高海拔、积雪及通讯条件。2026-11-06 本轮未核得对应复开原件。提示只适用于这两条支线，不能扩写为库拉岗日全部湖区或白玛林措景区持续全面闭园。",
+      "source_ref": "https://www.luozha.gov.cn/xwzx/tggs/202502/t20250207_147064.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-kulagangri-visit-conditions",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "库拉岗日｜办证与营地范围",
+      "text": "资料类型：游览条件。西藏文旅厅 2026-03-05 的冬游提示要求前往洛扎库拉岗日提前办理边防证，禁止在库拉岗日—白玛林错周边私自露营，不进入未开发区域，住宿应另作安排。边防证要求不等于全域禁止徒步，取得证件也不代表每条支线开放；该提示不提供当天路况或完整批准路线。",
+      "source_ref": "https://wlt.xizang.gov.cn/xccx/lytg/202603/t20260305_527230.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-gamagou-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "珠峰东坡嘎玛沟｜目的地与服务背景",
+      "text": "资料类型：路线背景。别称及查询词：珠峰东坡、嘎玛沟、珠峰东坡嘎玛沟徒步。西藏文旅厅 2023-11-22 报道的徒步产品以日喀则市定日县曲当乡为出发地区，当地合作社提供向导和牦牛等服务。它与常规珠峰大本营公路观光不是同一行程；大本营售票或恢复开放公告不能直接证明嘎玛沟徒步线开放。本轮截至 2026-11-06 未核得这条线当前的专门开放通知。",
+      "source_ref": "https://wlt.xizang.gov.cn/xwzx_69/xydt/202311/t20231122_390149.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-gamagou-season",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "珠峰东坡嘎玛沟｜春季雪况与景观",
+      "text": "资料类型：季节现场报道。西藏日报 2024-05-06 文章描述嘎玛沟位于定日、定结之间，兼有原始森林、高原谷地、河流与雪山。其当年四月见闻记录春季积雪可能掩盖小径，河面冰雪与雪水交错；这可解释为何低温、防水和雪况信息对行程重要，不能把春季统一判为无雪期，也不能据文中的当年开山预期推定每年开放日期。",
+      "source_ref": "https://mw.xizang.gov.cn/xwzx/xzxw/202405/t20240506_415102.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-motuo-local-walks",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "墨脱徒步｜县城森林步道与嘎隆拉分别选线",
+      "text": "资料类型：官方路线介绍。墨脱并非只有派墨长线。西藏文旅厅转墨脱文旅 2026-09-13 介绍仁青崩寺外森林康养环形步道，以及嘎隆拉天池、格林村树王森林等不同目的地。仁青崩适合森林步道型体验；嘎隆拉则沿老墨脱公路向高处天池往返，两者的海拔、强度和开放季节不同。文章的秋季推介不能覆盖所有线路全年通行。",
+      "source_ref": "https://wlt.xizang.gov.cn/xccx/lytg/202609/t20260913_558403.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-motuo-galongla-conditions",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "墨脱嘎隆拉天池｜季节窗口与徒步要求",
+      "text": "资料类型：当前管理规则。墨脱县文旅局 2026-07-24 通告，嘎隆拉天池每年仅 7—9 月可按规定徒步，其余月份禁止进入；须提前一天联系本地向导并由其陪同，当天往返，不得野外过夜。区域及沿线便道禁止社会机动车进入。规则仅指嘎隆拉天池，不是墨脱全县闭园；截至 2026-11-06 属其禁入月份。",
+      "source_ref": "https://www.motuo.gov.cn/mtx/zjmt/202607/c65c0bed264c493a9c0cde1f365de0fb.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-motuo-paimo-history",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "派墨徒步｜旧线关闭与公路不能互相替代",
+      "text": "资料类型：历史路线通知。墨脱县政府网 2021-12-28 刊载经营方公告，派墨徒步线在施工期间关闭，恢复时间另行公告。本轮截至 2026-11-06 未核到该老徒步线明确复开原件；公路是否通车与徒步线开放是不同事项。查询“墨脱徒步”时应区分派镇—背崩老线、嘎隆拉天池、县城森林游步道，再对应天气和装备。",
+      "source_ref": "https://www.motuo.gov.cn/mtx/zwgk/202112/a112c6a2b18f4f49a97848cdaf0759c9.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-kailash-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "冈仁波齐｜外转山路线背景",
+      "text": "资料类型：路线背景。冈仁波齐转山、冈仁波齐外转山以普兰县塔尔钦为常见出发地；阿里行政公署 2020-05-15 的介绍列出曲古寺、哲日普寺、卓玛拉山口、仲哲普寺等环山节点，属于高海拔环山徒步，不是登顶。旧介绍提及 4—10 月季节，但具体开放需由当年公告决定，不以旧攻略固定月份覆盖新通知。",
+      "source_ref": "https://www.al.gov.cn/info/1178/129807.htm",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-kailash-winter-2026",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "冈仁波齐｜2026 冬季闭园",
+      "text": "资料类型：正式闭园通知。普兰县文旅局与阿里景区运营管理公司 2026-10-10 公告，因暴雪、积雪结冰等条件，冈仁波齐景区自 2026-10-20 起正式闭园，2027 年开园时间另行通知；闭园期间不能进入封闭区域。核查日期 2026-11-06。提示针对冈仁波齐景区，不扩展到普兰县全域或其他独立景区。",
+      "source_ref": "https://wlt.xizang.gov.cn/xccx/lytg/202610/t20261011_562104.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-amnye-machin-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "阿尼玛卿｜高寒冰川与草甸背景",
+      "text": "资料类型：景观和生态观察。阿尼玛卿（阿尼玛卿雪山）位于青海果洛，冰川和高寒草甸是其突出景观。国家林草局 2025-10-31 转人民日报报道介绍当地雪山乡监测队在每年约五月、十一月冰川消融与上冻转换时进行观察。此信息是生态监测背景，不是徒步适宜期、冰川可踏行证明或未来雪况预报；长线转山、公路环游、登山应分别规划。",
+      "source_ref": "https://www.forestry.gov.cn/c/www/zrgjgy/647610.jhtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-amnye-machin-access-evidence",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "阿尼玛卿｜旅游经营限制与具体路线区分",
+      "text": "资料类型：管理范围说明。生态环境部 2018-05-29 发布青海整改方案，要求对阿尼玛卿实行严格保护并禁止相关旅游经营活动。另有 2026 年官方体育活动报道，不能据旧经营限制概括为全部公路、村庄和转山活动永久禁入，也不能以赛事举办推定个人徒步全线开放。本轮截至 2026-11-06 未取得可核定具体个人徒步线当前条件的一级通知，状态保留未知。",
+      "source_ref": "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk15/201805/t20180529_630198.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-amnye-machin-event-context",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "阿尼玛卿｜赛事不等于个人行程开放许可",
+      "text": "资料类型：带日期的活动事实。上海市政府合作交流办公室 2026-08-13 报道，阿尼玛卿极限挑战赛于当年 8 月 7 日在果洛州玛沁县雪山乡举行。该记录可确认当地有组织的高原户外活动背景，没有给出普通游客转山路线的实时通行许可、导航轨迹或冬季开放规则。",
+      "source_ref": "https://hzjl.sh.gov.cn/n1324/20260813/dd302c07d973449ca729323e94ea0c38.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-nianbaoyuze-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "年保玉则｜青海侧湖泊湿地背景",
+      "text": "资料类型：目的地背景。年保玉则（年宝玉则、年保玉则穿越）位于青海果洛久治，以雪山、湖泊、灌木和沼泽湿地景观著称。湖南省林草部门 2019-11-08 转载报道记录其旅游开发后的生态恢复工作。这个名称不等于四川阿坝县莲宝叶则景区；跨省“年穿莲”也不能仅因四川侧景区经营就视作全线已开放。",
+      "source_ref": "https://lyj.hunan.gov.cn/lyj/xxgk_71167/gzdt/gndt/201911/t20191108_10514076.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-nianbaoyuze-access-progress",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "年保玉则｜有序开放建议尚非开放公告",
+      "text": "资料类型：管理进展。青海省人大 2026-09-01 公开的调研报道，内容是推进久治年保玉则保护前提下有序开放的代表建议办理。它没有宣布普通游客可以进入，也未确定游线、开放日期或接待条件。截至 2026-11-06 本轮未核得正式复开公告，不能把规划、建设项目或人大建议当作已经开放；气候、季节景观和装备问题仍可继续回答。",
+      "source_ref": "https://qhrd.gov.cn/mtjj/202609/t20260901_234807.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-lianbaoyeze-scenic-walks",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "莲宝叶则｜四川景区游览与步道节点",
+      "text": "资料类型：景区步道背景。莲宝叶则、莲宝叶则石头山景区位于四川阿坝县，以奇峰岩石、高山湖泊和冰川地貌为主要看点。县政府 2025-10-28 应急点位勘察报道提到扎尕尔高海拔步道、4520 观景台、柏香海等游览节点，适合按具体步道和观景点安排，而不是默认多日穿越。该文只记录勘察建设，不承诺当前医疗点或救援时效。",
+      "source_ref": "https://www.abaxian.gov.cn/abxrmzf/c100051/202510/44509bfae90049d98d7501261d9245e6.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-lianbaoyeze-autumn-snapshot",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "莲宝叶则｜秋景与接待记录",
+      "text": "资料类型：带日期的景观及经营快照。阿坝县政府 2026-10-06 报道莲宝叶则国庆期间正常接待游客，景观包括秋色、高原湖泊与岩峰。它证明报道时四川景区有正常经营，不构成任意日期或所有野外区域的开放承诺；尤其不能据此推出青海年保玉则、年穿莲跨省穿越可通行。2026-11-06 当日详细步道状态本轮未核定。",
+      "source_ref": "https://www.abaxian.gov.cn/abxrmzf/c101694/202610/56e90fad15e44fa38e8a5ab6306274af.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-tanientaweng-management-reported-2026",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "他念他翁｜2026 管控通告的媒体转载",
+      "text": "资料类型：媒体转载，主管部门原件待核。虎嗅 2026-06-29 转载徒步中国文章，称芒康县文旅局通告自 6 月 21 日管控他念他翁沿线未开发高风险区域的组织旅游及经营性进山服务。此线索较旧防火公告新，但本轮未取得可验证官方原件，不能省略转载身份，也不据此扩大到整条山脉的所有活动。",
+      "source_ref": "https://m.huxiu.com/article/4871104.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-amnye-machin-management-reported-2026",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "阿尼玛卿｜2026 转山通行管理转载线索",
+      "text": "资料类型：署名政府账号转载，身份及原件待核。搜狐 2026-03-20 页面署来源为果洛州应急管理局，转载署期 3 月 10 日的阿尼玛卿转山管理公告，区分外环道路与内环限制，涉及禁擅登主峰、夜间管控及未经许可露营等要求。未取得主管部门站点原文，暂不把转载中的时段和路线参数作为独立确认的出行条件。",
+      "source_ref": "https://travel.sohu.com/a/998732960_121106869",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    }
+  ]
+}

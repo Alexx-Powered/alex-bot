@@ -77,7 +77,28 @@ test('real dedicated Python campus worker fails safely with no credentials and n
   const home=fileURLToPath(new URL('../',import.meta.url));
   const worker=new PythonAgentWorker({home,workerPath:join(home,'python','campus_worker.py'),maxLineBytes:262144});
   try{
-    const result=await worker.run({type:'campus',mode:'query',args:{date:''},credentials:{}},async()=>assert.fail('no RPC'),v=>validateCampusData(v.data));
-    assert.equal(result.code,'CAMPUS_NOT_CONFIGURED');assert.deepEqual(result.rooms,[]);
+    for(const extra of [{mode:'query'},{mode:'report',timeout_profile:'morning'}]){
+      const result=await worker.run({type:'campus',args:{date:''},credentials:{},...extra},async()=>assert.fail('no RPC'),v=>validateCampusData(v.data));
+      assert.equal(result.code,'CAMPUS_NOT_CONFIGURED');assert.deepEqual(result.rooms,[]);
+    }
+    const invalid=await worker.run({type:'campus',mode:'query',args:{},credentials:{},timeout_profile:'morning'},async()=>assert.fail('no RPC'),v=>validateCampusData(v.data));
+    assert.equal(invalid.code,'CAMPUS_QUERY_FAILED');
   }finally{worker.close();}
+});
+
+test('only host-owned scheduled reports receive the fixed extended campus budget',async t=>{
+  const home=await mkdtemp(join(tmpdir(),'qq-campus-morning-'));t.after(()=>rm(home,{recursive:true,force:true}));
+  const calls=[],worker={close(){},run:async(payload,_execute,finish)=>{
+    calls.push(payload);return finish({data:campusFailure('CAMPUS_AUTH_FAILED'),artifact_id:null});
+  }};
+  const service=new CampusService({home,configStore:config,worker});
+  await service.run({},'report');
+  await service.run({},'query',{scheduledMorning:true});
+  await service.run({},'report',{scheduledMorning:'true'});
+  await service.run({},'report',{scheduledMorning:true});
+  assert.ok(calls.slice(0,3).every(packet=>!Object.hasOwn(packet,'timeout_profile')));
+  assert.equal(calls[3].timeout_profile,'morning');
+  assert.deepEqual(calls[3].args,{date:''});
+  assert.equal((await service.run({scheduledMorning:true},'report')).data.code,'CAMPUS_INVALID_DATE');
+  assert.equal(calls.length,4);
 });

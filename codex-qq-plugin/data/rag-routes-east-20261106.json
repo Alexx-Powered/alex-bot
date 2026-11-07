@@ -1,0 +1,181 @@
+{
+  "schema_version": "rag.import.v1",
+  "documents": [
+    {
+      "doc_id": "route-aotai-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "鳌太｜高山地形与保护区范围",
+      "text": "资料类型：保护区背景。太白山自然保护区在 2025-10-16 公开的说明中，将鳌太线界定为鳌山至太白山拔仙台的山脊线路，多数路段位于保护区核心区；沿途有石海、刃脊、角峰及亚高山草甸。地形复杂、天气变化和通信盲区会影响行动，山下天气不能代表整条高山线路。管理提示：未经批准不得穿越鳌太线。这一范围与太白山官方景区游步道不同。",
+      "source_ref": "https://www.baoji.gov.cn/bmpd/bjsnyncj/gzdt/202510/t20251016_1219276.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-taibai-scenic-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "太白山景区｜官方活动步道与鳌太的区别",
+      "text": "资料类型：已举办活动的线路背景。国家体育总局登山运动管理中心 2026-06-30 介绍，6 月 28 日太白山景区徒步活动设置红桦坪至天圆地方的挑战线路，经过七女峰、下板寺等节点；另有下板寺至天圆地方的林间休闲线路。两者体力要求不同。活动说明证明这些是景区组织的具体路线，不证明它们全年、当天均开放，也不代表获准进行鳌太穿越。",
+      "source_ref": "https://www.sport.gov.cn/dszx/n5415/c29726524/content.html",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-huihang-trail-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "徽杭古道｜文化古道与景区徒步背景",
+      "text": "资料类型：景区背景。绩溪县文化和旅游局 2026-08-25 介绍，徽杭古道景区位于绩溪县东部，兼具徽商历史、古道遗存和山地自然景观，是国家 AAAA 级景区及体育旅游线路。选择具体行程时应区分景区管理的古道路段和自行延伸的山地穿越；这篇介绍不是当日开放公告，不能由宣传中的户外活动名称推导出可任意露营、进入保护区核心区。",
+      "source_ref": "https://www.cnjx.gov.cn/Content/show/1120600.html",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-zhexi-tianchi-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "浙西天池｜地点名称与生态背景",
+      "text": "资料类型：具名媒体的地点核对。潮新闻 2025-11-10 报道将浙西天池对应为千顷塘水库，位于清凉峰国家级自然保护区核心区域；千顷塘是野生梅花鹿的重要栖息区域。该报道提到其高山水面、冬季雪景和芦苇景观，但没有可用于预测具体出行日期的物候观测。此处浙西天池不等于湖州安吉的江南天池，二者不能混用天气地点或管理公告。",
+      "source_ref": "https://tidenews.com.cn/news.html?id=3296136",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-zhexi-tianchi-management",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "浙西天池｜千顷塘核心区域管理告知书",
+      "text": "资料类型：管理局告知书转载。2025-11-03 浙江清凉峰国家级自然保护区管理局告知书指出，千顷塘核心区域的非法穿越干扰野生动物并增加森林火险，禁止非法进入保护区核心区、缓冲区。文中另说明清凉峰镇十门峡有指定生态旅游和科普路线。限制不能扩大解释为临安所有景点、全部徽杭古道或合法游览区一律关闭。转载页于次日发布，本次未取得管理局微信原页。",
+      "source_ref": "https://www.thepaper.cn/newsDetail_forward_31893239",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-wuyishan-tianyou-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "武夷山天游峰｜溪谷、山峰与观景背景",
+      "text": "资料类型：国家公园景点介绍。武夷山国家公园官网 2018-03-22 介绍，天游峰位于九曲溪六曲北侧；上天游的一览亭可俯看曲溪与群峰，下天游与胡麻涧一带相连。周边云窝冬春时节有云雾景观的历史描述，但不是逐日云海预报。这是天游峰景区背景，不代表武夷山国家公园所有山地均可徒步，也不证明当天步道开放。",
+      "source_ref": "https://wysgjgy.fujian.gov.cn/gygk/gydh/201803/t20180322_5511947.htm",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-taishan-hongmen-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "泰山｜红门徒步与其他景区路线的区别",
+      "text": "资料类型：文旅部门路线说明。泰安市文化和旅游局 2026-04-13 将红门线介绍为自然景观与历史遗存结合的经典徒步线，适合体力较好的游客。天外村线可乘车到中天门后选择索道或步行，东御道盘路由上梨园出发、坡度相对红门线平缓。不同线路不能共用同一体力估计；这些游览方式介绍不构成当日开放、索道运营或夜间可登山的确认。",
+      "source_ref": "https://whlyj.taian.gov.cn/art/2026/4/13/art_366342_10312047.html",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-shennongjia-scenic-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "神农架｜神农顶与官门山景区步道背景",
+      "text": "资料类型：文旅部景区名录。神农架生态旅游区包括神农顶、官门山片区；神农顶景区列有金猴岭、神农谷、板壁岩、太子垭等景点和游客服务区，官门山以沿河栈道、地质与生物科普为特色。游览景点、科普栈道和进入原始森林登最高峰不是同一种行程。名录未标注发布日期，2026-11-06 核查；仅作景观及设施类型背景，不证明具体步道当前开放。",
+      "source_ref": "https://sjfw.mct.gov.cn/site/dataservice/culdetails?curId=10&id=34978",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-shennongjia-scenic-closed-path-history",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "神农架｜2024 年封锁步道事故的范围",
+      "text": "资料类型：带日期的事故记录。湖北省公安厅 2024-09-19 转载报道：游客从神农营旁已封锁的废弃步道进入原始森林后迷路，被搜救人员找到。报道反映夜间低温、体力消耗与手机失去信号会叠加影响行动。这个历史事件对应具体封锁步道，不能据此认定整个神农架景区当前关闭，也不能推断该废弃步道后来已经恢复开放。",
+      "source_ref": "https://gat.hubei.gov.cn/bmdt/dtyw/202409/t20240919_5342229.shtml",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-wutai-dachaotai-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "五台山大朝台｜五座台顶与台怀的区别",
+      "text": "资料类型：景区地理背景。五台山游客服务中心介绍五座台顶分别为东台望海峰、西台挂月峰、南台锦绣峰、北台叶斗峰、中台翠岩峰；五峰之间以台怀镇为中心，台顶地貌与镇内寺庙游览不同。资料描述山地寒凉及草甸、灌丛植被，不能把台怀镇代表坐标的天气当成整条台顶行程的现场值。大朝台的路线变体与开放时段仍需单独核实。",
+      "source_ref": "https://www.wtsykfwzx.com/ztzl_show.aspx?id=71",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-wutai-dachaotai-management",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "五台山｜非游览线路与景点游览线路的管理区别",
+      "text": "资料类型：管理委员会通告。五台山 2023-07-15 通告区分正式购票入山道路、各景点游览线路和周边山坡林地等非游览线路，未经批准不得通过非游览线路进入；同时要求保护高山及亚高山草甸、禁止野外用火。该长期管理说明不能证明某条民间大朝台轨迹已获批准，也不能替代之后发布的台顶季节封控公告。",
+      "source_ref": "https://www.wtsykfwzx.com/tzzn_show.aspx?id=77",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-wutai-dachaotai-seasonal-notice",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "五台山大朝台｜2026—2027 年台顶季节封控",
+      "text": "资料类型：明确期限的管理通告报道。中国旅游报 2026-10-27 报道，五台山景区管委会于前一日发布通告：2026-11-01 至 2027-05-15 对五座台顶及周边区域实行封控，禁止擅自进入开展徒步、露营等活动。范围是台顶及周边，不是全部台怀寺庙游览区；到期也不能自动推断已经开放。管理提示可简短说明，天气、气候和装备资料仍可正常提供。",
+      "source_ref": "https://www.ctnews.com.cn/jianguan/content/2026-10/27/content_193766.html",
+      "valid_from": 0,
+      "valid_until": 1794528000
+    },
+    {
+      "doc_id": "route-beijing-xiangshan-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "北京香山｜登高与低强度赏秋路线",
+      "text": "资料类型：公园 2026 年秋季路线介绍。香山公园 2026-10-15 提供登高至香炉峰、古建漫游和亲子轻游等不同路线：全景登高经过静翠湖、香山寺等节点，轻游路线以平缓园路为主并避开香炉峰攀登。秋季彩叶是景观主题，具体变色率须看当季观测，不能保证某天达到最佳颜色。园内禁止吸烟及明火；本条仅对应香山公园，不等于周边所有京西山地路线。",
+      "source_ref": "https://www.beijing.gov.cn/fuwu/bmfw/bmzt/jqshj/ylxl/202610/t20261015_4903839.html",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-fanjingshan-entry-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "梵净山｜东西两线入口与预约时段",
+      "text": "资料类型：景区运营通知。梵净山旅游区 2026-08-28 通知自 9 月 1 日调整售票、入园时段：东线对应江口方向，西线对应印江方向，两线预约时段不同。具体路线应先明确从哪一侧入园，而不是只用“梵净山”推算行程。时段通知不证明所有金顶、栈道及登山步道当天均开放，冬季凝冻或后续通知可能改变运营安排。",
+      "source_ref": "https://fanjingshan.gz.cn/?p=11926",
+      "valid_from": 0,
+      "valid_until": 1794528000
+    },
+    {
+      "doc_id": "route-fanjingshan-winter-history",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "梵净山｜冬季凝冻的分线路历史例子",
+      "text": "资料类型：历史运营记录。梵净山旅游区 2026-01-24 通知西线经过除冰除雪恢复游览，而东线登山步道仍因凝冻不能通行。这个例子说明同一座山不同入口和步道的条件可能不同，不能从一侧开放推断另一侧可走，也不能拿低海拔城市温度排除山上结冰。这是历史记录，不是 2026-11-06 的闭园状态。",
+      "source_ref": "https://fanjingshan.gz.cn/?p=11234",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    },
+    {
+      "doc_id": "route-changbaishan-west-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "长白山西景区｜天池台阶与峡谷游览背景",
+      "text": "资料类型：省级文旅路线介绍。吉林省文化和旅游厅 2025-07-10 的池西区线路，将西景区乘车接驳后的天池台阶游览与锦江大峡谷等景点组合，天池登临仍含较多台阶，不是全程乘车。文中给部分组合线路的参考季节为 5—10 月，但这不是天池逐日可见、所有景点同时开放或最佳花期的保证；原页也要求出行前核实运营、交通与天气。西景区不能与北、南景区混用开放通知。",
+      "source_ref": "https://whhlyt.jl.gov.cn/ztzl/jlslyxlhxj/gdxl/zbs_424388/cxq/202507/t20250710_9277112.html",
+      "valid_from": 0,
+      "valid_until": 1801699200
+    }
+  ]
+}

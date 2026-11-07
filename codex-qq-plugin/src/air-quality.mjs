@@ -9,7 +9,7 @@ import { validatePlace } from './locations.mjs';
 const ENDPOINT = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 export const PM25_FORECAST_HOURS = 48;
 
-export async function getAirQuality({ city, place: resolvedPlace, window = 'rolling', day='today', now: nowInput = Date.now(), fetchImpl = globalThis.fetch } = {}) {
+export async function getAirQuality({ city, place: resolvedPlace, window = 'rolling', day='today', now: nowInput = Date.now(), fetchImpl = globalThis.fetch, scheduledMorning = false, fetchTimeoutMs = 45_000 } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('AIR_CITY_UNSUPPORTED');
@@ -27,7 +27,7 @@ export async function getAirQuality({ city, place: resolvedPlace, window = 'roll
     ...(window === 'calendar' ? { start_date: localDate(start), end_date: localDate(end) }
       : { forecast_hours: String(PM25_FORECAST_HOURS) }) }).toString();
   const [forecast, metadata] = await Promise.all([
-    fetchForecastJson(url.href, { fetchImpl, now }), fetchForecastJson(`https://air-quality-api.open-meteo.com/data/${domain}/static/meta.json`, { fetchImpl, now }),
+    fetchForecastJson(url.href, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }), fetchForecastJson(`https://air-quality-api.open-meteo.com/data/${domain}/static/meta.json`, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }),
   ]);
   const freshness = validateModelMetadata(metadata.data, { now, requiredEnd: end, maxRunAgeHours: europe ? 48 : 36 });
   const index = hourlyIndex(forecast.data, { pm2_5: 'μg/m³' });

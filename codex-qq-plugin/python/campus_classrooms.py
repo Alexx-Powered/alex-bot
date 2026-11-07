@@ -90,8 +90,13 @@ def login_failure(frame):
         return None
     return None
 
-def browser_collect(credentials,private_root,day,*,interactive=False,session_state=None,on_session=None):
+def browser_collect(credentials,private_root,day,*,interactive=False,session_state=None,on_session=None,timeout_profile='normal'):
     from playwright.sync_api import sync_playwright
+    if timeout_profile not in {'normal','morning'} or (interactive and timeout_profile!='normal'):
+        raise CampusError('CAMPUS_QUERY_FAILED')
+    # A scheduled report has a two-minute head start. Slow sources get more
+    # time, not extra attempts; the existing worker still caps the whole job.
+    navigation_ms,login_seconds,search_ms=(45000,60,45000) if timeout_profile=='morning' else (25000,40,20000)
     initial={}
     def capture(response):
         u=urlsplit(response.url)
@@ -122,8 +127,8 @@ def browser_collect(credentials,private_root,day,*,interactive=False,session_sta
                 context.route('**/*',allow_school)
                 page=context.new_page();page.on('response',capture)
                 phase='navigate'
-                page.goto(PAGE,wait_until='domcontentloaded',timeout=25000)
-                deadline=time.monotonic()+(150 if interactive else 40)
+                page.goto(PAGE,wait_until='domcontentloaded',timeout=navigation_ms)
+                deadline=time.monotonic()+(150 if interactive else login_seconds)
                 submitted=False
                 while not initial and time.monotonic()<deadline:
                     phase='login_frame'
@@ -154,7 +159,7 @@ def browser_collect(credentials,private_root,day,*,interactive=False,session_sta
                 url=initial['endpoint'].removesuffix('index1')+'search1'
                 phase='classroom_search'
                 response=context.request.get(url,params={'xqid':campuses[0]['xqid'],'floorid':'','date':day},
-                    headers={'Referer':PAGE,'X-Requested-With':'XMLHttpRequest'},timeout=20000,max_redirects=0)
+                    headers={'Referer':PAGE,'X-Requested-With':'XMLHttpRequest'},timeout=search_ms,max_redirects=0)
                 try:
                     result=_safe_response(response)
                     if on_session and result.get('e')==0:on_session(context.storage_state())

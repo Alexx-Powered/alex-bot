@@ -7,6 +7,12 @@ export function traceMessage(text){
 }
 
 const reasons={
+  HIKING_FORECAST_TIMEOUT:'徒步沿线预报获取超时',HIKING_FORECAST_UNAVAILABLE:'徒步沿线预报获取或校验失败',
+  RAG_DISABLED:'知识检索未启用或当前会话没有权限',RAG_VECTOR_NOT_CONFIGURED:'未配置语义索引，使用关键词检索',
+  RAG_VECTOR_UNAVAILABLE:'向量检索或嵌入服务不可用',RAG_STORE_UNAVAILABLE:'原文资料库不可用',
+  RAG_INDEX_MANIFEST_MISMATCH:'语义索引版本与配置不匹配',RAG_EMBEDDING_MISMATCH:'嵌入模型版本不匹配',
+  EMBEDDING_DIMENSION_MISMATCH:'嵌入向量维度不匹配',RAG_EXPLICIT_SAVE_REQUIRED:'没有匹配本轮原文的明确保存请求',
+  RAG_EXPLICIT_DELETE_REQUIRED:'没有匹配本轮原文的明确删除请求',
   LOCATION_NOT_FOUND:'未找到请求的地点', LOCATION_AMBIGUOUS:'多个地点重名，需要补充省市', LOCATION_INPUT_INVALID:'地点格式无效',
   LOCATION_SOURCE_TIMEOUT:'地名服务响应超时', LOCATION_SOURCE_UNAVAILABLE:'地名服务不可用',
   FORECAST_SOURCE_TIMEOUT:'预报数据源响应超时', FORECAST_SOURCE_RATE_LIMITED:'预报数据源限流', FORECAST_SOURCE_HTTP_ERROR:'预报数据源返回 HTTP 错误',

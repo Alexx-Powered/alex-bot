@@ -8,12 +8,13 @@ import {featureEnabled,toolFeature} from './group-features.mjs';
 import {isGray,fullAccess,basicAccess,restrictedReply} from './access-policy.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
 import {recordRequestFailure} from './telemetry.mjs';
+import {parseHikingCommand,renderHikingCard} from './hiking-card-image.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
-  constructor({toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget,socialService}){
+  constructor({toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget,socialService,ragEnabled=Boolean(process.env.QQ_RAG_CONFIG)}){
     if(!modelBudget||typeof modelBudget.acquire!=='function')throw new TypeError('MODEL_BUDGET_REQUIRED');
-    Object.assign(this,{toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader,modelBudget,socialService});
+    Object.assign(this,{toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader,modelBudget,socialService,ragEnabled});
   }
   async handle(text,context={}){
     let socialData={};
@@ -36,6 +37,39 @@ export class ConversationAgent{
     const gray=isGray(context);
     const decorate=(value,requiredAccess='white',sensitive=false,requiredFeature)=>value&&context.scope==='group'?{...value,requiredAccess,...(requiredFeature&&context.features?{requiredFeature}:{}),...(sensitive?{sensitive:true}:{})}:value;
     const denied=()=>decorate({text:restrictedReply(context)},'chat');
+    const ragReply=async result=>{
+      const feature=result.requiredFeature;
+      if(!['campus','weather','memory'].includes(feature)||!fullAccess(context,feature))return denied();
+      if(feature==='weather'&&result.hikingCard){
+        const image=await renderHikingCard(result.hikingCard);
+        return decorate({text:'',image},'white',false,'weather');
+      }
+      const text=typeof result.text==='string'&&[...result.text].length<=1600
+        ?result.text.replace(/<[@#][^>\r\n]*>/gu,'').replace(/@/gu,'＠').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu,'').trim():'';
+      return text?decorate({text},'white',false,feature):null;
+    };
+    const hiking=parseHikingCommand(text);
+    if(hiking){
+      if(!fullAccess(context,'weather'))return denied();
+      if(!this.ragEnabled)return decorate({text:'徒步资料服务暂未启用。'},'white',false,'weather');
+      try{return await this.worker.run({type:'rag',name:'hiking_trip_card',args:hiking,text,...fixedToolContext(context)},
+        async()=>{throw Error('HIKING_RPC_DENIED');},ragReply);}
+      catch(error){recordRequestFailure(error);return decorate({text:'徒步天气卡片暂未完成，请稍后重试。'},'white',false,'weather');}
+    }
+    // Only recognize a narrow possible command prefix here. The authoritative
+    // grammar, exact-source grounding and write decision stay in Python.
+    if(this.ragEnabled&&/^(?:请)?(?:保存|记住|记录|更新|删除|忘记|忘掉)\s*(?:项目)/u.test(text)){
+      if(!fullAccess(context,'memory'))return denied();
+      const trusted=context.scope==='group'?{scope:'group',access:context.features?'white':context.access,
+        groupContext:[],currentSpeaker:/^member-[a-f0-9]{1,64}$/.test(context.currentSpeaker||'')?context.currentSpeaker:'member-'+opaque(sessionKey).slice(0,12),
+        ...(context.features?{features:context.features,policyRevision:context.policyRevision||0}:{})}:{scope:'c2c'};
+      if(socialData.social)trusted.social=socialData.social;
+      try{
+        const result=await this.worker.run({type:'rag_control',text,sessionKey,context:trusted},
+          async()=>{throw Error('RAG_CONTROL_RPC_DENIED');},value=>value.kind==='rag'?ragReply(value):null);
+        if(result)return result;
+      }catch(error){recordRequestFailure(error);return decorate({text:'项目记录暂时未能更新，请稍后重试。'},'white',false,'memory');}
+    }
     const status=await this.statusTools?.handle(text,context);if(status)return status;
     const campus=await this.campusTools?.handle(text,context);if(campus)return campus.cancelled?null:gray?denied():decorate(campus,'white',false,'campus');
     if(isBalanceQuery(text)){
@@ -109,6 +143,9 @@ export class ConversationAgent{
         if(gray||!basicAccess(context))return denied();
         return decorate(await this.toolbox.execute(name,args),'white',false,feature);
       },result=>{
+        if(result.kind==='rag'){
+          return ragReply(result);
+        }
         if(result.kind==='balance')return fullAccess(context,'balance')?decorate(balanceReply(result),'white',true,'balance'):gray?denied():null;
         if(result.kind==='reasoned'){
           const sensitive=result.sensitive===true;

@@ -30,7 +30,15 @@ def process(packet,store):
             if action=='observe':return store.observe(namespace,scope,event,text)
             if action=='recall':return store.recall(namespace,scope)
             if action=='media':return store.remember_media(namespace,scope,event,kind,text)
-            return store.control(namespace,scope,action)
+            result=store.control(namespace,scope,action)
+            if result.get('ok') and action in {'clear','off'}:
+                # Canonical deletes are synchronous; vector cleanup is queued.
+                # Validate the legacy namespace/scope first; report success only
+                # when both canonical stores have been cleared. No vector client
+                # is opened in the social worker (Lite has one process owner).
+                from rag_runtime import clear_project_notes_for_memory_control
+                clear_project_notes_for_memory_control(namespace)
+            return result
         return social_memory.invoke(packet['args'])
     if packet.get('type')=='insight':
         from conversation_insights import build_insight_tool

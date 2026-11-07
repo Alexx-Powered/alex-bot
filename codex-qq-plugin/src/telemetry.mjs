@@ -12,11 +12,12 @@ const activeTrace=new AsyncLocalStorage();
 export const hasActiveTrace=()=>Boolean(activeTrace.getStore()&&!activeTrace.getStore().closed);
 const activeSpan=new AsyncLocalStorage();
 const remoteDetails=new WeakMap();
-const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request']);
+const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip']);
 const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send']);
 export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
 for(const name of [...videoWorkerStages,'weather_video','resolve_location','heavy_queue','video_cache_hit','video_read_mp4',
-  'video_download_slowest','video_decode_slowest','weather_fetch','air_fetch','weather_render','radar_query','qq_media_upload','qq_message_submit'])STAGES.add(name);
+  'video_download_slowest','video_decode_slowest','weather_fetch','air_fetch','weather_render','radar_query','qq_media_upload','qq_message_submit',
+  'rag_retrieval','rag_lexical','rag_embedding','rag_vector','rag_source_verify','hiking_route','hiking_locate','hiking_fetch','hiking_render'])STAGES.add(name);
 export function setTraceOperation(name,onlyIfUnnamed=false){
   const trace=activeTrace.getStore();
   if(trace&&!trace.closed&&(!onlyIfUnnamed||!trace.operation||trace.operation==='agent.request')&&OPERATIONS.has(name))trace.operation=name;

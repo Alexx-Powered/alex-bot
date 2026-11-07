@@ -5,6 +5,14 @@ import { HOUR_MS, localTime } from '../src/weather.mjs';
 
 const NOW = Date.parse('2026-10-28T10:15:00Z');
 const START = Math.floor(NOW / HOUR_MS) * HOUR_MS;
+test('scheduled CAMS applies its longer bounded timeout to data and metadata only',async t=>{
+  const timeouts=[],original=AbortSignal.timeout.bind(AbortSignal);
+  t.mock.method(AbortSignal,'timeout',ms=>{timeouts.push(ms);return original(ms);});
+  await getAirQuality({now:NOW,fetchImpl:fakeFetch(),fetchTimeoutMs:45000});
+  assert.deepEqual(timeouts,[15000,15000]);timeouts.length=0;
+  await getAirQuality({now:NOW,fetchImpl:fakeFetch(),scheduledMorning:true,fetchTimeoutMs:41000});
+  assert.deepEqual(timeouts,[41000,41000]);
+});
 test('tomorrow calendar PM2.5 shifts dates without shifting source freshness clock',async()=>{
   const start=Date.parse('2026-10-29T00:00:00+08:00'),data=dataset(),calls=[];
   data.hourly.time=Array.from({length:48},(_,i)=>localTime(start+i*HOUR_MS));

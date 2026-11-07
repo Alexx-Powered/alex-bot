@@ -1,0 +1,33 @@
+{
+  "schema_version": "rag.eval.v1",
+  "purpose": "开发验证集；模拟校园设施仅用于测试，不得导入生产知识库。不代表真实教室情况或独立冻结测试成绩。",
+  "documents": [
+    {"doc_id":"fixture-quiet","namespace":"shared","visibility":"shared","domain":"campus","title":"模拟甲楼设施","text":"测试资料：模拟甲楼设有静音自习区。这里禁止交谈，适合独自阅读和专注复习。设施表没有记载电源插座，是否能给电脑充电未知。","source_ref":"fixture://campus/quiet"},
+    {"doc_id":"fixture-power","namespace":"shared","visibility":"shared","domain":"campus","title":"模拟乙楼设施","text":"测试资料：模拟乙楼的指定学习区域配有电源插座，可为笔记本电脑充电。这里允许小组讨论，安静程度没有保证。","source_ref":"fixture://campus/power"},
+    {"doc_id":"fixture-room","namespace":"shared","visibility":"shared","domain":"campus","title":"模拟教室 A301","text":"测试资料：A301 是模拟甲楼三层的教室编号。教室设施说明仅有投影仪和固定课桌，未记载开放时段，也未记载插座。此记录不能判断今天是否空闲。","source_ref":"fixture://campus/A301"},
+    {"doc_id":"fixture-room-other","namespace":"shared","visibility":"shared","domain":"campus","title":"模拟教室 A310","text":"测试资料：A310 是模拟乙楼一层的研讨室编号，配有白板。它与 A301 是不同房间，不能互换。","source_ref":"fixture://campus/A310"},
+    {"doc_id":"campus-validity","namespace":"shared","visibility":"shared","domain":"campus","title":"教室缓存时效","text":"项目规则：教室推荐读取与查询日期一致的课程占用快照。缓存超过 24 小时就要求重新查询；其他日期的数据不能用来回答今天。","source_ref":"repo://python/campus_recommendations.py"},
+    {"doc_id":"campus-limits","namespace":"shared","visibility":"shared","domain":"campus","title":"课程占用与现场情况","text":"项目设计约束：课程表显示没有课程，不代表现场一定有空座，也不保证插座可用或环境安静。设施信息没有来源时保留未知，不能认定满足硬性条件。","source_ref":"repo://docs/agentic-roadmap-20261106.md"},
+    {"doc_id":"weather-pm","namespace":"shared","visibility":"shared","domain":"weather","title":"PM2.5 数据含义","text":"项目 PM2.5 图使用 CAMS 模型浓度预报。它不是本地空气监测站的实时读数，也不是综合 AQI。解读时要区分预测与实测。","source_ref":"repo://HANDOVER.md"},
+    {"doc_id":"weather-radar","namespace":"shared","visibility":"shared","domain":"weather","title":"雷达与云量","text":"天气知识：云量表示天空中云的覆盖比例。雷达图观察降水回波，云很多不一定已经下雨。预报描述未来的可能情况，当前雷达描述观测时刻。","source_ref":"fixture://weather/observation-vs-forecast"},
+    {"doc_id":"alice-project","namespace":"eval:alice:private","visibility":"private","domain":"project","project_key":"bot","title":"Alice 的项目决策","text":"用户明确保存的模拟项目摘要：当前阶段优先把知识检索和删除机制做稳；先在本机验证，服务器预算不增加，后续才做多步规划。","source_ref":"fixture://alice/request/1"},
+    {"doc_id":"bob-project","namespace":"eval:bob:private","visibility":"private","domain":"project","project_key":"bot","title":"Bob 的项目决策","text":"用户明确保存的模拟项目摘要：当前阶段先完成语音交互功能，采用独立服务器，不开发校园检索。","source_ref":"fixture://bob/request/1"}
+  ],
+  "queries": [
+    {"id":"synonym-quiet","query":"想找个不吵的地方看书","domain":"campus","expected":["fixture-quiet"]},
+    {"id":"synonym-power","query":"笔记本快没电了，哪里能边充电边学习","domain":"campus","expected":["fixture-power"]},
+    {"id":"synonym-discuss","query":"几个人讨论作业适合去哪","domain":"campus","expected":["fixture-power"]},
+    {"id":"exact-A301","query":"A301","domain":"campus","expected":["fixture-room"]},
+    {"id":"exact-A310","query":"A310","domain":"campus","expected":["fixture-room-other"]},
+    {"id":"expiry","query":"前天查的课表现在还能用吗","domain":"campus","expected":["campus-validity"]},
+    {"id":"empty-seat","query":"没有排课就一定有座位吗","domain":"campus","expected":["campus-limits"]},
+    {"id":"unknown-facility","query":"模拟甲楼保证有插座吗","domain":"campus","expected":["fixture-quiet"]},
+    {"id":"pm-observation","query":"这张空气图是附近监测站刚测出来的吗","domain":"weather","expected":["weather-pm"]},
+    {"id":"rain-cloud","query":"天上全是云为什么雷达没有雨","domain":"weather","expected":["weather-radar"]},
+    {"id":"alice","query":"上次决定先开发什么","domain":"project","namespace":"eval:alice:private","project_key":"bot","expected":["alice-project"],"forbidden":["bob-project"]},
+    {"id":"bob","query":"上次决定先开发什么","domain":"project","namespace":"eval:bob:private","project_key":"bot","expected":["bob-project"],"forbidden":["alice-project"]},
+    {"id":"different-group","query":"上次决定先开发什么","domain":"project","namespace":"eval:alice:group","project_key":"bot","expected":[],"forbidden":["alice-project","bob-project"]},
+    {"id":"other-project","query":"项目下一步","domain":"project","namespace":"eval:alice:private","project_key":"unknown","expected":[]},
+    {"id":"unrelated","query":"银河系黑洞质量怎么计算","domain":"weather","expected":[]}
+  ]
+}

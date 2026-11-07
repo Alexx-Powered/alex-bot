@@ -1,0 +1,236 @@
+{
+  "schema_version": "rag.import.v1",
+  "documents": [
+    {
+      "doc_id": "weather-climate-normals",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气候｜常年值与比较基准",
+      "text": "资料类型：气候统计原理。国家气候中心 2022-04-02 说明，气候平均值使用三个完整年代的统计，通常每十年更新；我国气候业务自 2022-01-01 起采用 1991—2020 年基准。比较冷暖、干湿时必须同时给出地点、统计时段和基准期，不能把某一年样本称为三十年气候常年值。",
+      "source_ref": "https://www.ncc-cma.net/channel/news/newsid/100015",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-era5-history",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气候｜ERA5 历史逐时资料",
+      "text": "资料类型：历史数据说明。Copernicus 的 ERA5 逐时序列提供从 1940 年起的历史气象估计，将观测与物理模型结合，适合整理过去的温度、降水、风等变化。它是再分析，不是每个点的实测站记录，也不是未来天气预报。时间序列接口在请求点不与网格点重合时使用最近网格点。目录于 2026-11-05 更新，核查日为 2026-11-06。",
+      "source_ref": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels-timeseries",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-era5-land-history",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气候｜ERA5-Land 陆面历史资料",
+      "text": "资料类型：历史数据说明。ERA5-Land 提供从 1950 年起的逐时陆面再分析，使用 ERA5 大气场驱动更细的陆面模型；它包含温度、土壤、积雪和降水等变量。更细的网格不等于步道或营地的现场测量，产品仍有模型和观测不确定性。目录于 2026-11-05 更新，核查日为 2026-11-06。",
+      "source_ref": "https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-timeseries",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-mountain-grid-limits",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气象｜山区网格与现场天气的区别",
+      "text": "资料类型：数据解释。Copernicus 的再分析问答说明，网格产品给出一片区域的估计，不等于某一气象站的点测量；地形与地表混合、模型简化以及观测分布会影响代表性。项目应用边界：山谷代表坐标的资料不能直接当成山脊、垭口或湖畔营地的现场值，也不能据此断言结冰、积雪深度或步道可通行。问答版本为 2020 年 10 月；这里只使用其原理说明。",
+      "source_ref": "https://climate.copernicus.eu/reanalysis-qas",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-climate-period-meaning",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气候｜历史趋势不能代替出行预报",
+      "text": "资料类型：气候统计方法。Copernicus 气候公报说明须明确区域、参考时段和统计变量，主要近期气候基准为 1991—2020 年；其季节统计以三个月为一季。项目应用边界：历史月平均、年际变化或全国升温记录只提供背景，不能据此保证某次徒步晴天、无雪或开放；少量年份的汇总应称历史样本，不宣称长期趋势已得到验证。方法页适用于 2024 年 1 月以后的公报，核查日 2026-11-06。",
+      "source_ref": "https://climate.copernicus.eu/climate-bulletin-about-data-and-analysis",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-china-climate-2024",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气候｜2024 年中国气候统计快照",
+      "text": "资料类型：带年份的历史统计。《中国气候公报（2024 年）》记载，2024 年全国平均气温为 10.9℃，相对 1991—2020 年平均值偏高 1.01℃；全国平均降水量相对该常年值偏多 9.0%。这是全国年度统计，不能当作党岭等具体地点的气候值、下一年的变化幅度或某次出行天气。引用时保留“2024 年”和统计范围；这里不声称它是最新年度报告。",
+      "source_ref": "https://www.cma.gov.cn/zfxxgk/gknr/qxbg/202503/W020250302606211127018.pdf",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-dangling-route-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜目的地与路线背景",
+      "text": "资料类型：路线背景。丹巴县政府 2025-12-03 报道将党岭穿越区域定位于甘孜州丹巴、道孚两县交界，描述雪山、海子、彩林与村寨。该报道不提供可直接导航的完整轨迹。本知识条目没有核定起终点坐标、总里程、累计爬升、各路段难度或补给位置；“党岭”不能直接等同于一条已核验的徒步路线。",
+      "source_ref": "https://www.danba.gov.cn/ttxw/article/680325",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-dangling-landscape-season",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜景观名称与季节信息边界",
+      "text": "资料类型：景观和季节背景。丹巴县政府 2025-06-22 的夏日景观介绍提到党岭的森林、雪山、葫芦海与卓雍措。此文是景观介绍，不是多年气候统计或开放公告，不能推出固定最佳徒步月份、每年彩林峰值日期、冰雪消融日期，也不能保证某个出行日的景色和通行条件。",
+      "source_ref": "https://www.danba.gov.cn/yzdb/article/657808",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-dangling-access-history-2025",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜2025 年冬季封闭历史记录",
+      "text": "资料类型：历史管制记录，非当前开放状态。丹巴县政府 2025-12-03 报道记载，当年自 11 月 15 日起，党岭区域内所有徒步线路因冬季条件关闭，禁止徒步、穿越和露营。该信息只证明 2025 年曾有此管制，不能推定 2026 年或每年同日封闭、自动解封。本库截至 2026-11-06 未核到足以确认本次出行日通行状态的官方公告；当前开放状态为未知。",
+      "source_ref": "https://www.danba.gov.cn/ttxw/article/680325",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-dangling-altitude-record",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜高海拔风险历史记录",
+      "text": "资料类型：高海拔风险背景。丹巴县卫生健康局 2025-10-09 报道了当年 10 月 2 日卓雍措附近游客出现严重高原反应、由当地医疗与救援人员转移下山的事件。项目应用边界：党岭行程需要核对个人高海拔经验与具体路线，不以普通城市徒步经验直接代替；本条不进行个人健康评估。报道中的假期医疗驻点与车辆是当时部署，不代表今日仍在或随时能够到达。",
+      "source_ref": "https://www.danba.gov.cn/dbxrmzf_zdmsxx_gzdt/article/673547",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-gear-layering",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "徒步｜装备与分层穿衣",
+      "text": "资料类型：通用装备原则。国家体育总局刊载的徒步准备建议包括：按负重选择合身背包，鞋具兼顾防滑、支撑与路线地形；衣物按排汗、保暖、防风防雨分层，随条件调整。带水和食物；湿滑、不平或陡峭路面可按需要准备登山杖。此为普通徒步准备背景，不是任何党岭路线已经足够的完整装备清单。报纸原文日期 2023-05-17，核查日 2026-11-06。",
+      "source_ref": "https://www.sport.gov.cn/n20001280/n20001265/n20066978/c25592746/content.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-navigation-preparation",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "徒步｜导航、照明与行程报备",
+      "text": "资料类型：通用行前准备。应急管理部 2025-09-29 发布会建议选择正规开放路线，准备导航设备、头灯和应急物资，结伴出行并将路线及返程时间告知亲友。项目应用边界：据此提出需要核对的准备项目，不声称某条路线有手机信号、补给点、营地或固定救援时效。",
+      "source_ref": "https://www.mem.gov.cn/xw/xwfbh/2025n09y29xwfbh/wzsl_4260/202509/t20250929_560335.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-route-weather-notices",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "徒步｜预警、开放公告与计划调整",
+      "text": "资料类型：通用行前核验。应急管理部 2025-09-29 发布会提醒持续关注目的地气象和地质灾害预警，避免大风、暴雨等极端天气出行，选择开放路线，不盲信网络秘境攻略。项目应用边界：出行日期对应的最新官方天气预警和路线管理公告需要另行核验；历史背景资料、好看的天气图和较高户外分数不能代替开放确认。",
+      "source_ref": "https://www.mem.gov.cn/xw/xwfbh/2025n09y29xwfbh/wzsl_4260/202509/t20250929_560335.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-rain-season-risks",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "徒步｜雨季山地风险范围",
+      "text": "资料类型：山地天气风险背景。国家体育总局登山运动管理中心 2026-04-29 通知提示，雨季降雨频繁、山体湿滑、地质风险增加，应重视降雨、雷电、山洪和滑坡等风险。项目应用边界：晴雨或降水量单项不能覆盖山地出行风险，不能因为目的地当天少雨便排除沿途既有道路损毁、前期降雨或局地灾害；具体路线状态需要现场管理信息。",
+      "source_ref": "https://www.sport.gov.cn/dszx/n5414/c29589103/content.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-wugongshan-jinding-route",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "武功山｜金顶段的官方路线节点",
+      "text": "资料类型：路线背景。萍乡武功山景区 2019-09-24 两日游指南列出石鼓寺、紫极宫、福星谷、许愿桥、玻璃眺台、回音谷、情人花廊、草甸之舟、古祭坛群、金顶这一上行顺序。它把寺观、栈道和高山草甸串在同一金顶游览段内，可用于识别用户想走的景区路线，而不是把所有“武功山穿越”视作同一条线。该节点顺序为历史官方路线介绍，具体步道与索道当日是否运行仍需查景区公告。",
+      "source_ref": "https://www.wugongshan.cn/page/strategyList%21info.htm?id=1228",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-wugongshan-autumn-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "武功山｜秋季草甸与景观特点",
+      "text": "资料类型：景观季节背景。萍乡武功山景区 2019-10-29 秋景介绍记录了深秋金黄色草甸、层林色彩、日出与山间云雾。想看金色草甸时，可将深秋草甸作为观赏目标；这篇资料记录的是秋季景观类型，未给出逐年变色日期。当天能否见到日出或云海，要另外结合低云、降水和能见度；不得因景观介绍而离开步道进入轮休草甸。",
+      "source_ref": "https://www.wugongshan.cn/page/strategyList%21info.htm?id=1312",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-huangshan-xihai-route",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "黄山｜西海大峡谷步行与缆车衔接",
+      "text": "资料类型：路线背景。黄山风景区管理委员会 2024-07-14 线路介绍给出西海大峡谷的游览顺序：排云亭、北入口、一环、二环、谷底；谷底乘西海观光缆车到天海，再可经海心亭、鳌鱼峰前往玉屏景区看迎客松。前半段是峡谷步行，谷底到天海一段在该方案中依赖观光缆车，不应把这条推荐路线写成全程平路或全程徒步。具体开放路段、季节维护与缆车运行需按出行日另查。",
+      "source_ref": "https://hsgwh.huangshan.gov.cn/lyfw/xltj/9195903.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "outdoor-huangshan-winter-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "黄山｜冬季雾凇、云海与观景区域",
+      "text": "资料类型：带日期的冬季景观背景。黄山风景区管委会 2026-02-18 报道：前一日受低温与充足水汽影响，玉屏峰、始信峰、光明顶等地出现雾凇，山间同时有云海。冬游黄山可把松石上的冰晶景观和峰谷间云海作为不同看点：前者关注低温及水汽，后者还要有合适云层高度和观景视野。这是一次已发生的冬景记录，不能保证指定日期一定出现，也不代表所有峰顶步道都开放。",
+      "source_ref": "https://www.huangshan.gov.cn/zxzx/zwyw/8419369.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-mountain-valley-wind",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气象｜白天谷风与夜间山风",
+      "text": "资料类型：山地风解释。中国天气网 2019-04-02 科普说明，晴朗条件下山谷风较明显：白天风沿坡从谷地吹向山坡，夜间冷空气沿山坡流向谷底；阴天这一局地效应较弱。文章还说明，气流越山后下沉可在背风坡形成较干热的焚风。应用时应把这理解为局地机制，实际风向风力还需看当次预报，不能把昼夜规律当作每个山口都适用的定时风向表。",
+      "source_ref": "https://news.weather.com.cn/2019/04/3173547.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-rain-amount-window",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气象｜累计雨量必须连同时间段阅读",
+      "text": "资料类型：降雨量解释。中国气象局发布的 QX/T 489—2019《降雨过程等级》把日降雨量定义为 24 小时累计雨量，并按它分档：小雨 0.1—9.9 mm、中雨 10.0—24.9 mm、大雨 25.0—49.9 mm、暴雨 50.0—99.9 mm、大暴雨 100.0—249.9 mm、特大暴雨至少 250.0 mm。例如 24 小时累计 12 mm 属中雨量级，不表示每小时都下 12 mm，也不能判断这些雨均匀下了一天；想判断徒步时段雨势，应查看对应逐时降水。这里解释该版本的日雨量分档，不把日累计阈值套在小时雨强上。",
+      "source_ref": "https://www.cma.gov.cn/zfxxgk/gknr/flfgbz/bz/202209/P020220921706540516277.pdf",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "weather-radar-reflectivity",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "weather",
+      "title": "气象｜雷达回波颜色与降雨的关系",
+      "text": "资料类型：雷达读图。深圳市气象局雷达图说明指出，天气雷达通过反射信号探测降雨；一般雨滴越大、数量越多，回波越强，图例色板对应回波强度。但雷达有时也接收云、树木、建筑物、山体或海浪等非降雨反射，不能把每块彩色回波都当成地面正在下雨。读图先核对产品图例和有效时间，再结合连续变化与当地实况；回波颜色不是本项目温度、云量或降水视频的通用色标。说明页未标发布日期，核查日 2026-11-06。",
+      "source_ref": "https://weather.sz.gov.cn/mobile/qixiangfuwu/qixiangjiance/leidatuxiang/index.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    }
+  ]
+}

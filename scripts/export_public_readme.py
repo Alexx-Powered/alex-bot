@@ -12,6 +12,8 @@ ASSETS = (
     'codex-qq-plugin/public/logo.png',
     'docs/images/weather.webp',
     'docs/images/weather-summary.webp',
+    'docs/images/hiking.webp',
+    'docs/images/hiking-summary.webp',
     'docs/images/forecast-video.webp',
     'docs/images/forecast-video.gif',
     'docs/images/providers.webp',

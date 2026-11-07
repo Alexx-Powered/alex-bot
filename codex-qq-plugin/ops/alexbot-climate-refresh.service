@@ -1,0 +1,25 @@
+[Unit]
+Description=Bounded ERA5 climate history maintenance
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/alex-bot-runtime/python/app-venv/bin/python /opt/alex-bot/current/codex-qq-plugin/scripts/refresh-climate.py --database /var/lib/alexbot/.private/rag/climate-history.sqlite3 --catalog /opt/alex-bot/current/codex-qq-plugin/data/climate-locations.json --place-id dangling --start-year 1991 --end-year latest --max-years 1
+ExecStart=/opt/alex-bot-runtime/python/app-venv/bin/python /opt/alex-bot/current/codex-qq-plugin/scripts/refresh-climate.py --database /var/lib/alexbot/.private/rag/climate-history.sqlite3 --catalog /opt/alex-bot/current/codex-qq-plugin/data/climate-locations.json --place-id beijing --start-year 1991 --end-year latest --max-years 1
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/alexbot/.private/rag
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%
+TimeoutStartSec=240
+LimitCORE=0

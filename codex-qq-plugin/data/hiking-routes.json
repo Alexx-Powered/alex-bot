@@ -1,0 +1,253 @@
+{
+  "schema_version": "hiking.routes.v1",
+  "profiles": [
+    {
+      "topic": "党岭",
+      "variant": "三湖穿越",
+      "reviewed": true,
+      "sources": [
+        {
+          "url": "https://www.8264.com/youji/5737765.html",
+          "title": "8264 党岭徒步攻略",
+          "date": "2024-10-14"
+        }
+      ],
+      "days": [
+        {
+          "route": [
+            "党岭村",
+            "飞机坪",
+            "葫芦海"
+          ],
+          "sleep": {
+            "name": "葫芦海",
+            "kind": "tent"
+          },
+          "distance_km": 6
+        },
+        {
+          "route": [
+            "葫芦海",
+            "卓雍措",
+            "夏羌拉垭口",
+            "甲依拉措"
+          ],
+          "sleep": {
+            "name": "甲依拉措",
+            "kind": "tent"
+          },
+          "distance_km": 7
+        },
+        {
+          "route": [
+            "甲依拉措",
+            "卡尔杂村"
+          ],
+          "sleep": null,
+          "distance_km": 5
+        }
+      ],
+      "points": {
+        "党岭村": {
+          "lat": 31.0733589,
+          "lon": 101.4052803,
+          "source": "https://www.openstreetmap.org/node/3790391144"
+        },
+        "飞机坪": {
+          "lat": 31.0737426,
+          "lon": 101.3823895,
+          "source": "https://www.openstreetmap.org/node/13047775730"
+        },
+        "葫芦海": {
+          "lat": 31.0642366,
+          "lon": 101.3645413,
+          "source": "https://www.openstreetmap.org/node/8276681417"
+        },
+        "夏羌拉垭口": {
+          "lat": 31.0552388,
+          "lon": 101.3377224,
+          "source": "https://www.openstreetmap.org/node/13047931178"
+        },
+        "甲依拉措": {
+          "lat": 31.0648,
+          "lon": 101.3381,
+          "source": "https://mapcarta.com/W856902843"
+        },
+        "卡尔杂村": {
+          "lat": 31.1042169,
+          "lon": 101.347919,
+          "source": "https://www.openstreetmap.org/node/11840548498"
+        }
+      },
+      "notice": "2026-10-08 县文旅局及景区称仅开放至葫芦海、卓雍措暂闭；当前是否恢复待确认。",
+      "season": "秋色参考：2026-10-08 景区称随后约两周较佳；此后叶况需另核。"
+    },
+    {
+      "topic": "党岭",
+      "variant": "村庄住店往返",
+      "reviewed": true,
+      "sources": [
+        {
+          "url": "https://cdsthw.360jlb.cn/event?id=886504&mid=73736",
+          "title": "沐峰行 党岭三湖行程",
+          "date": "2026 年行程表"
+        }
+      ],
+      "days": [
+        {
+          "route": [
+            "党岭村",
+            "飞机坪",
+            "葫芦海",
+            "飞机坪",
+            "党岭村"
+          ],
+          "sleep": {
+            "name": "党岭村",
+            "kind": "inn"
+          }
+        },
+        {
+          "route": [
+            "党岭村",
+            "卡尔杂村",
+            "甲依拉措",
+            "卡尔杂村",
+            "党岭村"
+          ],
+          "sleep": null
+        }
+      ],
+      "points": {},
+      "season": "村庄间接驳交通另计；住店方案仍须确认房态及接驳。"
+    },
+    {
+      "topic": "武功山",
+      "variant": "沿线客栈穿越",
+      "reviewed": true,
+      "sources": [
+        {
+          "url": "https://travelnews.qunar.com/qa_strategy/wugongshan-three-day-through-hiking-guide",
+          "title": "去哪儿 武功山三日穿越参考",
+          "date": "2026-07-10"
+        }
+      ],
+      "days": [
+        {
+          "route": [
+            "沈子村",
+            "铁蹄峰"
+          ],
+          "sleep": {
+            "name": "铁蹄峰",
+            "kind": "inn"
+          },
+          "distance_km": 9.5
+        },
+        {
+          "route": [
+            "铁蹄峰",
+            "金顶",
+            "发云界"
+          ],
+          "sleep": {
+            "name": "发云界",
+            "kind": "inn"
+          },
+          "distance_km": 12
+        },
+        {
+          "route": [
+            "发云界",
+            "龙山村"
+          ],
+          "sleep": null,
+          "distance_km": 6
+        }
+      ],
+      "points": {
+        "沈子村": {
+          "lat": 27.4652207,
+          "lon": 114.1054222,
+          "source": "https://www.openstreetmap.org/node/4221388671"
+        },
+        "铁蹄峰": {
+          "lat": 27.4417838,
+          "lon": 114.1569152,
+          "source": "https://www.openstreetmap.org/node/9383642554"
+        },
+        "金顶": {
+          "lat": 27.4552029,
+          "lon": 114.173305,
+          "source": "https://www.openstreetmap.org/node/4221455572"
+        },
+        "发云界": {
+          "lat": 27.5270352,
+          "lon": 114.191165,
+          "source": "https://www.openstreetmap.org/node/6078324234"
+        }
+      },
+      "season": "草甸春夏偏绿、秋冬转黄；冬季山脊可能冰雪，具体景况看出行前记录。 客栈为资料记载的候选；淡季开业、床位和供暖需确认。"
+    },
+    {
+      "topic": "库拉岗日",
+      "variant": "措玉村住店三日",
+      "reviewed": true,
+      "sources": [
+        {
+          "url": "https://www.hwtao.com/plugin.php?id=tom_tchuodong&mod=details&tchuodong_id=643",
+          "title": "户外淘 库拉岗日五日行程（含两日交通）",
+          "date": "页面未标固定发布日期"
+        },
+        {
+          "url": "https://lyfzj.shannan.gov.cn/zjsn/jdjs/202207/t20220706_108078.html",
+          "title": "山南旅发局 走一回库拉岗日",
+          "date": "2022-07-06"
+        }
+      ],
+      "days": [
+        {
+          "route": [
+            "措玉村",
+            "白玛林措",
+            "措玉村"
+          ],
+          "sleep": {
+            "name": "措玉村",
+            "kind": "inn"
+          },
+          "distance_km": 11
+        },
+        {
+          "route": [
+            "措玉村",
+            "折公三措",
+            "措玉村"
+          ],
+          "sleep": {
+            "name": "措玉村",
+            "kind": "inn"
+          },
+          "distance_km": 12
+        },
+        {
+          "route": [
+            "措玉村",
+            "介久措",
+            "措玉村"
+          ],
+          "sleep": null,
+          "distance_km": 7
+        }
+      ],
+      "points": {
+        "措玉村": {
+          "lat": 28.2381573,
+          "lon": 90.7924176,
+          "source": "https://www.openstreetmap.org/node/8395119967"
+        }
+      },
+      "season": "三条往返支线，住宿措玉村；进出山交通另计，湖区预报须有各自坐标。"
+    }
+  ]
+}

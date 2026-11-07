@@ -104,7 +104,11 @@ export class CampusService{
       if(process.platform!=='win32'){
         try{const saved=await unprotectCredential(JSON.parse(await fs.readFile(sessionFile,'utf8')).cipher);if(saved.identity===identity)sessionState=saved.state;}catch{ /* A missing/expired session requires a fresh login. */ }
       }
-      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
+      // Only the host-owned morning report can opt into the fixed, longer
+      // source budget. It is not a tool argument or a user-selected duration.
+      const scheduled=mode==='report'&&options.scheduledMorning===true;
+      const result=await this.worker.run({type:'campus',mode,args:parsed,credentials,session_state:sessionState,request_text:options.requestText,building:options.building,regions:options.regions,
+        ...(scheduled?{timeout_profile:'morning'}:{})},async()=>{throw Error('CAMPUS_RPC_DENIED');},async value=>{
         const data=validateCampusData(value.data);
         if(process.platform!=='win32'&&data.ok&&value.session_state){
           await atomicJson(sessionFile,{format:credentialFormat(),cipher:await protectCredential({identity,state:value.session_state})});

@@ -9,7 +9,7 @@ window.createGroupConsole = ({api,action}) => {
     ]},
     {title:'查询与工具',items:[
       {keys:['conversion'],label:'固定换算',hint:'古月币、马里、马时与常用单位换算'},
-      {keys:['weather','air'],label:'天气预报与空气质量',hint:'两日天气、空气质量、云量 / 温度 / 降水 / PM2.5 预报视频和历史云图'},
+      {keys:['weather','air'],label:'天气预报与空气质量',hint:'两日天气、空气质量、预报视频和历史云图；徒步沿线天气、营地睡袋与住店方案'},
       {keys:['radar'],label:'雷达',hint:'当前降水雷达与站点目录'},
       {keys:['campus'],label:'校园与教室',hint:'空教室、自习推荐与三号楼简报'},
       {keys:['status'],label:'AI服务状态',hint:'AI 平台可用性与服务状态查询'},
@@ -160,7 +160,7 @@ window.createGroupConsole = ({api,action}) => {
       ready=core.paired&&!core.paused&&transport.state==='connected';
       get('managedGroups').classList.remove('hidden');
       get('groupMorningState').textContent=schedule.active?
-        '北京时间 07:30 · 天气 '+(schedule.weatherGroups||0)+' 群 · 自习 '+(schedule.campusGroups||0)+' 群':'北京时间 07:30 · 调度当前未运行';
+        '北京时间 '+(schedule.prepareActive?'07:28 准备 · ':'')+'07:30 发送 · 天气 '+(schedule.weatherGroups||0)+' 群 · 自习 '+(schedule.campusGroups||0)+' 群':'北京时间 07:30 · 调度当前未运行';
       catalog=core.groupFeatureCatalog||[];defaults=core.groupDefaultFeatures||{};
       if (!initialized&&catalog.length) {grid(get('groupNewFeatures'),defaults);initialized=true;}
       const next=[...(core.allowedGroups||[]),...(core.grayGroups||[])];

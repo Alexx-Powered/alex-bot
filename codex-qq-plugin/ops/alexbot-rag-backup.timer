@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily encrypted Alex Bot knowledge backup
+
+[Timer]
+OnCalendar=*-*-* 04:10:00 Asia/Shanghai
+Persistent=false
+Unit=alexbot-rag-backup.service
+
+[Install]
+WantedBy=timers.target

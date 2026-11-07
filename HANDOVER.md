@@ -1,3 +1,137 @@
+## 沿线徒步天气卡片与受限 RAG 更新已上线（2026-11-08）
+
+用户确认第二版预览并授权开发、ECS 上线、更新 RAG 和 GitHub。本次最终 release `linux-hiking-1e21f5e9d75e`，前一生产基线 `linux-morning-d2bc198235cc`；最终一次补丁基线 `linux-hiking-1a9e6d7e126c`。19327 实际监听 PID `203384`，启动 `2026-11-08 00:01:30 CST`，1396 文件清单哈希、源码早于启动、官方 transport、argv 和 cwd 均验证。官方 connected、未暂停、未决0；本轮全部验收通过管理员预览接口，没有发送测试 QQ。OneBot、旧早报仍 masked，既有授权、订阅和投递账本保持，07:28 准备及07:30 发送 timer 均 enabled/active。本机仍为 SSH 隧道 PID28896（2026-11-06 09:13:35启动）。
+
+新增 Python LangChain `hiking_trip_card`：`发 徒步 党岭`，或 `发 徒步 武功山 2026-11-14 不露营`；自然语言也可使用，沿用 weather 权限。按资料中的典型徒步天数、沿途代表位置、夜宿地点生成温度/云量/降水图片，交通日另计，最多14徒步日。询问“有没有不露营方案”保留主线路和住店替代；明确“只住店/不要露营”才切换主线路。图片随天数加宽，候选营地夜温及睡袋 Comfort 温标、住店方案、气候与来源一起呈现；只回图片，帮助图和控制台已更新。
+
+首批人工核对4种走法：党岭三日穿越、党岭村内住店两日往返、武功山三日沿线客栈、库拉岗日措玉村三日支线。未来路线共用通用引擎；每次最多6个新地名、2线程，ECMWF/Open-Meteo 多点一次请求15秒，10分钟缓存。地名精确匹配/锚点/歧义和预报时区/单位/时间轴均验证；未定位的卓雍措及部分库拉岗日湖区保留缺测，不能拿村庄替代。08—18时沿路线切换只表示取样假设，不是导航；夜温20:00—次日08:00完整13小时才计算 Comfort=floor(最低温−5°C)，5°C为项目预估余量，非ISO保证。
+
+受限演化沿用后台队列：每天最多20个主题，单任务20秒、2次搜索、3页、最多一次8秒 Flash 结构提取，无模型检索循环或自动重试。新行程要求同篇原文、连续日序、地名/营地逐字证据；来源元数据由宿主绑定，不接受模型坐标、距离或通行判断。已核对 `hiking-*` 与自动 `hiking-auto-*` 文档分离；引用 `research-auto-*` 有效24小时，自动路线有效7天并标为未现场核验，不覆盖校园规则。关键词立即可检索，既有唯一 Milvus 进程每分钟空闲时处理一个 outbox；不启动第二个向量库进程。
+
+真实测试：武功山固定指令6.2秒生成3日完整图；最终党岭自然语言7.756秒生成3日主线路+2日住店替代，明确卓雍措缺坐标，并显示已有 ERA5 1991—2020 常年参考。正式研究 timer 对原结构库没有的“长穿毕”约12.973秒补入有来源的3日经典穿越，执行2次搜索/3页/1次提取、0重试；“哈巴西坡”只采得引用，未把不足的营地资料冒充完整行程。RAG 实际向量查询已验证，无QQ发送。详见 [功能和数据规则](codex-qq-plugin/docs/hiking-cards.md) 与 [发布验收](codex-qq-plugin/docs/hiking-release-validation-20261108.md)。
+
+本机全量 Python575项、Node659项通过；最终小修后徒步 Python13项、Node8项通过（不把575冒称最终全量577）。ECS 最终串行 Python13项、Node3项和 map_review 通过；独立128MiB、Swap0、CPU50%，启动余量600MiB。因旧进程常驻余量贴近阈值，最终专项安排在切换窗口停旧进程后、切换源码前执行，未放宽限额。地图资产未变。最终在线图片验证后主 cgroup 约326MiB，MemAvailable约825MiB，high/max/oom/oom_kill均0；主内存上限1500MiB不变。Canvas编码后立即释放画布，避免高清图积占内存。
+
+切换前27文件加密备份 `/var/backups/alexbot/alexbot-20261107T160129463Z.json`，275578字节，SHA256 `3d4faf973f2755b35514e491650b1aff342963eca9a7102928e19749aa03b4bf`，本机 `.private/migration/` 留存，内存解密校验不写明文。回执 `/var/backups/alexbot-hiking/20261107-release/`；本机 `codex-qq-plugin/test-output/hiking-release/final-ecs-receipt.json`。回滚仅切回旧源码/服务单元并保留最新账本、配置和知识库，不导入过期备份。README新增真实武功山样例（含展开完整图）及新版帮助图，本轮按用户授权同步私有主仓库与公开展示仓库。
+
+## 徒步卡片改为沿线多日天气：仅本地第二版预览（2026-11-07，历史记录）
+
+用户进一步要求根据路线典型徒步天数展示温度、云量、降水卡片，长线随位置变化取样，按天数加宽，并查营地和不露营选择。继续预览边界，未修改生产工具/正式知识库、未部署ECS、未发QQ、未推GitHub。新产物位于 `codex-qq-plugin/test-output/hiking-card-route-preview/`，`DESIGN-NOTES.md` 保存来源、假设、采集规则及待正式接入约束；上一版两天目的地点表格不再是当前候选布局。
+
+新版 `党岭三日徒步_沿线天气与住宿预览.png` 为2381×5127无损PNG，SHA256 `8e7f4a9b4af5988180367bb67c753718ae942edf9550488ff102408be869f66e`。121条文字宽度检查通过，已目视检查完整/700px缩图。按2024年8264三徒步日历史路书，党岭村—葫芦海—甲依拉措—卡尔杂，不含交通日；6/7/5km仅概数。正文为主行程天气，候选营地与村内住店替代并列，住店为两徒步日而非同一条穿越。天涯户外、沐峰行仅作为营地存在和住宿方式资料，当前开放/接待/供水/房态未核；不能宣称已确认可营地入住。
+
+2026-11-07 08:26北京时间实际获取同源ECMWF IFS/Open-Meteo的6个代表点、96小时、6字段，3456值检查，完整请求/响应在route-sample.json。小时进度是明确标注的预览假设；没有伪造GPX或卓雍措独立坐标，服务商DEM海拔不是实测帐篷海拔。主行程三日温度−2.5～9.9/−4.6～2.3/−6.3～4.8°C，日间云量27/67/71%，雨雪折水1.1/9.2/1.1mm；第二天主要是雪，图内同时列雨mm/雪cm。逐小时降水正确以区间结束时刻取前一小时值，与全天累计一致；夜间跨日20:00—08:00。住店方案另外取样，不套穿越天气。
+
+湖区两晚最低−4.6/−6.3°C，Comfort候选按floor(夜低温−5°C)得到≤−10/≤−12°C，全程预估≤−12°C。5°C仅本预览保守余量、未被用户确认为正式规则，非ISO要求或保暖保证，需睡垫并考虑怕冷差异。保留ERA5常年参考，和实况/营地夜温区分。通行信息改用2026-10-08红星新闻采访县文旅局及景区（当时只开放至葫芦海，卓雍措暂闭），明确当前状态仍待确认，不把历史临时关闭延伸成当前或整片禁令。
+
+尚未实现通用多路线行程/住宿引擎；本地样例的天数和行程文字仍为党岭三日。用户审核后再接入参数、受限工具、缓存/查询、图片发送和回归。不得把预览称为已上线功能。
+
+## 徒步知识库图片卡片：仅本地预览（2026-11-07）
+
+用户要求把徒步回复整理成天气风格单张图片、清晰精简但保留主要信息，将泛泛穿衣建议改成睡袋温标，明确先预览由用户决定上线。本轮只在 `codex-qq-plugin/test-output/hiking-card-preview/` 制作本地渲染器与预览，未注册工具、未修改回复协议、未部署ECS/发QQ/推GitHub。正式版仍上一节早报版本。使用ui-ux-pro-max技能的短行、文字对比、信息层级指导，复用天气版width440、scale3√2、背景#f4f6f3、深青主卡与现控制台logo。
+
+产物 `党岭徒步简报_卡片预览.png`（1867×4786无损PNG）、`phone-check.png`、`render.mjs`、完整来源样本 `sample.json`、预览manifest。图片顺序为天气重点→两日表格→11月气候/物候缺项→睡袋舒适温标→路线提醒。主要信息无截断，49条文字宽度检查通过并目视核对手机尺寸。
+
+本机真实ECMWF点位预报于北京时间2026-11-07 01:15获取：11/7 0.5–12.2°C/降水2.1mm/最大阵风12.7m/s，11/8 0.5–6.6°C/9.2mm/7.3m/s；原31.0733589,101.4052803代表点，预报网格海拔3386m。季节沿用已有真实ERA5 1991–2020完整30年：11月均温−5.4°C、月降水26.3mm、气候网格4066m，不与预报温差直接比较或视为营地。路线2025历史冬封仅一句保留日期/范围/核查日期，明确不代表今年状态，当前开放与出行预警未核实。
+
+睡袋卡片显示“舒适温标 Comfort／待确认营地”，没有强行把代表点或月均温换成推荐数值。Rab/REI公开原始资料确认Comfort与Limit/Extreme区别。候选规则可在确认营地坐标、海拔、露营日期及完整夜间预报后，用最低夜温留保守余量；本轮只做视觉预览，未实现或确认5°C余量为正式评分规则。出处保留sample.json的Rab/REI链接，不能把缺营地的数据标成已给实际睡袋建议。等待用户对图片提出修改或明确上线。
+
+## 早报07:28提前准备、07:30发送已上线（2026-11-07）
+
+用户要求早报提前两分钟准备、定时任务放宽timeout避免缺数据，做完直接上线。正式release `linux-morning-d2bc198235cc`，基线 `linux-research-topic-eefe6c409c1e`；19327实际监听PID `139885`、启动 `2026-11-07 01:09:20 CST`。1386文件SHA256、源码早于启动、argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs --connect`、cwd `/var/lib/alexbot`、QQ_TRANSPORT=official均核验。本机127.0.0.1:19327仍ssh.exe PID28896、2026-11-06 09:13:35启动。官方connected/未暂停/未决0，尝试0→0；未发测试QQ、未推GitHub，OneBot及旧早报仍masked。
+
+新增 `alexbot-group-morning-prepare.timer/.service` 每天北京时间07:28仅取数/生成，原发送timer仍07:30；均enabled/active且Persistent=false，首次next分别2026-11-07 07:28/07:30。调用固定空body接口，准备不持长时间配置锁，不消耗QQ额度。当天两项single-flight内存缓存，天气/校园各自就绪可发，浏览器与绘图仍走heavy-work队列。没有将旧广播权限改为订阅；天气3群/校园2群完全保持。订阅快照在准备时捕获，关闭重开不复活旧结果；新订阅从下次准备生效。重启丢缓存但730入口可重新生成未投递项目，原逐群逐图幂等账本保持。07:45截止新增穿透core排队、逐群发送、QQ上传后末端检查；API返回REQUEST_EXPIRED，持久账本仍用已有PLATFORM_REJECTED以兼容回滚。
+
+定时天气/空气每次HTTP45s，按分支最多重试一次，只处理网络超时/不可达/覆盖缺测；共享约105s获取预算且第二次按剩余时间缩短。普通查询15s单次不变，来源、时效、地点、单位校验不放宽。定时需要48小时主要天气和PM2.5完整、首日天气图形/风摘要以及户外指数完整，失败MORNING_DATA_INCOMPLETE不渲染/发送缺数据图。定时校园导航45s、登录60s、查询45s，保留210s worker上限，单轮不重试。Python工具date-only默认兼容，长timeout仅内部report profile。详细说明 `codex-qq-plugin/docs/morning-preparation.md`。
+
+开发验收发现并修复并发准备期间无关设置保存的临时groupRestriction会误取消另一项：准备检查持久功能+捕获morningRevision+投递账本，实际发送保持严格当前权限并等待已入队设置落盘。关闭、重开、移除仍同步使旧snapshot失效。初次候选因共用weather-commands属于地图清单触发MAP_PUBLICATION_ON_HOLD，切换前停止，旧服务完全未动；将定时专用逻辑独立到 `src/morning-weather.mjs`，共用地图文件恢复，最终全部MAP_FILES与线上基线逐字节相同，map_review通过。没有新增发布豁免或修改mapguard。
+
+本机最终相关Node180项、校园Python14项通过，包含真实Node→Python→LangChain默认/定时边界；ECS串行50项（44调度+5截止+1HTTP锁/发送边界）通过，独立128MiB/Swap0/CPU50%、启动600MiB余量检查。受限线上只读验收在远离早报窗口执行，prepare/run返回MORNING_NOT_DUE、任意参数拒绝；管理员morning/preview真实主进程生成北京早报5444ms，PNG1693864字节，morningQuality.complete=true/missing=[]/retried=[]。未冒充QQ实际收件时间，也未等待次日定时实际投递。最终主cgroup405856256bytes、MemAvailable823MiB、high/max/oom/oom_kill均0，主内存限制未放宽。
+
+切换前27文件加密备份 `/var/backups/alexbot/alexbot-20261106T170919521Z.json` 已下载本机 `.private/migration/`，SHA256 `24cf82e396f3647c508430b4bd2b09249a1b93951b1f9e202d139a615fc5d84c`，内存解密验证凭据可恢复、SQLite完整、91共享资料/46地点年/5研究任务9候选approved0；未写明文。回滚脚本保留旧release和最新状态，停新增prepare.timer并恢复原timer/源码，不导入旧账本。发布/在线检查/首次地图拦截回执在 `/var/backups/alexbot-morning-prepare/20261107/`；本机 `codex-qq-plugin/test-output/morning-prepare/ecs-receipts.json`、affected-final.log、schedule-final.log，候选补丁/发布脚本仅在忽略目录留档。
+
+## 受限后台搜索已上线（ECS 2026-11-07 00:40 CST）
+
+用户授权自行选择原知识库没有的主题、真实测试，确认无问题后直接上线。最终生产 `linux-research-topic-eefe6c409c1e`，19327 实际监听 PID `138503`，启动 `2026-11-07 00:40:49 CST`，argv `/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/src/server.mjs --connect`、cwd `/var/lib/alexbot`，1379文件哈希及源码早于启动均核验。本机仍为SSH PID28896、2026-11-06 09:13:35启动、127.0.0.1:19327监听。官方QQ connected/未暂停/未决0，发送尝试0→0；未发送测试QQ，未启用OneBot或修改地图，未推送GitHub。
+
+`QQ_RAG_CONFIG` 的 `research={enabled:true,provider:deepseek,queue_path:/var/lib/alexbot/.private/research/queue.sqlite3}` 已启用。前台Python LangChain受原天气权限约束，`search_domain_knowledge` 可选 `outdoor_topic` 缺省兼容；已有资料无明确主题时登记，`request_outdoor_research` 也可读取/登记。只取当前原文的公开短名称，不发整段行程；缺少城市限定导致同名混淆时用既有地点目录补回原文相邻限定，多个城市歧义不登记搜索。正式库已有资料检索仍保留；此处不声称全部多目的地问题都禁止回答。
+
+独立 `alexbot-research.timer` 每15秒驱动单任务oneshot，MemoryMax128MiB/Swap0/CPU50%/TasksMax16，启动至少600MiB余量；整个服务35秒、网络子进程20秒硬截止。无任务不解密Key、不联网，正文最多3页/2并发、固定2搜索、0LLM/0自动重试，每日20任务、排队5条、10分钟过期；同规范化主题去重，成功24小时复用，空/失败6小时冷却。Key复用现有DeepSeek加密配置，经stdin传输。仅写独立候选库，不开第二个Milvus，不主动追发QQ。候选供后续问答带日期/出处展示，不自动提升正式规则；正式原文仍91条，气候库仍两地46年。
+
+四样本在开发语料和实际生产91条共享原文中逐别名均0命中：莫干山国家登山健身步道、东钱湖环湖步道、仙湖植物园环湖步道、福州福道。最终隔离实测后台墙钟1.463/9.128/5.055/2.499秒，候选1/1/0/3；东钱湖一页超时但保留其余来源，仙湖无合格正文即停止。人工先查到的官方页面与机器真正取得的来源分别记录，未用人工结果伪装机器命中。三轮是修改代码后的人工复测，不是运行时循环。报告 `codex-qq-plugin/docs/research-release-validation-20261107.md`，样本与完整来源对照在 `evals/research/` 和报告链接。
+
+上线验收捕获并修复两项实际问题：初始 `linux-research-c61e99ef0047` 的Node后台入口不识别current软链接，timer触发但不消费，改用既有isEntrypoint，`linux-research-entry-46be0284f2b8`开始真实消费；随后自然语言把福州福道缩成福道，混入莆阳福道，最终两文件补丁在入队/缓存读取前绑定行政限定，不再读取裸福道缓存。两个旧版本保留历史，不可当最终确认版。候选库现5任务/9候选/approved0，其中裸福道是修复前测试记录，限定查询不会复用它；不把9条都当独立或已核验事实。
+
+最终现主worker真实自然语言两次均返回“福州福道”且无莆田/莆阳，耗时7.016秒和0.888秒；前者含冷加载/模型选路，均不代表后台网络耗时。固定缓存回读福道20ms/莫干31ms/东钱28ms/仙湖空结果26ms，所有任务ID/状态/搜索计数前后相同，无新网络任务。既有向量知识查询真实通过；未做QQ终端实收或高峰压测。后台消费运行中观测memory.current最大约63.46MiB（采样，不声称绝对峰值）；最终主cgroup约544.95MiB、可用661MiB，memory.events high/max/oom/oom_kill均0，主1200M/1500M上限未变。
+
+本机全量Python554/Node604通过后，后续质量修复受限搜索92项、Node相关16项、软链接启动9项、最终地名/前台/RAG42项专项通过；Linux72项在128MiB独立单元通过（18项队列测试先因只读release无法写测试目录失败，改在独立可写测试目录执行通过，未放宽源码权限）。map_review各次发布均通过。
+
+备份扩展为候选库的一致性SQLite快照，配置启用前初始化空队列，恢复时research.enabled=false。准备备份 `alexbot-20261106T162312832Z.json`、初次切换27文件备份 `alexbot-20261106T162536345Z.json`、最终备份 `/var/backups/alexbot/alexbot-20261106T164049128Z.json` 均下载到本机 `.private/migration/` 并验证/实际隔离恢复。最终SHA256 `114d7015daa4a7840d8526bfd4f744e68a0230110bf83aca85f82d8fd00b5272`；恢复91共享/46地点年/5研究任务/9候选、无向量或发送自动启动。发布及两次修复凭据 `/var/backups/alexbot-research/20261107/`，本机 `test-output/research-release/ecs-release-receipts.json` 与 `samples-results.json`。回滚时停新research.timer，保留最新队列/状态，不能回退旧账本或启OneBot；关闭research.enabled停止新消费，顶层RAG关闭也停止后台。
+
+## 2026-11-06 受限实时搜索：方法与隔离原型
+
+用户要求先写方法，并用“哈巴西坡”测试防循环、后台并行补库。已完成[方法与实测记录](codex-qq-plugin/docs/bounded-live-research.md)、独立候选SQLite/持久队列、受限LangChain登记工具、可杀子进程20秒硬截止、2搜索/3正文/2页内并发/0LLM/0重试、去重与负缓存、候选核验后提升和稳定来源版本。主问答不等待搜索；该原型尚未注册进正式Agent、未安装后台消费服务，也未部署到ECS。生产仍为下一节的已上线RAG版本。
+
+本机真实公共Bing RSS两查询约345ms但无有效资料；不能把无Key入口作为可靠正式源。另以助手查到的URL显式做正文验证（自动搜索0次），三页中一页超限、一页无有效摘录、一页进入候选，人工对照已读全文后将一条媒体转述摘要提升到临时测试知识库，成功召回。没有向生产91条语料加入未经核验内容。哈巴西坡不同支线、公告日期和范围保持区分，当前开放/物候不猜。队列提交7.5ms，后台运行时既有固定换算0.7—3.3ms；这是本机样本，不是QQ端到端承诺。实测、测试日志、原始来源身份均在 `codex-qq-plugin/test-output/bounded-search/`。
+
+用户随后指出DeepSeek已开放Search API。已核对官方2026-10-17变更记录，并实现 `DeepSeekSearchProvider`：直接Search/Fetch JSON接口，复用现有Key，不调用聊天模型，不发原文行程。ECS独立128MiB/Swap0/CPU50%单元已真实验证：最终2次搜索+3次正文，0重试/0LLM，墙钟1.3865秒，发现8条、保留6链接、候选3条，重复主题复用job。三条都是2025历史报道，留候选、approved=0，不写成2026当前开放结论；绝不能把同事件多站转载当独立证据。前两轮开发诊断的空候选/4秒单页超时均有回执，按原因修正后再测，没有运行时自动追加搜索。最终本机受限搜索与相关RAG专项88项通过；候选回收、跨次稳定来源版本、日期/正文规范和子进程强杀均覆盖。
+
+临时测试目录 `/var/lib/alexbot/.private/research-smoke-20261106-v3/`，不是生产release；只运行一次的 `alex-research-deepseek-smoke-v3.service` 已退出，不是定时/常驻搜索。凭据仅由既有Node解密模块读取并通过私有stdin传递，未下载或记录Key。三轮公开来源回执在 `codex-qq-plugin/test-output/bounded-search/deepseek-ecs-results.json`。最终正式PID仍134692、release仍linux-rag-5a1938d9fa28，QQ connected/未暂停/未决0。Search/Fetch当前每1000成功请求0.75美元，每任务2+3上限均计费时0.00375美元，按官方更新核对，不当长期固定价格。
+
+不再需要用户另找Brave/Tavily凭据。今后正式上线仍需注册授权工具/后台消费者、候选审核与主worker空闲提升入口、来源保留及候选库备份、生产并行延迟与内存共存验证。外部原文始终不可信，不能通过网页更新工具权限、坐标、校园规则或系统配置。正式QQ发送、生产状态、地图和GitHub均未修改，不能宣称QQ已自动实时搜索。详情及资料的新旧边界见方法文档。
+
+## 2026-11-06 13:10 CST 知识库与户外查询已上线
+
+用户明确授权部署并上线测试。官方 QQ 当前候选切换为 `linux-rag-5a1938d9fa28`，前版 `linux-readme-b4c668602147` 保留；19327 实际监听 PID `134692`，`2026-11-06 13:10:45 CST` 启动，入口 `/opt/alex-bot/current/codex-qq-plugin/src/server.mjs`，实际工作目录 `/var/lib/alexbot`。1360 个发布文件摘要、argv、源码早于启动、官方 transport 与 RAG 配置环境均核验。本机 SSH 隧道 PID `28896`，`2026-11-06 09:13:35 CST` 启动，只监听本机 127.0.0.1:19327。没有启动本地 Bot，退役 OneBot 单元保持 masked。
+
+线上 `/var/lib/alexbot/.private/rag-config.json` 启用单一主 worker 的 Milvus Lite/固定 BGE 512 维检索。原文 `.private/rag/rag-store.sqlite3` 共 91 条共享资料，30 个路线主题；索引目录 `.private/rag/vectors.db` 从关闭的开发索引整体迁移，并已用 Linux 生产进程真实验证。模型目录 `/opt/alex-bot-runtime/rag-models` 只读，固定 revision/摘要与本机一致。依赖安装采用已有 50 个包的版本约束，未升级原依赖；完整新包清单在远端发布凭据。不得第二进程打开同一 Lite 目录；新增原文可先词法检索，向量维护须安排关闭读取者再索引。
+
+复合户外工具当前只配置北京、党岭两个可信代表点；30 个路线主题只表示知识覆盖，不代表全部地区已有坐标/历史气候/实时开放信息。上线初始气候库 `.private/rag/climate-history.sqlite3` 有党岭 1991—2025 与北京 2016—2025，共45个地点年记录；随后真实增量任务补入北京1991年，现46个地点年记录。自然语言沿原 Agent 选受限 LangChain Tool，原逐群天气/校园权限、队列和末端发送检查保留。缺物候、当前开放依据或实时预警时明确缺项，管理公告仅一句带日期与范围提示，不阻断其他数据。
+
+上线前本机 Python464、Node593全部通过；Linux在 MemoryMax128M/Swap0/CPU50%独立单元通过29项公告、排序和备份测试，地图资产未变且 `map_review.py` 通过。运维地图检查应使用 app-venv Python3.13，系统Python3.10不支持 hashlib.file_digest。新增管理员只读 `POST /api/rag/check` 仅接受固定 knowledge/outdoor 检查，使用现有主 worker，不发QQ；集成令牌403、额外参数400已在线核验。
+
+生产真实向量首次加载8.79秒，已加载后110毫秒（embedding38毫秒/vector25毫秒）；乌孙资料命中带来源和年份的2026公告及2025历史，未把旧开放当现状。党岭11月7—8日复合查询1.21秒，返回真实ECMWF逐日温度/降水/阵风、ERA5完整1991—2020参考期及装备；状态partial明确缺物候与当前开放依据。上述是工具链耗时，不含自然语言模型路由和QQ发送。核验后服务cgroup约691MiB，可用内存674MiB，memory.events high/max/oom/oom_kill均0；生产1200M/1500M保护未放宽。真实QQ自然语言验收已请用户测试，等待回复，不把只读检查冒充已收消息。
+
+备份已加入RAG配置和两库在线一致性快照，排除活跃向量/可重取模型。准备备份 `alexbot-20261106T050952157Z.json`（SHA256 `b46cd68407875ee7214dab85dcd60b2edc57e3ee14ec718d78dc74cf1469974f`）在本机DPAPI验证并实际恢复到独立受保护目录，确认91共享/0私有、两地45年。切换备份 `/var/backups/alexbot/alexbot-20261106T051045051Z.json`（SHA256 `d6423938f6376dbd0771987f8ade184da127e6f1ead5b8a1e23dfb54a5e292df`）26文件，本机 `.private/migration/` 密文副本亦已验证。恢复仅生成离线原文库/气候库/配置，不启用QQ；向量需重建。
+
+新增 `alexbot-climate-refresh.timer` 每天北京时间03:40有界刷新两地ERA5缓存，`alexbot-rag-backup.timer` 每天04:10加密备份；均Persistent=false，服务128M/Swap0/CPU50%，不补跑。备份及气候单元均手动成功执行：党岭命中有效缓存，北京补入1991年、其余24年按每日上限逐步回填；定时器首次按时触发尚待次日；既有群早报仍07:30、订阅未改。切换发送尝试9→9、三个授权群、主人/去重/投递/词库/模型预算/定时订阅均保留，connected/未暂停/未决0。最终实际主PID仍134692，cgroup约582MiB且无内存事件。部署凭据和日志 `/var/backups/alexbot-rag/20261106/`，本机验证回执 `codex-qq-plugin/test-output/rag-deploy/ecs-receipts.zip`（SHA256 `fa4d7e85fcd4a3dabd7e887989d67221c5db9d721bbcd0caf9b57d185772b701`）；新环境drop-in `/etc/systemd/system/alexbot.service.d/70-rag.conf`。回退须保留最新运行状态，停止主服务后切回前版、移除此RAG drop-in并停用新维护timer，不能导入旧账本或重启OneBot。本轮没有推送GitHub。
+
+## 2026-11-06 国内徒步资料扩充与简短公告提示（上线前历史）
+
+按用户要求继续搜索国内徒步路线，并将禁入、封闭、预约等信息只作一句带日期与范围的提示，不阻断正常天气、气候或装备反馈；规则已写入 `AGENTS.md`。新增 58 条有来源知识，连同首批资料开发原文库共 91 条，覆盖 30 个路线主题 / 徒步目的地。另有 30 条结构化管理研究记录（含历史和未知项），不等于 30 个实时开放结论。完整路线表与分区来源见 [开发记录](codex-qq-plugin/docs/rag-development.md)。
+
+乌孙古道保留 2025 开放与 2026-04-10 禁止活动公告转述的时间线；党岭未找到本轮冬季关闭原件，不沿用旧冬封。库拉岗日两条特定支线、亚丁未开放保护区域、鳌太和太白山合法景区、墨脱不同路线分别处理。他念他翁和阿尼玛卿较新的媒体线索明确保留原件待核身份。没有新增坐标、地图资产或 GPX，也没有为全部 30 个目的地回填历史气候。
+
+`python/route_notices.py` 从固定文件读取有日期、范围和来源的公告，`family_id` / `family_aliases` 限定目的地族，精确支线优先、同范围取较新记录，核查超过七天标待复核。真实 LangChain `prepare_outdoor_trip` 传入 `route_variant` 并附公告；异常、缺少公告和禁止状态均不影响天气查询。长回复压缩仍保留公告范围及完整引用。
+
+三份语料已依次导入并离线索引，58 个事件全部完成、队列为空；原文一致性备份为 `.private/rag-development/source-before-route-expansion.sqlite3` 与 `source-route-expansion-91.sqlite3`。分区文件哈希回执在 `test-output/rag-route-corpus-manifest.json`，真实主题检索回执在 `test-output/rag-routes-smoke.json`。生产仍未启用 RAG，本轮未部署 ECS、未发 QQ、未推送 GitHub。
+
+真实召回发现短地名被通用词挤出，已在词法与混合排序中优先查询明确点名的结构化标题主体，并兼容中文地名连接号。无硬编码地点、阈值放宽或权限绕过；旧版本、过期、删除及跨会话隔离仍校验。最终 30 个主题均在前四条中召回对应资料，这是调试开发集的主题召回而非回答准确率。完整 Python457 项、Node→Python→LangChain边界4项通过；含公告13项、排序9项专项。日志在 `test-output/rag-routes-python-final.log` 和 `rag-routes-node.log`。
+
+## 2026-11-06 Milvus 检索与气候/户外开发首阶段
+
+用户批准开始开发，首批正式资料范围为现有项目说明和已确认校园规则；随后追加气象知识、持续更新历史气候、国内徒步和复合出行问答。本轮已完成本地候选实现，未部署 ECS、未改生产配置、未推送 GitHub。下方较早“仅文档”记录为当时状态，本段及 [开发记录](codex-qq-plugin/docs/rag-development.md) 为最新交接。
+
+新增独立 SQLite 原文/版本/范围/有效期/outbox、真实 Milvus Lite 索引、固定中文 BGE embedding、混合检索和回源验证；个人项目记录须本轮明确要求才保存，删除/清空/关闭记忆覆盖新库。可选 `QQ_RAG_CONFIG` 缺省关闭，旧工具路径兼容；天气/户外与校园各自检查原权限，可信会话范围由接入层绑定。已接真实 LangChain/Node 可选协议及检索阶段追踪，未把检索原文额外上传 LangSmith。
+
+独立开发环境在 `codex-qq-plugin/test-output/rag-env/`；PyMilvus 3.0.2、Milvus Lite 3.2.2、FastEmbed 0.9.1，BAAI/bge-small-zh-v1.5 512 维，固定 revision `46fbe35fd4374a00fee7de77dfddaeb6dd6a2c59` 并验证本地模型摘要。原 Bot `.venv` 未替换。开发集 12 个有答案问题关键词 Recall@5=10/12、向量/混合12/12，3个普通无答案均无召回；同主题无答案探针仍可能召回相关片段，因此输出明确 `answer_status=not_assessed`，不能宣称整体回答正确率。真实重启与残留旧向量删除通过；开发机进程峰值约294.52 MiB，不替代2GB ECS共存实测。
+
+已选33条共享资料（项目/校园12、气象/户外21）入独立开发库，来源和哈希审计在 `docs/rag-initial-source-audit.json`、`docs/rag-outdoor-sources-20261106.md`。户外包含党岭、武功山、黄山的有来源背景；旧管制不作当前状态。模拟楼宇资料仅在 `evals/rag/`，不混入正式语料。开发原文、向量和一致性备份在忽略的 `.private/rag-development/`；Lite 同一目录只由单进程拥有，索引维护需关闭读取者，新写入可先走词法回源。
+
+`python/climate_history.py` 与 `scripts/refresh-climate.py` 实现独立逐月ERA5统计、完整参考期、覆盖率、增量回填、跨年最新年份、失败退避/暂停和显式重试。通过Open-Meteo取ECMWF/Copernicus再分析，不冒充CMA站点实测。党岭代表点采用现有地名服务四川丹巴OSM候选，坐标与来源见 `data/climate-locations.json`；已实取1991—2025三十五年、完整1991—2020参考期和2021—2025近年资料，北京另有2016—2025样本。watch代码已完成且有界验证缓存命中；未安装生产定时任务/常驻更新器。
+
+`python/outdoor_planning.py` 复合工具已接可选Agent开发路径（`QQ_RAG_CONFIG.outdoor`绑定可信地点与气候库），生产仍未启用。已真实查询北京及党岭2026-11-07至11-08预报，结合历史月资料、路线/装备证据，输出季节、逐日天气、装备与来源。复合问题绕过单一天气图快捷路由；单独天气旧路径保持。内部明确主题走canonical关键词检索，无第二次解释模型调用；复用Node队列、模型路由预算和末端权限/发送限额。短期私聊仅保留行程约束，续答“葫芦海、不露营”通过。当前党岭开放、实时预警和今年物候仍未核实；批准地点目录仍只覆盖首批代表点，多步Agent及跨重启任务恢复仍按原路线推进。
+
+显式项目保存/删除新增host-only `rag_control` 路径：Node仅识别窄前缀，Python验证原文与权限，无需模型Key/额度。自然语言清空也删除新库当前作用域记录，失败不宣称全清。新原文库/配置尚未接入生产加密定期备份；开发库已有一致性备份，生产启用写入前须补备份恢复及资源共存验证。
+
+最终本机Python435、Node584回归通过；真实embedding/Milvus对照、气候与复合查询回执在 `test-output/rag-eval-final/`、`test-output/rag-expanded-smoke.json`、`test-output/rag-climate/`。`test-output/rag-trip-bridge-result.json` 记录最终真实Node→Python→LangChain党岭查询约3.11秒（不含模型路由和QQ发送）。自然语言选择工具和续答用真实LangChain加可控模型验证，未做付费模型或线上QQ验收。本轮不发QQ、不改地图资产、不开第二套Bot；保留原有 `ops/backup.mjs`、提醒文件及其他工作区改动。
+
+## 2026-11-06 Milvus 与多步 Agent 开发计划
+
+按用户要求整理后续开发与面试能力升级方案。新增 [Milvus 记忆与知识检索交接](codex-qq-plugin/docs/milvus-memory-plan-20261106.md) 与 [Agentic QQ Bot 能力升级路线](codex-qq-plugin/docs/agentic-roadmap-20261106.md)。优先实现校园知识和项目摘要检索，再完成多条件自习规划、追问重排、持久化恢复及固定任务集评测。
+
+当前仍是开发方案，本轮仅修改文档，未安装依赖、修改业务代码、部署 ECS 或推送 GitHub。已核对当前单请求工具动作限制、SQLite 记忆实现及本机依赖；Milvus 和持久化 checkpoint 扩展尚未安装。现有 2GB ECS 不适合直接部署完整 Milvus Standalone，先在独立开发环境验证 Lite，再按共存资源实测选择生产部署方式。保留工作区原有 `ops/backup.mjs` 与提醒相关未提交变更。
+
 ## 2026-11-05 19:53 CST 展示整理与 GitHub 同步
 
 官方 QQ 已切换至 `linux-readme-b4c668602147`，前版 `linux-trace-input-0e655ba873c2`。ECS 19327 实际监听 PID 130254，19:53:03 CST 启动，入口为 `/opt/alex-bot/releases/linux-readme-b4c668602147/codex-qq-plugin/src/server.mjs`。1317 个文件哈希、官方连接、发送未暂停、未决投递为零及早报定时器 active 均已核对；本机 19327 为 ssh.exe PID 42844，09:30:05 启动，隧道 health 和新版页面回读正常。

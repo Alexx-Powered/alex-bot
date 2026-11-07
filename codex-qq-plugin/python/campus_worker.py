@@ -12,9 +12,15 @@ LIMIT=262144
 def process(packet,*,collector=None):
     private=Path.cwd()/'.private'
     session={}
-    if collector is None and sys.platform!='win32':
+    profile=packet.get('timeout_profile','normal')
+    if profile not in {'normal','morning'} or (profile=='morning' and (packet.get('type')!='campus' or packet.get('mode')!='report')):
+        return {'kind':'campus','data':envelope(code='CAMPUS_QUERY_FAILED'),'artifact_id':None}
+    if collector is None:
         def collector(credentials,private_root,day,*,interactive=False):
-            return browser_collect(credentials,private_root,day,interactive=interactive,session_state=packet.get('session_state'),on_session=lambda state:session.update(state=state))
+            options={'timeout_profile':profile} if profile!='normal' else {}
+            if sys.platform!='win32':
+                options.update(session_state=packet.get('session_state'),on_session=lambda state:session.update(state=state))
+            return browser_collect(credentials,private_root,day,interactive=interactive,**options)
     options={} if collector is None else {'collector':collector}
     if packet.get('type')=='campus' and packet.get('mode')=='recognize':
         from campus_intent import recover_classroom_request

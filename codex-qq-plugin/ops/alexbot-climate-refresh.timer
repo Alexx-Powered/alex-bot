@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily bounded ERA5 climate refresh
+
+[Timer]
+OnCalendar=*-*-* 03:40:00 Asia/Shanghai
+Persistent=false
+Unit=alexbot-climate-refresh.service
+
+[Install]
+WantedBy=timers.target

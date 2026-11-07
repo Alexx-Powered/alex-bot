@@ -1,0 +1,279 @@
+{
+  "schema_version": "outdoor.notices.research.v1",
+  "notices": [
+    {
+      "route_id": "route-tanientaweng",
+      "route_name": "他念他翁",
+      "aliases": [
+        "他念他翁穿越",
+        "他念他翁徒步"
+      ],
+      "statement": "芒康境内相关未开发路线林区曾在2025—2026防火期禁止进入；该期已结束，当前常态管理条件仍待核实。",
+      "status": "seasonal_closure",
+      "scope": "仅芒康县辖区未开发徒步路线及周边林区；不扩展至整条山脉",
+      "published_at": "2025-11-26",
+      "effective_from": "2025-11-26",
+      "effective_until": "2026-05-31",
+      "checked_at": "2026-11-06",
+      "issuer": "芒康县森林草原防灭火指挥部办公室",
+      "publisher": "芒康县人民政府",
+      "source_url": "https://mangkang.changdu.gov.cn/mkx/c101895/202512/085c35c625c841ce97c9998f5df64e34.shtml",
+      "primary_source": true,
+      "confidence_notes": "公告防火期始于2025-11-15，但其施行为发布日起。搜索索引取得全文，直接访问超时。过期记录不得直接作为2026-11当前闭线结论；结束后常态管控细节未核。",
+      "family_id": "route-tanientaweng",
+      "family_aliases": [
+        "他念他翁"
+      ]
+    },
+    {
+      "route_id": "route-kulagangri-branches",
+      "route_name": "库拉岗日吉堆及白沙支线",
+      "aliases": [
+        "吉堆社区至库拉岗日",
+        "白沙村至库拉岗日",
+        "库拉岗日吉堆线",
+        "库拉岗日白沙线"
+      ],
+      "statement": "2025年公告暂停吉堆社区、白沙村至库拉岗日两条徒步线，未核得对应复开通知。",
+      "status": "restricted",
+      "scope": "只限吉堆社区至库拉岗日、白沙村至库拉岗日两条支线",
+      "published_at": "2025-02-06",
+      "effective_from": "2025-02-06",
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "洛扎县文化和旅游局",
+      "publisher": "洛扎县人民政府（来源：秘境洛扎）",
+      "source_url": "https://www.luozha.gov.cn/xwzx/tggs/202502/t20250207_147064.html",
+      "primary_source": true,
+      "confidence_notes": "官方页面索引全文可读，直接访问超时。公告恢复时间另告；这是2025记录，未证实2026现场执行状态，不等于白玛林错全部景区关闭。",
+      "family_id": "route-kulagangri",
+      "family_aliases": [
+        "库拉岗日"
+      ]
+    },
+    {
+      "route_id": "route-kulagangri",
+      "route_name": "库拉岗日—白玛林错",
+      "aliases": [
+        "库拉岗日",
+        "库拉岗日徒步",
+        "库拉岗日穿越",
+        "白玛林错",
+        "白玛林措",
+        "白玛林湖"
+      ],
+      "statement": "官方提示要求办理边防证，白玛林错周边不得私自露营，也不能进入未开发区域。",
+      "status": "restricted",
+      "scope": "赴洛扎库拉岗日的办证及白玛林错周边露营、未开发区域管理；不是全域禁入",
+      "published_at": "2026-03-05",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "西藏自治区文化和旅游厅（游览提示）",
+      "publisher": "西藏自治区文化和旅游厅",
+      "source_url": "https://wlt.xizang.gov.cn/xccx/lytg/202603/t20260305_527230.html",
+      "primary_source": true,
+      "confidence_notes": "取官方页面明确提示；未把旅游推介视为2026-11-06当天开放证明。未核得其链接的独立露营公告原文，不编写处罚、精确界线或生效日。",
+      "family_id": "route-kulagangri",
+      "family_aliases": [
+        "库拉岗日"
+      ]
+    },
+    {
+      "route_id": "route-motuo-paimo",
+      "route_name": "派墨老徒步线",
+      "aliases": [
+        "派墨徒步",
+        "派墨徒步线",
+        "派镇至背崩",
+        "派镇背崩徒步"
+      ],
+      "statement": "派墨老徒步线有施工期关闭公告，本轮未找到明确复开原件；请勿将公路通车当作徒步线开放。",
+      "status": "prohibited",
+      "scope": "通过派墨老徒步线路进出墨脱的旅游活动；不含县城开放游步道",
+      "published_at": "2021-12-28",
+      "effective_from": "2021-12-27",
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "墨脱喜路莲花旅游发展有限公司",
+      "publisher": "墨脱县人民政府网",
+      "source_url": "https://www.motuo.gov.cn/mtx/zwgk/202112/a112c6a2b18f4f49a97848cdaf0759c9.shtml",
+      "primary_source": true,
+      "confidence_notes": "已打开官方载文。公告署期2021-12-27，网页次日发布，明确施工期间关闭、恢复另告；年代较旧，只能提示历史禁入及复开证据缺口，不声称核实了当前施工状态。",
+      "family_id": "route-motuo",
+      "family_aliases": [
+        "墨脱"
+      ]
+    },
+    {
+      "route_id": "route-motuo-galongla",
+      "route_name": "墨脱嘎隆拉天池",
+      "aliases": [
+        "嘎隆拉天池",
+        "嘎隆拉徒步",
+        "嘎隆拉景区",
+        "墨脱嘎隆拉"
+      ],
+      "statement": "嘎隆拉天池仅7—9月可按规定徒步，其余月份禁入；开放季也须本地向导陪同、当天往返。",
+      "status": "seasonal_closure",
+      "scope": "嘎隆拉天池及指定徒步线；按每年7—9月规则展开本次非开放季，不含墨脱其他步道",
+      "published_at": "2026-07-28",
+      "effective_from": "2026-10-01",
+      "effective_until": "2027-06-30",
+      "checked_at": "2026-11-06",
+      "issuer": "墨脱县文化和旅游局",
+      "publisher": "墨脱县人民政府网",
+      "source_url": "https://www.motuo.gov.cn/mtx/zjmt/202607/c65c0bed264c493a9c0cde1f365de0fb.shtml",
+      "primary_source": true,
+      "confidence_notes": "已打开全文；通告署期2026-07-24，网页2026-07-28。起止是依据每年7—9月规定展开的本季日期，并非另发的2027开园公告；新公告可覆盖。还禁止社会机动车驶入及露营过夜。",
+      "family_id": "route-motuo",
+      "family_aliases": [
+        "墨脱"
+      ]
+    },
+    {
+      "route_id": "route-motuo-undeveloped",
+      "route_name": "墨脱未开发开放区域",
+      "aliases": [
+        "墨脱未开发区域",
+        "墨脱野线",
+        "墨脱未开放区域"
+      ],
+      "statement": "墨脱2026年联合告示禁止组织或带领游客进入未开发开放区域，不适用于所有县内步道。",
+      "status": "prohibited",
+      "scope": "墨脱县未开发、未开放区域的组织、带领游客活动",
+      "published_at": "2026-04-28",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "墨脱县林业和草原局、应急管理局、文化和旅游局",
+      "publisher": "墨脱县人民政府网",
+      "source_url": "https://motuo.gov.cn/mtx/c101900/202604/6be646e7adb54285a624017817edfab0.shtml",
+      "primary_source": true,
+      "confidence_notes": "已打开全文，告示署期2026-04-23、网页4月28日。范围不是整个墨脱县，也不能据此否定仁青崩等正式步道。未编造逐段空间边界。",
+      "family_id": "route-motuo",
+      "family_aliases": [
+        "墨脱"
+      ]
+    },
+    {
+      "route_id": "route-kailash",
+      "route_name": "冈仁波齐转山",
+      "aliases": [
+        "冈仁波齐",
+        "冈仁波齐外转山",
+        "冈仁波齐转山徒步"
+      ],
+      "statement": "冈仁波齐景区自2026年10月20日起冬季闭园，2027年开园时间另行通知。",
+      "status": "seasonal_closure",
+      "scope": "冈仁波齐景区封闭区域及环山游览；不扩展至普兰全县或玛旁雍错独立游览区域",
+      "published_at": "2026-10-11",
+      "effective_from": "2026-10-20",
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "普兰县文化和旅游局、阿里景区运营管理公司",
+      "publisher": "西藏自治区文化和旅游厅（来源：普兰文旅）",
+      "source_url": "https://wlt.xizang.gov.cn/xccx/lytg/202610/t20261011_562104.html",
+      "primary_source": true,
+      "confidence_notes": "官方检索全文可核，直接访问超时。公告署期2026-10-10，网页次日发布。较5月开放和9月临闭更新；未补造2027开园日。"
+    },
+    {
+      "route_id": "route-amnye-machin-business",
+      "route_name": "阿尼玛卿相关旅游经营",
+      "aliases": [
+        "阿尼玛卿景区旅游经营"
+      ],
+      "statement": "官方生态整改方案要求阿尼玛卿相关保护区域停止旅游经营；具体个人转山线的当前条件仍须单独核实。",
+      "status": "restricted",
+      "scope": "整改方案涉及的阿尼玛卿自然保护区旅游经营活动及旅游设施，不等同所有公路、村庄或个人转山禁入",
+      "published_at": "2018-05-29",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "青海省（中央环境保护督察整改方案）",
+      "publisher": "中华人民共和国生态环境部",
+      "source_url": "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk15/201805/t20180529_630198.html",
+      "primary_source": true,
+      "confidence_notes": "原文为长期整改要求，非2026徒步线路通告；不外推全部自然人活动。2026赛事报道不是普遍开放许可。",
+      "family_id": "route-amnye-machin",
+      "family_aliases": [
+        "阿尼玛卿"
+      ]
+    },
+    {
+      "route_id": "route-nianbaoyuze-business",
+      "route_name": "年保玉则相关旅游经营",
+      "aliases": [
+        "年保玉则景区旅游经营",
+        "年宝玉则景区旅游经营"
+      ],
+      "statement": "年保玉则相关保护区域有停止旅游经营的官方整改要求，尚未核到普通游客复开公告。",
+      "status": "restricted",
+      "scope": "整改方案涉及的年保玉则自然保护区旅游经营及开发项目，不延伸至四川莲宝叶则景区",
+      "published_at": "2018-05-29",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "青海省（中央环境保护督察整改方案）",
+      "publisher": "中华人民共和国生态环境部",
+      "source_url": "https://www.mee.gov.cn/xxgk2018/xxgk/xxgk15/201805/t20180529_630198.html",
+      "primary_source": true,
+      "confidence_notes": "2018方案属于长期整改背景。2026-09-01青海人大仍有有序开放建议办理报道；建议不等于正式复开。具体个人通行范围本轮未核为现行公告。",
+      "family_id": "route-nianbaoyuze",
+      "family_aliases": [
+        "年保玉则",
+        "年宝玉则"
+      ]
+    },
+    {
+      "route_id": "route-tanientaweng-tourism-management",
+      "route_name": "他念他翁沿线旅游活动",
+      "aliases": [
+        "他念他翁",
+        "他念他翁穿越",
+        "他念他翁徒步"
+      ],
+      "statement": "媒体转载称芒康自2026年6月21日起管控他念他翁沿线组织旅游及经营性进山服务，官方原件待核。",
+      "status": "restricted",
+      "scope": "转载所述芒康县他念他翁沿线未开发高风险区域的组织旅游和经营服务；不泛化全山脉",
+      "published_at": "2026-06-29",
+      "effective_from": "2026-06-21",
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "芒康县文化和旅游局（转载署名，原件待核）",
+      "publisher": "虎嗅网（转载徒步中国）",
+      "source_url": "https://m.huxiu.com/article/4871104.html",
+      "primary_source": false,
+      "confidence_notes": "仅有清楚署源的媒体转载；生效日期亦来自转载。不能当作已直接核对官方原件的现行通行结论。",
+      "family_id": "route-tanientaweng",
+      "family_aliases": [
+        "他念他翁"
+      ]
+    },
+    {
+      "route_id": "route-amnye-machin-management-reported",
+      "route_name": "阿尼玛卿转山通行",
+      "aliases": [
+        "阿尼玛卿",
+        "阿尼玛卿雪山",
+        "阿尼玛卿转山"
+      ],
+      "statement": "署名果洛州应急管理局的转载区分阿尼玛卿外环与内环通行条件，官方原件仍待核。",
+      "status": "restricted",
+      "scope": "2026转载所述外环道路与内环分别管理，不等同所有转山活动禁止",
+      "published_at": "2026-03-20",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "玛沁县2026年阿尼玛卿雪山马年转山风险隐患防范工作指挥部（转载署名）",
+      "publisher": "搜狐（页面署来源：果洛藏族自治州应急管理局）",
+      "source_url": "https://travel.sohu.com/a/998732960_121106869",
+      "primary_source": false,
+      "confidence_notes": "转载文末署期2026-03-10；未核搜狐账号官方身份或主管部门站点原件。只作带日期线索，不能把原文的开放时段、具体里程作为已核参数。",
+      "family_id": "route-amnye-machin",
+      "family_aliases": [
+        "阿尼玛卿"
+      ]
+    }
+  ]
+}

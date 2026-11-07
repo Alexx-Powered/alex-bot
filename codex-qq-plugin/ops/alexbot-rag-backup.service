@@ -1,0 +1,24 @@
+[Unit]
+Description=Encrypted Alex Bot state and knowledge backup
+After=alexbot.service
+
+[Service]
+Type=oneshot
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=TZ=Asia/Shanghai
+Environment=QQ_RAG_CONFIG=/var/lib/alexbot/.private/rag-config.json
+LoadCredential=backup.public:/etc/alexbot/backup-public.pem
+ExecStart=/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/ops/backup.mjs create
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/backups/alexbot /var/lib/alexbot/.private/rag /var/lib/alexbot/.private/chat-memory
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%
+TimeoutStartSec=90
+LimitCORE=0

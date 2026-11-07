@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from datetime import datetime,timezone,timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch,MagicMock
 from pydantic import ValidationError
-from campus_classrooms import build_query_tool,normalize,CampusError,query_day,SCHEMA,login_failure
+from campus_classrooms import build_query_tool,normalize,CampusError,query_day,SCHEMA,login_failure,browser_collect
 from campus_report import observations,render_report
 from campus_worker import process
 
@@ -104,6 +104,53 @@ class CampusTests(unittest.TestCase):
         result=process({'type':'campus','mode':'query','args':{},'credentials':{}},collector=lambda *_a,**_k:PAYLOAD)
         self.assertEqual(result['kind'],'campus');self.assertIsNone(result['artifact_id'])
         self.assertEqual(result['data']['code'],'CAMPUS_NOT_CONFIGURED')
+
+    def test_morning_profile_is_host_owned_and_default_tool_protocol_unchanged(self):
+        with patch('campus_worker.browser_collect',return_value={'e':1}) as collect:
+            for mode,extra in [('query',{}),('report',{}),('report',{'timeout_profile':'morning'})]:
+                result=process({'type':'campus','mode':mode,'args':{},'credentials':CREDS,**extra})
+                self.assertEqual(result['data']['code'],'CAMPUS_AUTH_FAILED')
+                self.assertEqual(collect.call_args.kwargs.get('timeout_profile','normal'),extra.get('timeout_profile','normal'))
+            for mode,profile in [('query','morning'),('login','morning'),('report',900000)]:
+                count=collect.call_count
+                result=process({'type':'campus','mode':mode,'args':{},'credentials':CREDS,'timeout_profile':profile})
+                self.assertEqual(result['data']['code'],'CAMPUS_QUERY_FAILED')
+                self.assertEqual(collect.call_count,count)
+        with self.assertRaises(ValidationError):self.tool().invoke({'timeout_profile':'morning'})
+
+    def test_slow_school_response_gets_longer_budget_only_for_scheduled_profile(self):
+        # Deliver the real-shaped initial payload at 45 seconds. Ordinary
+        # queries time out at 40; the scheduled profile can continue to search.
+        for profile,succeeds in [('normal',False),('morning',True)]:
+            with self.subTest(profile=profile):
+                clock=[0.0];callbacks={}
+                page=MagicMock();page.frames=[]
+                initial=MagicMock(ok=True,url='https://app.buaa.edu.cn/buaafreeclass/wap/default/index1')
+                initial.body.return_value=b'{}'
+                initial.json.return_value={'e':0,'d':{'xqs':[{'name':'学院路校区','xqid':'offline'}]}}
+                page.on.side_effect=lambda event,callback:callbacks.update({event:callback})
+                def tick(ms):
+                    clock[0]+=ms/1000
+                    if clock[0]>=45:callbacks['response'](initial)
+                page.wait_for_timeout.side_effect=tick
+                context=MagicMock();context.new_page.return_value=page
+                response=context.request.get.return_value;response.ok=True
+                response.body.return_value=b'{}';response.json.return_value=copy.deepcopy(PAYLOAD)
+                browser=MagicMock();browser.new_context.return_value=context
+                playwright=MagicMock();playwright.chromium.launch.return_value=browser
+                with patch('playwright.sync_api.sync_playwright') as manager,patch('campus_classrooms.sys.platform','linux'),patch('campus_classrooms.time.monotonic',side_effect=lambda:clock[0]):
+                    manager.return_value.__enter__.return_value=playwright
+                    if succeeds:
+                        result=browser_collect(CREDS,Path('unused-private'),'2026-10-29',timeout_profile=profile)
+                        self.assertEqual(result,PAYLOAD)
+                        self.assertEqual(context.request.get.call_args.kwargs['timeout'],45000)
+                        self.assertEqual(context.request.get.call_count,1)
+                    else:
+                        with self.assertRaises(CampusError) as error:browser_collect(CREDS,Path('unused-private'),'2026-10-29',timeout_profile=profile)
+                        self.assertEqual(error.exception.code,'CAMPUS_LOGIN_TIMEOUT')
+                        context.request.get.assert_not_called()
+                self.assertEqual(page.goto.call_args.kwargs['timeout'],45000 if succeeds else 25000)
+                context.close.assert_called_once();browser.close.assert_called_once()
 
     def test_no_free_rooms_does_not_invent_recommendations(self):
         data=normalize({'e':0,'d':{'list':{'三号楼':[{'name':'105','kxsds':''}]}}},'2026-10-29',CLOCK)

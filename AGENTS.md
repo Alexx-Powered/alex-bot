@@ -2,6 +2,7 @@
 
 ## 功能展示约定
 
+- 2026-11-06 用户要求徒步路线的官方禁止进入、封闭或限制信息，仅作为一句简短、带公告日期与适用范围的官方提示，不阻止正常提供天气、历史气候和装备信息。不得把局部封控扩展为整条线路或整个景区禁止，也不把历史公告冒充当前已核实状态；保留出处与核查日期。
 - 2026-11-05 用户要求生活费预算功能仅保留内部实现和已有调用能力。所有面向用户的功能介绍、README、帮助图、指令列表、控制台、截图及宣传材料均不展示该功能，不主动说明其存在。保留已有权限值，保存可见功能开关时不得改动该隐藏权限。模型仅在用户实际询问相关计算时调用。
 
 ## 公开 README 同步
@@ -22,7 +23,7 @@
 - 用户允许在难以取得对应比例尺图源时，按最接近的政府原图做制图概化。先按成品最细视口测量位置、端点及线状符号中断，保留原图编号、原始像素或要素、配准误差和使用范围。须区分墨迹间隔、图幅概化与地理偏移。2026-11-04 用户已确认成片会发公开群、频道或对外发布。
 
 - GitHub 仅在用户明确要求更新时推送或修改；日常开发优先完成本地修改、测试和部署，可使用本地 Git 记录，不自动同步远端。
-- 2026-11-03 已按用户因封号而回滚的要求恢复 QQ 官方 Bot，生产在阿里云 ECS：源码 `/opt/alex-bot/current`，状态 `/var/lib/alexbot`，systemd `alexbot.service` 显式使用 `QQ_TRANSPORT=official`。OneBot 业务、网关、控制服务、试运行及其早报服务/定时器均 masked，不得自行重新启用、扫码或接入普通 QQ 账号。旧 `alexbot-morning.service` 继续 masked，旧增强配置 disabled；官方版逐群“早间天气”和“三号楼自习简报”各自开关，使用 `alexbot-group-morning.timer` 每天北京时间 07:30 仅生成并投递所选项目，默认全部关闭，不补发。兼容旧合并开关，不把广播权限视作定时订阅，保留逐图幂等。本机 19327 是 SSH 转发，不能启动本机 Bot 或连接第二套 Bot。开发前读 `codex-qq-plugin/ops/README.md`；部署核对远端实际监听 PID、源码版本和启动时刻，以及本机隧道 PID。不要输出 Workbench 凭据 helper 的 stdout。
+- 2026-11-03 已按用户因封号而回滚的要求恢复 QQ 官方 Bot，生产在阿里云 ECS：源码 `/opt/alex-bot/current`，状态 `/var/lib/alexbot`，systemd `alexbot.service` 显式使用 `QQ_TRANSPORT=official`。OneBot 业务、网关、控制服务、试运行及其早报服务/定时器均 masked，不得自行重新启用、扫码或接入普通 QQ 账号。旧 `alexbot-morning.service` 继续 masked，旧增强配置 disabled；官方版逐群“早间天气”和“三号楼自习简报”各自开关，使用 `alexbot-group-morning-prepare.timer` 每天北京时间 07:28 预生成、`alexbot-group-morning.timer` 07:30 投递所选项目，默认全部关闭，不补发。兼容旧合并开关，不把广播权限视作定时订阅，保留逐图幂等。本机 19327 是 SSH 转发，不能启动本机 Bot 或连接第二套 Bot。开发前读 `codex-qq-plugin/ops/README.md`；部署核对远端实际监听 PID、源码版本和启动时刻，以及本机隧道 PID。不要输出 Workbench 凭据 helper 的 stdout。
 - 修改Node/Python工具协议时保留新增可选参数的默认兼容，并测试真实LangChain调用跨语言边界。部署后必须核对19327实际监听PID、工作区源码路径及启动时点，不能仅凭health在线或旧PID文件认定重启成功。
 - 全量回归默认在本机；2G ECS 只做必要的串行专项，独立 cgroup 限制 MemoryMax=128M、MemorySwapMax=0、CPUQuota=50%，至少 600 MiB 可用内存才启动。确需 Linux 全量回归时说明平台验证理由，至少 848 MiB 可用、独立 cgroup 上限 448M；资源不足不运行，不放宽保护。已退役的 onebot-release-guard 依赖 OneBot，官方发布不得调用它或为了通过它重新启动网关。
 

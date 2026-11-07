@@ -1,0 +1,184 @@
+{
+  "schema_version": "outdoor.notices.research.v1",
+  "notices": [
+    {
+      "route_id": "yading-grand-kora",
+      "route_name": "亚丁大转山",
+      "aliases": [
+        "亚丁大转山",
+        "亚丁大环线",
+        "亚丁转山"
+      ],
+      "statement": "2026-01-23 稻城县文旅工作简报明确，亚丁未开放区域及保护区核心区、缓冲区不得擅自穿越、探险或露营。",
+      "status": "restricted",
+      "scope": "亚丁景区未开放区域及国家级自然保护区核心区、缓冲区；未划定大转山各变体全线，非正式开放景区整体停业。",
+      "published_at": "2026-01-23",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "稻城县文化广播电视和旅游局",
+      "publisher": "稻城县人民政府",
+      "source_url": "https://www.daocheng.gov.cn/dcxrmzf_zdmsxx_ggfw/article/697433",
+      "primary_source": true,
+      "confidence_notes": "依据为县文旅工作简报，包含对洛克线的专项防控；不能把洛克线与所有大转山变体完全等同。未列恢复日期，按带日期的范围提示使用。"
+    },
+    {
+      "route_id": "wusun",
+      "route_name": "乌孙古道",
+      "aliases": [
+        "乌孙古道",
+        "乌孙",
+        "天堂湖穿越"
+      ],
+      "statement": "2026-04-10 拜城县文旅局公告禁止乌孙古道全线山区徒步、穿越、登山、露营等活动，未列恢复日期。",
+      "status": "prohibited",
+      "scope": "公告原文所称乌孙古道全线山区及在该区域开展的户外活动。",
+      "published_at": "2026-04-10",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "拜城县文化体育广播电视和旅游局",
+      "publisher": "澎湃新闻",
+      "source_url": "https://m.thepaper.cn/newsDetail_forward_32942104",
+      "primary_source": false,
+      "confidence_notes": "读取澎湃新闻对当日公告的完整转述，原发机关为拜城县文旅局；并以新疆日报相关报道交叉核对。未取得县政府独立原文链接。本记录新于 2025 年开放通知，不改写为永久禁入。"
+    },
+    {
+      "route_id": "xiata",
+      "route_name": "夏特古道",
+      "aliases": [
+        "夏特古道",
+        "夏塔古道",
+        "夏塔大北线",
+        "夏特"
+      ],
+      "statement": "2026-04-08 昭苏县文旅局公告禁止 2026 年县辖山区内夏特古道等区域的徒步、穿越、露营等活动。",
+      "status": "prohibited",
+      "scope": "昭苏县辖区公告列明的山区，包括夏特古道、夏塔大北线等；不据此认定夏塔景区所有正式游览项目停业。",
+      "published_at": "2026-04-08",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "昭苏县文化体育广播电视和旅游局",
+      "publisher": "兵团在线",
+      "source_url": "https://www.btzx.com.cn/web/2026/4/13/ARTI1776076772973282.html",
+      "primary_source": false,
+      "confidence_notes": "兵团在线页面发布于 2026-04-14，完整转载昭苏零距离所载 4 月 8 日公告。公告文字限定 2026 年，但未给具体恢复日期；有效终日未自行补造。"
+    },
+    {
+      "route_id": "langta",
+      "route_name": "狼塔",
+      "aliases": [
+        "狼塔",
+        "狼塔古道",
+        "狼塔C线",
+        "狼塔V线",
+        "狼塔C+V"
+      ],
+      "statement": "2026-04-10 和静县联合公告明确狼塔古道全面封闭、禁止穿越，未列重新开放日期。",
+      "status": "prohibited",
+      "scope": "狼塔古道；公告发布机关包括和静县文旅局、应急局和巴仑台镇政府。",
+      "published_at": "2026-04-10",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "和静县文化体育广播电视和旅游局、和静县应急管理局、巴仑台镇人民政府",
+      "publisher": "和静县人民政府",
+      "source_url": "https://www.xjhj.gov.cn/xjhjx/c110745/202604/cf782cedb7554af2b39773b012d757e3.shtml",
+      "primary_source": true,
+      "confidence_notes": "县政府发布联合公告原文。背景材料中的不同线路组合里程不用于改变公告范围；未把无恢复日期解释成永久关闭。"
+    },
+    {
+      "route_id": "mengketa",
+      "route_name": "孟克特",
+      "aliases": [
+        "孟克特",
+        "孟克特古道",
+        "孟克特景区"
+      ],
+      "statement": "2026-08-04 景区公告规定，自 8 月 10 日 22:00 起孟克特景区主通行道路封闭施工，徒步和露营人员不得进入管控区，恢复另行公告。",
+      "status": "restricted",
+      "scope": "孟克特景区全部主通行道路、入口至核心景点全线区域；并非据此封闭跨地区古道所有路段。",
+      "published_at": "2026-08-04",
+      "effective_from": "2026-08-10",
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "尼勒克县唐布拉旅游开发有限公司",
+      "publisher": "尼勒克县人民政府（县融媒体中心转载）",
+      "source_url": "https://www.xjnlk.gov.cn/xjnlk/c112936/202608/0bb744382ab24aefa2bd00dda4d3611e.shtml",
+      "primary_source": false,
+      "confidence_notes": "政府网页于 2026-08-05 发布经营方 8 月 4 日公告。生效精确时刻为 22:00，日期字段仅保留日期。截止核查未找到对应恢复公告；这不证明公告后每天的现场状态。"
+    },
+    {
+      "route_id": "changchuanbi",
+      "route_name": "长坪沟—毕棚沟",
+      "aliases": [
+        "长坪沟毕棚沟",
+        "长坪沟—毕棚沟",
+        "长坪沟-毕棚沟",
+        "长穿毕"
+      ],
+      "statement": "2026-05-22 官方通告禁止非法进入四姑娘山保护区未开发未开放区域徒步、穿越和露营；通告未逐段划定长穿毕全线。",
+      "status": "restricted",
+      "scope": "四姑娘山自然保护区未开发、未开放区域；不扩大为长坪沟正常游览区或长穿毕所有路段均关闭。",
+      "published_at": "2026-05-22",
+      "effective_from": null,
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "小金县人民政府、四姑娘山自然保护区管理局",
+      "publisher": "四姑娘山管理局",
+      "source_url": "https://www.sgns.cn/info/notice/6520-2026-05-22-09-20-38",
+      "primary_source": true,
+      "confidence_notes": "直接读取景区管理局官网通告。源文没有点名长穿毕全线或提供线路范围图，提示须保留限制区域限定。"
+    },
+    {
+      "route_id": "gongga",
+      "route_name": "贡嘎",
+      "aliases": [
+        "贡嘎",
+        "贡嘎环线",
+        "贡嘎徒步",
+        "榆林贡嘎",
+        "贡嘎草科"
+      ],
+      "statement": "康定市 2025 年封山令曾限制 2025-12-01 至 2026-05-31 贡嘎等高火险区域进山；该时段已结束，不能作为当前封山结论。",
+      "status": "seasonal_closure",
+      "scope": "康定辖区封山令列明的贡嘎山自然保护区等区域及榆林—贡嘎、贡嘎—草科等线路，非贡嘎跨县全域。",
+      "published_at": "2025-12-05",
+      "effective_from": "2025-12-01",
+      "effective_until": "2026-05-31",
+      "checked_at": "2026-11-06",
+      "issuer": "康定市人民政府",
+      "publisher": "康定市人民政府",
+      "source_url": "https://www.kangding.gov.cn/jczwgkzcwj/article/680657",
+      "primary_source": true,
+      "confidence_notes": "明确保留结束日期，仅为历史季节记录；不自动滚动为 2026 年冬季封山令，也不反向证明当前开放。"
+    },
+    {
+      "route_id": "hutiaoxia",
+      "route_name": "虎跳峡",
+      "aliases": [
+        "虎跳峡",
+        "虎跳峡高路",
+        "虎跳峡高路徒步线",
+        "中虎跳",
+        "下虎跳",
+        "中虎跳峡",
+        "下虎跳峡",
+        "云南·虎跳峡"
+      ],
+      "statement": "2026-02-10 通告限制未经批准进入保护区内中下虎跳及虎跳峡高路等未开放区域；正式经营景区的开放范围须分开看待。",
+      "status": "restricted",
+      "scope": "云南哈巴雪山省级自然保护区内未开发未开放的中虎跳峡段、下虎跳峡段、虎跳峡高路徒步线等；不是虎跳峡全域禁止。",
+      "published_at": "2026-02-10",
+      "effective_from": "2026-02-10",
+      "effective_until": null,
+      "checked_at": "2026-11-06",
+      "issuer": "香格里拉市人民政府",
+      "publisher": "香格里拉市人民政府",
+      "source_url": "https://www.xianggelila.gov.cn/zfxxgk_xglls/fdzdgknr/tzgg/202602/20260210_238273.html",
+      "primary_source": true,
+      "confidence_notes": "政府页面直连多次超时，已通过该官方 URL 的搜索索引正文核对列名区域、未经批准禁止事项及自发布日起施行条款；经营方 9 月正式景区开放通报另存历史文档，不用它覆盖保护区限制。"
+    }
+  ]
+}

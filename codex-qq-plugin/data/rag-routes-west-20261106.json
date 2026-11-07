@@ -1,0 +1,236 @@
+{
+  "schema_version": "rag.import.v1",
+  "documents": [
+    {
+      "doc_id": "route-dangling-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜雪山、森林与海子",
+      "text": "丹巴县融媒体中心 2025-06-22 的党岭介绍，将原始森林、雪山和高山湖泊作为主要景观，点名葫芦海与卓雍措。党岭的湖泊与山谷可以作为同一目的地下不同游览目标，不能把某个海子的天气代表值等同整条高山线路。此条记录景观背景，不提供营地或向导设施信息。",
+      "source_ref": "https://www.danba.gov.cn/lyzx/article/657808",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-dangling-event-202608",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜2026 年官方健身徒步活动样例",
+      "text": "丹巴县 2026-08-04 发布的全民健身日活动安排中，8 月 9 日党岭健身徒步体验路线预计往返 7 公里，计划约 200 人参加。该短距离组织活动与多日越野穿越不是同一个行程；7 公里只对应这次活动，不是党岭所有路线的长度。",
+      "source_ref": "https://www.danba.gov.cn/dbyw/article/726420",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-dangling-closure-history-2025",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "党岭｜2025 年冬季封闭历史",
+      "text": "丹巴县融媒体中心 2025-12-03 报道，自 2025-11-15 起党岭区域所有徒步线路因冬季条件关闭，禁止徒步、穿越和露营。这是上一冬季记录；另有 2026 年官方组织徒步活动资料，不能据此认定 2026-11-06 仍处于同一次封闭。本轮尚未找到 2026 年冬季封山公告原文。",
+      "source_ref": "https://www.danba.gov.cn/ttxw/article/680325",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-yading-grand-kora-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "亚丁大转山｜三座雪山与季节景观",
+      "text": "稻城县政府 2020-08-26 转载甘孜新闻网的亚丁介绍：仙乃日在北、央迈勇在南、夏诺多吉在东，三峰构成主要山岳景观；冲古寺前草坪可观赏仙乃日和夏诺多吉。文章以夏季森林草甸、秋季彩林说明景观变化。大转山行程涉及的具体路线仍需区分，不能把景区内短途游览等同多日绕山。",
+      "source_ref": "https://www.daocheng.gov.cn/lydt/article/261904",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-yading-grand-kora-access-202601",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "亚丁大转山｜未开放保护区范围管控",
+      "text": "稻城县文旅部门 2026-01-23 的工作简报明确加强亚丁未开放区域及国家级自然保护区核心区、缓冲区的非法穿越防控，并点名洛克线高发区域。它不表示亚丁正式开放景区全部关闭，也没有给出大转山所有变体的逐段范围。官方立场：不得擅自进入上述未开放保护区域穿越、探险或露营。",
+      "source_ref": "https://www.daocheng.gov.cn/dcxrmzf_zdmsxx_ggfw/article/697433",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-wusun-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "乌孙古道｜南北疆长距离穿越背景",
+      "text": "阿克苏地区融媒体中心 2025-06-16 报道，乌孙古道南端为拜城县黑英山乡，北端为特克斯县喀拉达拉镇琼库什台村，所述线路约 130 公里；沿途包括高山垭口、森林和天堂湖等高山湖泊。距离是该报道的线路概数，不能替代具体轨迹和分段计划。",
+      "source_ref": "https://ask.aksxw.com/sy/rdxw/aks/202506/t20250616_29064074.html",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-wusun-opening-history-2025",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "乌孙古道｜2025 年开放及报备历史",
+      "text": "伊犁州政府 2025-06-12 转载特克斯县文旅局 6 月 9 日通知：乌孙古道自 2025-06-13 恢复通行，出发前 3 个工作日申报审批并实行双向通联。此为 2025 年制度快照；已有 2026 年禁止活动公告，不能用旧开放消息证明当前允许穿越。",
+      "source_ref": "https://www.xjyl.gov.cn/xjylz/c112428/202506/2a263e30cbf94c778bb30b069c256c29.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-wusun-access-202604",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "乌孙古道｜2026 年禁止户外活动公告",
+      "text": "澎湃新闻 2026-04-10 完整转述拜城县文旅局当日公告：乌孙古道全线山区禁止徒步、穿越、登山、露营等活动，理由包括融雪、复杂高山天气及通信和救援条件不足。公告未列恢复日期；本条保存带日期的官方立场，不将其改写为永久关闭。",
+      "source_ref": "https://m.thepaper.cn/newsDetail_forward_32942104",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-xiata-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "夏特古道｜跨天山山谷与冰川景观",
+      "text": "昭苏县 2024-09-29 科考活动报道将夏塔古道北端记为昭苏县夏特柯尔克孜族乡，南端记为温宿县博孜墩柯尔克孜族乡，约 120 公里，连接天山南北。沿线有冰川、森林、草原、河流和湖泊；完整古道穿越与夏塔景区局部游览不同。",
+      "source_ref": "https://www.zhaosu.gov.cn/zsx/c113806/202409/45e9bdc51564473ab6ec9047ac225674.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-xiata-access-202604",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "夏特古道｜2026 年山区活动禁令",
+      "text": "兵团在线 2026-04-14 转载昭苏县文旅局 4 月 8 日公告，2026 年昭苏县辖区山区禁止徒步、穿越、露营等，列名夏特古道、夏塔大北线等区域。范围是公告列明的山区活动，不应直接推断夏塔景区所有正式游览项目停业。",
+      "source_ref": "https://www.btzx.com.cn/web/2026/4/13/ARTI1776076772973282.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-langta-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "狼塔｜线路变体与地形",
+      "text": "新疆林草局 2024-01-19 转载新疆日报介绍，狼塔线路从昌吉呼图壁河大峡谷通向巴州和静巴伦台，包含 A、B、C、D、V 等不同线路；C+V 指两线组合，不是一条固定短线。其景观与行走环境包括雪山、峡谷、乱石和冰河，讨论里程或耗时时必须说明具体变体。",
+      "source_ref": "https://lcj.xinjiang.gov.cn/lcj/mllc/202401/6ba312ec41b248e4b3af12d7d9a752cb.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-langta-access-202604",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "狼塔｜2026 年全面封闭公告",
+      "text": "和静县政府 2026-04-10 发布县文旅局、应急局及巴仑台镇政府联合公告，狼塔古道全面封闭、禁止穿越。公告指出该线存在深雪、湍流及通信补给不足等问题，未列重新开放日期。",
+      "source_ref": "https://www.xjhj.gov.cn/xjhjx/c110745/202604/cf782cedb7554af2b39773b012d757e3.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-mengketa-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "孟克特｜景区短线与古道全线的区别",
+      "text": "尼勒克县政府 2025-12-02 介绍，孟克特景区当时开发的 26 公里线路串联高山草甸、天门双子峰、冰川遗址石林及孟克特湖（小天湖）。同文所说古道约 70 公里，连接独库公路附近与唐布拉一带；26 公里景区段和 70 公里古道不是同一个里程口径。",
+      "source_ref": "https://www.xjnlk.gov.cn/xjnlk/c117844/202512/dc458ad7c9ee4b81aea0ac97e319d842.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-mengketa-access-202608",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "孟克特｜道路施工封闭范围",
+      "text": "尼勒克县政府 2026-08-05 转发唐布拉旅游开发有限公司 8 月 4 日公告：2026-08-10 22:00 起，孟克特景区全部主通行道路、入口至核心景点区域封闭施工，徒步和露营人员不得进入管控区，恢复时间另行公告。此范围不自动等于跨地区古道每一段均关闭。",
+      "source_ref": "https://www.xjnlk.gov.cn/xjnlk/c112936/202608/0bb744382ab24aefa2bd00dda4d3611e.shtml",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-changchuanbi-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "长坪沟—毕棚沟｜森林草甸与跨沟徒步",
+      "text": "小金县政府长坪沟介绍称，沟内有原始森林、草甸和溪流，并可向理县毕棚沟穿越。页面的 29 公里指长坪沟长度，不是“长穿毕”全过程里程；跨沟行程与在长坪沟景区内往返游览应分别规划。本轮未核到该景点页面明确署期，核查日为 2026-11-06。",
+      "source_ref": "https://www.xiaojin.gov.cn/xjxrmzf/c100134/202407/c4ccae8ed08b41bc93540ccce316e63e.shtml",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-changchuanbi-access-202605",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "长坪沟—毕棚沟｜保护区未开放区域限制",
+      "text": "小金县政府与四姑娘山自然保护区管理局 2026-05-22 通告，禁止非法进入保护区未开发、未开放区域开展徒步、穿越、露营等活动。通告没有逐段列出长穿毕路线边界，因此只能提示相关未开放区限制，不能据此宣称长坪沟正常游览区或长穿毕全线一律关闭。",
+      "source_ref": "https://www.sgns.cn/info/notice/6520-2026-05-22-09-20-38",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-gongga-background",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "贡嘎｜多个山域与不同游览目标",
+      "text": "九龙县林草局 2025-09-30 公示说明，贡嘎山风景名胜区跨泸定、九龙、康定，以环贡嘎的高山及极高山群、自然生态和村寨文化为主体；九龙县涉及伍须海与猎塔湖两个景区。“贡嘎”是广域目的地，雪山绕行、垭口观景与湖泊游览并非同一行程，预报位置应随具体目标选取。",
+      "source_ref": "https://www.scjl.gov.cn/tzgg/article/673228",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-gongga-fire-closure-history-2025",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "贡嘎｜已结束的 2025—2026 防火封山期",
+      "text": "康定市政府 2025-12-05 发布的防火封山令，时段明确为 2025-12-01 至 2026-05-31，覆盖康定辖区贡嘎山自然保护区等区域，列有榆林—贡嘎、贡嘎—草科等线路，进山须依法批准。该季节区间已结束，不能据此判断 2026 年 11 月当前通行或自动顺延下一防火期。",
+      "source_ref": "https://www.kangding.gov.cn/jczwgkzcwj/article/680657",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-hutiaoxia-landscape",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "虎跳峡｜上中下三段与峡谷景观",
+      "text": "虎跳峡景区经营公司介绍，金沙江在玉龙雪山与哈巴雪山之间形成峡谷。上虎跳河道收窄，虎跳石附近以急流为特色；中虎跳多礁石险滩，下虎跳相对开阔，可望两侧雪山。这是地形景观分段，不是对高路或江边步道的开放承诺。页面未标明确署期，核查日为 2026-11-06。",
+      "source_ref": "https://www.xgllhtx.cn/?lang=zh_CN",
+      "valid_from": 0,
+      "valid_until": 1809561600
+    },
+    {
+      "doc_id": "route-hutiaoxia-access-202602",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "虎跳峡｜中下段与高路的区域限制",
+      "text": "香格里拉市政府 2026-02-10 通告列明哈巴雪山保护区内未开发未开放的中虎跳峡段、下虎跳峡段和虎跳峡高路徒步线，禁止未经批准进入开展徒步等活动。限制针对上述保护区范围；正式经营景区的游览开放情况应分开看待，不得概括成“虎跳峡全域禁止”。",
+      "source_ref": "https://www.xianggelila.gov.cn/zfxxgk_xglls/fdzdgknr/tzgg/202602/20260210_238273.html",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    },
+    {
+      "doc_id": "route-hutiaoxia-park-history-202609",
+      "namespace": "shared",
+      "visibility": "shared",
+      "domain": "outdoor",
+      "title": "虎跳峡｜正式景区与野外线路不是同一开放口径",
+      "text": "虎跳峡景区经营公司 2026-09-03 网站通报称，9 月 1 日外围北侧落石距游览区约 600 米，未波及游览设施，排查后正式景区当时正常开放。该历史通报不等于中虎跳、下虎跳或高路徒步线获准开放，也不代表未来日期的现场状态。",
+      "source_ref": "https://www.xgllhtx.cn/news/16/",
+      "valid_from": 0,
+      "valid_until": 1796515200
+    }
+  ]
+}

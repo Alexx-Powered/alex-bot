@@ -337,7 +337,8 @@ export class QQAdapter {
     return target;
   }
 
-  async send({ ownerId, text, replyTarget, image, video, groupId, requiredFeature, proactiveGroup = false, requiredAccess = 'chat', richMedia = false } = {}) {
+  async send({ ownerId, text, replyTarget, image, video, groupId, requiredFeature, proactiveGroup = false, requiredAccess = 'chat', richMedia = false, deliveryDeadline } = {}) {
+    if(deliveryDeadline!==undefined&&(!Number.isSafeInteger(deliveryDeadline)||deliveryDeadline<0||deliveryDeadline>8_640_000_000_000_000))throw new QQAdapterError('QQ_DELIVERY_DEADLINE_INVALID');
     if (!isId(ownerId)) throw new QQAdapterError('QQ_OWNER_INVALID');
     if (typeof text !== 'string' || text.length > MAX_TEXT_LENGTH ||
         (image === undefined && video === undefined && !text.trim())) throw new QQAdapterError('QQ_TEXT_INVALID');
@@ -359,8 +360,13 @@ export class QQAdapter {
     const generation = this.#generation;
     let phase = fileData === null ? 'send' : 'upload';
     let messageAttempted = false;
+    const assertSendAllowed=()=>{
+      const allowed=this.#canSend({groupId,proactiveGroup,requiredAccess,...(requiredFeature?{requiredFeature}:{}),...(deliveryDeadline!==undefined?{deliveryDeadline}:{})})===true;
+      if(deliveryDeadline!==undefined&&this.#now()>=deliveryDeadline)throw new QQAdapterError('QQ_REQUEST_EXPIRED');
+      if(!allowed)throw new QQAdapterError('QQ_SEND_CANCELLED');
+    };
     try {
-      if (this.#canSend({groupId,proactiveGroup,requiredAccess,...(requiredFeature?{requiredFeature}:{})}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
+      assertSendAllowed();
       if (fileData !== null) {
         // SDK 1.0.5 uploadMedia/sendImage have a built-in two-retry policy and
         // may select chunked upload. Its public api.post -> ApiClient.request
@@ -382,7 +388,7 @@ export class QQAdapter {
         // Upload can take time. Recheck the original local authorization for
         // either scope before sending; expiry or reconnect always stops delivery.
         if (authorizedTarget.msgId) this.#target(ownerId, authorizedTarget, groupId);
-        if (this.#canSend({groupId,proactiveGroup,requiredAccess,...(requiredFeature?{requiredFeature}:{})}) !== true) throw new QQAdapterError('QQ_SEND_CANCELLED');
+        assertSendAllowed();
         messageAttempted = true;
         // Opt-in rich media carries content + media in ONE message. Legacy
         // weather/classroom image-only callers keep their preceding behavior.
