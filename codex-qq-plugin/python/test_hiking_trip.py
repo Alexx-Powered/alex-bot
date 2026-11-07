@@ -24,7 +24,14 @@ class HikingTests(unittest.TestCase):
         self.assertEqual(value['days'][0]['stats']['precip'],26)
         self.assertEqual(value['days'][0]['stats']['rain'],16.8)
         self.assertEqual(value['nights'][0]['low'],-2)
-        self.assertEqual(value['nights'][0]['comfort'],-7)
+        self.assertEqual(value['nights'][0]['comfort'],-2)
+    def test_sleeping_bag_comfort_matches_actual_night_low_without_margin_or_floor(self):
+        for temperature in [-2.3,3.6]:
+            weather=self.weather()
+            for row in weather['湖畔'].values():row['temperature_2m']=temperature
+            night=plan_weather(self.profile(),date(2026,11,7),weather)['nights'][0]
+            self.assertEqual(night['low'],temperature)
+            self.assertEqual(night['comfort'],temperature)
     def test_missing_camp_never_uses_village(self):
         weather=self.weather();del weather['湖畔']['2026-11-08T08:00']
         self.assertIsNone(plan_weather(self.profile(),date(2026,11,7),weather)['nights'][0]['comfort'])

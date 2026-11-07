@@ -121,7 +121,7 @@ async function draw(v){
   let nightY=bottomY+85;
   v.nights.forEach((n,i)=>{lines(nightNames[i],50,nightY,20,P.ink,24,split-44);nightY+=nightNames[i].length*24;text(n.kind==='tent'?`夜间 ${unit(n.low,'°C')} · 舒适温标 ${n.comfort===null?'待补齐':'≤ '+number(n.comfort)+'°C'}`:`${n.kind==='inn'?'住店':'方式待核'} · 夜间 ${unit(n.low,'°C')}`,50,nightY+5,18,P.teal,550,split-44);nightY+=52;});
   const footer=bottomY+bottomH-102;
-  if(tents.length){text('全程舒适温标：'+(tents.every(n=>n.comfort!==null)?'≤ '+number(Math.min(...tents.map(n=>n.comfort)))+'°C':'营地夜温待补齐'),50,footer,22,P.teal,650,split-44);lines(wrapped('区域夜温留 5°C 余量；配保暖睡垫，怕冷者另加。温标为预估，不是保暖保证。',split-44,17),50,footer+32,17,P.muted,25,split-44);}
+  if(tents.length){text('全程舒适温标：'+(tents.every(n=>n.comfort!==null)?'≤ '+number(Math.min(...tents.map(n=>n.comfort)))+'°C':'营地夜温待补齐'),50,footer,22,P.teal,650,split-44);lines(wrapped('按营地夜间最低温选择 Comfort 舒适温标。',split-44,17),50,footer+32,17,P.muted,25,split-44);}
   else lines(wrapped(innOnly?'住店方案无需露营睡袋；床品、供暖及接驳需另确认。':'营地住宿方式未明确，暂不给睡袋温标；请补齐营地与住宿信息。',split-44,19),50,footer,19,P.muted,28,split-44);
   text('不露营 · '+(v.alternate?'可选走法':innOnly?'当前走法':'资料待补'),rx+22,bottomY+45,25,P.ink,650,split-44);
   if(v.alternate){let y=bottomY+85;v.alternate.days.forEach((d,i)=>{lines(altHeads[i],rx+22,y,20,P.ink,27,split-44);y+=altHeads[i].length*27;lines(altLines[i],rx+22,y,18,P.muted,23,split-44);y+=altLines[i].length*23+3;text(`${dayTemperature(d)} · 云 ${dayUnit(d,'cloud','%',0)} · 雨雪 ${dayUnit(d,'precip',' mm')}`,rx+22,y,17,P.teal,500,split-44);y+=34;});lines(wrapped('以上为来源记载的住店行程，房态与开放情况需另核。',split-44,17),rx+22,bottomY+bottomH-48,17,P.muted,24,split-44);}

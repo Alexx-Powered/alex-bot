@@ -15,7 +15,7 @@ function fixture(n=3){
   const days=Array.from({length:n},(_,i)=>({date:'2026-11-'+String(i+7).padStart(2,'0'),route:['起点村','山脊营地'],sleep:i<n-1?{name:'山脊营地',kind:'tent'}:null,distance:12,
     stats:{min:-3,max:12,cloud:45,precip:1,rain:1,snow:0,gust:8},series:Array.from({length:24},(_,h)=>[h<8?-3:12,45,h===12?1:0,h===12?1:0,0,8,h<8?0:1])}));
   return {schema:'hiking.card.v1',topic:'合成测试路线',variant:'多日穿越',start:'2026-11-07',status:'ok',retrieved:'2026-11-07T09:00:00+08:00',days,
-    nights:days.slice(0,-1).map((_,i)=>({day:i+1,name:'山脊营地',kind:'tent',low:-3,comfort:-8})),sources:[],missing:[],alternate:null,season:'仅用于布局和协议测试。'};
+    nights:days.slice(0,-1).map((_,i)=>({day:i+1,name:'山脊营地',kind:'tent',low:-3,comfort:-3})),sources:[],missing:[],alternate:null,season:'仅用于布局和协议测试。'};
 }
 test('fixed hiking grammar accepts date and inn without a model',()=>{
   assert.deepEqual(parseHikingCommand('发 徒步 党岭 2026-11-14 不露营'),{destination:'党岭',start_date:'2026-11-14',overnight:'inn'});

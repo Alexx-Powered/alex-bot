@@ -168,7 +168,7 @@ def plan_weather(profile,start,weather,*,rows=True):
             name=day['sleep']['name'];begin=datetime.combine(stamp,datetime.min.time())+timedelta(hours=20)
             temperatures=[weather.get(name,{}).get((begin+timedelta(hours=h)).isoformat(timespec='minutes'),{}).get('temperature_2m') for h in range(13)]
             low=complete(temperatures,min)
-            nights.append({'day':index+1,**day['sleep'],'low':low,'comfort':math.floor(low-5) if low is not None and day['sleep']['kind']=='tent' else None})
+            nights.append({'day':index+1,**day['sleep'],'low':low,'comfort':low if day['sleep']['kind']=='tent' else None})
     return {'variant':profile['variant'],'days':days,'nights':nights,'reviewed':profile['reviewed'],'sources':profile['sources']}
 
 @lru_cache(maxsize=1)
