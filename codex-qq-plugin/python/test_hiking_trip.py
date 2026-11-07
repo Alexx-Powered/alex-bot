@@ -30,8 +30,35 @@ class HikingTests(unittest.TestCase):
         self.assertIsNone(plan_weather(self.profile(),date(2026,11,7),weather)['nights'][0]['comfort'])
         del weather['湖畔']
         card=plan_weather(self.profile(),date(2026,11,7),weather)
-        self.assertIsNone(card['days'][0]['stats']['min'])
+        self.assertEqual(card['days'][0]['stats']['min'],10)
+        self.assertEqual(card['days'][0]['coverage']['min'],13)
         self.assertIsNone(card['days'][0]['series'][16][0])
+        self.assertIsNone(card['nights'][0]['low'])
+    def test_partial_day_reports_known_hours_instead_of_erasing_every_stat(self):
+        series=[[hour-5,hour*2,1,.5,.1,hour,0] for hour in range(24)]
+        for hour in [8,12,16]:series[hour]=[None]*6+[1]
+        stats,coverage=day_statistics(series)
+        self.assertEqual(stats,{'min':-5,'max':18,'cloud':22.86,'precip':21,'rain':10.5,'snow':2.1,'gust':23})
+        self.assertEqual(set(coverage.values()),{21})
+        self.assertEqual(series[12],[None]*6+[1])
+    def test_daily_missing_fields_are_independent_and_no_data_is_not_zero(self):
+        series=[[10,None,0,0,0,2,0] for _ in range(24)];series[0][0]=None
+        stats,coverage=day_statistics(series)
+        self.assertEqual(stats['min'],10);self.assertEqual(coverage['min'],23)
+        self.assertIsNone(stats['cloud']);self.assertEqual(coverage['cloud'],0)
+        self.assertEqual(stats['precip'],0);self.assertEqual(coverage['precip'],24)
+        empty,counts=day_statistics([[None]*6+[0] for _ in range(24)])
+        self.assertTrue(all(v is None for v in empty.values()));self.assertEqual(set(counts.values()),{0})
+    def test_partial_hours_keep_partial_status_even_with_every_place_located(self):
+        weather=self.weather();weather['山村']['2026-11-07T01:00']['temperature_2m']=None
+        points={name:{'lat':30,'lon':100,'source':'https://www.openstreetmap.org/node/1'} for name in weather}
+        with patch('hiking_trip.catalog',return_value=[self.profile()]),patch('hiking_trip.resolve_points',return_value=points),patch('hiking_trip.forecasts',return_value=(weather,'2026-11-07T08:00:00+08:00',None)):
+            card=make_trip('测试山',source='发 徒步 测试山',now=datetime(2026,11,7,tzinfo=TZ))
+        self.assertEqual(card['status'],'partial');self.assertEqual(card['missing'],[])
+        self.assertEqual(card['days'][0]['stats']['min'],-2)
+        self.assertEqual(card['days'][0]['coverage']['min'],23)
+        self.assertEqual(card['days'][0]['coverage']['cloud'],24)
+        self.assertIsNone(card['days'][0]['series'][1][0])
     def test_ambiguous_geocoder_is_rejected(self):
         def fake(*args,**kwargs):return {'features':[{'properties':{'name':'龙山村','osm_type':'N','osm_id':i,'osm_key':'place','osm_value':'village'},'geometry':{'coordinates':coord}} for i,coord in [(1,[114,27]),(2,[115,27])]]}
         self.assertIsNone(locate('龙山村',fetcher=fake))

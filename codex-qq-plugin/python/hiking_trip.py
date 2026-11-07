@@ -134,6 +134,20 @@ def forecasts(points,start,end,*,fetcher=public_json,now=None):
 def complete(values,operation):
     return round(operation(values),2) if values and all(v is not None for v in values) else None
 
+def day_statistics(series):
+    """Summarize available hourly samples, without filling a missing interval.
+
+    Coverage travels with each number: a partial precipitation sum must never be
+    presented as a complete daily total. Night comfort retains its separate,
+    complete-night requirement below.
+    """
+    columns=[[r[i] for r in series if type(r[i]) in (int,float) and math.isfinite(r[i])] for i in range(6)]
+    operations={'min':(0,min),'max':(0,max),'cloud':(1,lambda a:sum(a)/len(a)),
+                'precip':(2,sum),'rain':(3,sum),'snow':(4,sum),'gust':(5,max)}
+    stats={name:round(operation(columns[i]),2) if columns[i] else None for name,(i,operation) in operations.items()}
+    coverage={name:len(columns[i]) for name,(i,_) in operations.items()}
+    return stats,coverage
+
 def plan_weather(profile,start,weather,*,rows=True):
     days=[];nights=[];sites={}
     for index,day in enumerate(profile['days']):
@@ -148,11 +162,8 @@ def plan_weather(profile,start,weather,*,rows=True):
             if name not in sites:sites[name]=len(sites)
             liquid=complete([interval.get('rain'),interval.get('showers')],sum)
             series.append([instant.get('temperature_2m'),instant.get('cloud_cover'),interval.get('precipitation'),liquid,interval.get('snowfall'),instant.get('wind_gusts_10m'),sites[name]])
-        stats={'min':complete([r[0] for r in series],min),'max':complete([r[0] for r in series],max),
-               'cloud':complete([r[1] for r in series[8:18]],lambda a:sum(a)/len(a)),
-               'precip':complete([r[2] for r in series],sum),'rain':complete([r[3] for r in series],sum),
-               'snow':complete([r[4] for r in series],sum),'gust':complete([r[5] for r in series],max)}
-        days.append({'date':stamp.isoformat(),'route':route,'sleep':day['sleep'],'distance':day['distance_km'],'stats':stats,**({'series':series} if rows else {})})
+        stats,coverage=day_statistics(series)
+        days.append({'date':stamp.isoformat(),'route':route,'sleep':day['sleep'],'distance':day['distance_km'],'stats':stats,'coverage':coverage,**({'series':series} if rows else {})})
         if day['sleep']:
             name=day['sleep']['name'];begin=datetime.combine(stamp,datetime.min.time())+timedelta(hours=20)
             temperatures=[weather.get(name,{}).get((begin+timedelta(hours=h)).isoformat(timespec='minutes'),{}).get('temperature_2m') for h in range(13)]
@@ -211,7 +222,7 @@ def make_trip(destination,start_date=None,route_variant=None,overnight='auto',*,
     from route_notices import bundled_route_notices,notice_sentence
     notice=bundled_route_notices().lookup('',topic,start_date=start.isoformat(),end_date=(start+timedelta(days=len(primary['days'])-1)).isoformat(),route_variant=primary['variant'])
     missing=[n for n in names if n not in points]
-    status='partial' if missing or error or any(v is None for d in plan['days'] for v in d['stats'].values()) else 'ok'
+    status='partial' if missing or error or any(count<24 for d in plan['days'] for count in d['coverage'].values()) else 'ok'
     return {**base,**plan,'status':status,'retrieved':stamp,'alternate':alternative,'missing':missing,
             'error':error,'notice':notice_sentence(notice) if notice else primary['notice'],
             'season':primary['season'],'timings':{'hiking_route_ms':round(route_ms,2),'hiking_locate_ms':round(locate_ms,2),'hiking_fetch_ms':round(fetch_ms,2)},

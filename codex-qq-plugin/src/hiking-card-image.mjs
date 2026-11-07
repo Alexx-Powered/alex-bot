@@ -8,6 +8,9 @@ import {measureSpan,setTraceOperation} from './telemetry.mjs';
 const P={bg:'#f4f6f3',ink:'#142a32',muted:'#566960',border:'#e0e8e3',teal:'#24766f',white:'#fff',grey:'#858585'};
 const number=(v,d=1)=>Number.isFinite(v)?v.toFixed(d).replace(/\.0$/,'').replace('-','−'):'缺测';
 const unit=(v,u,d=1)=>Number.isFinite(v)?number(v,d)+u:'缺测';
+const partial=(day,key)=>Number.isFinite(day.stats[key])&&Number.isInteger(day.coverage?.[key])&&day.coverage[key]<24;
+const dayUnit=(day,key,u,d=1)=>unit(day.stats[key],u,d)+(partial(day,key)?'*':'');
+const dayTemperature=day=>day.stats.min===null?'缺测':`${number(day.stats.min)}～${number(day.stats.max)}°C${partial(day,'min')?'*':''}`;
 const safe=s=>typeof s==='string'&&s.length<=800&&!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(s);
 export function validateHikingCard(v){
   if(!v||v.schema!=='hiking.card.v1'||!safe(v.topic)||v.topic.length>24||!Array.isArray(v.days)||v.days.length>14||Buffer.byteLength(JSON.stringify(v))>58000)throw Error('HIKING_CARD_INVALID');
@@ -16,6 +19,7 @@ export function validateHikingCard(v){
     for(const d of p.days){
       if(!/^\d{4}-\d\d-\d\d$/.test(d.date)||!Array.isArray(d.route)||!d.route.length||d.route.length>8||d.route.some(n=>!safe(n)||n.length>40))throw Error('HIKING_CARD_INVALID');
       if(!d.stats||Object.values(d.stats).some(n=>n!==null&&(!Number.isFinite(n)||Math.abs(n)>50000)))throw Error('HIKING_CARD_INVALID');
+      if(d.coverage!==undefined&&(!d.coverage||Array.isArray(d.coverage)||Object.keys(d.coverage).length!==7||Object.entries(d.coverage).some(([k,n])=>!['min','max','cloud','precip','rain','snow','gust'].includes(k)||!Number.isInteger(n)||n<0||n>24)))throw Error('HIKING_CARD_INVALID');
       if(d.series&&(!Array.isArray(d.series)||d.series.length!==24||d.series.some(r=>!Array.isArray(r)||r.length!==7||!Number.isSafeInteger(r[6])||r[6]<0||r[6]>128||r.slice(0,6).some(n=>n!==null&&(!Number.isFinite(n)||Math.abs(n)>5000)))))throw Error('HIKING_CARD_INVALID');
     }
     for(const n of p.nights)if(!safe(n.name)||!['tent','inn','camp'].includes(n.kind)||[n.low,n.comfort].some(x=>x!==null&&(!Number.isFinite(x)||Math.abs(x)>200)))throw Error('HIKING_CARD_INVALID');
@@ -55,7 +59,8 @@ async function draw(v){
   const altHeight=altLines.reduce((sum,lines,i)=>sum+37+lines.length*23+altHeads[i].length*27,0);
   const nightNames=v.nights.map(n=>wrapped(`第 ${n.day} 晚  ${n.name}`,split-44,20));
   const bottomH=Math.max(330,190+nightNames.reduce((sum,l)=>sum+52+l.length*24,0),170+altHeight),bottomY=start+888;
-  const footerLines=[v.climate,v.season,v.notice,
+  const partialDays=[...v.days,...(v.alternate?.days||[])].some(d=>Object.keys(d.stats).some(key=>partial(d,key)));
+  const footerLines=[partialDays?'* 仅统计有数据时段；缺测时段未计入，雨雪为已获取时段累计。':'',v.climate,v.season,v.notice,
     v.missing?.length?'缺少可靠坐标：'+v.missing.join('、')+'；对应时段留空。':'',
     v.error?'预报暂缺：'+({'HIKING_FORECAST_TIMEOUT':'数据源超时','FORECAST_OUTSIDE_HORIZON':'日期超出当前可用预报范围','HIKING_COORDINATES_MISSING':'沿途坐标待核'}[v.error]||'上游数据未能获取')+'。':'',
     v.reviewed===false?'行程为自动提取的来源参考，尚未人工核验。':'',
@@ -85,12 +90,12 @@ async function draw(v){
   const wet=v.days.filter(d=>Number.isFinite(d.stats.precip)).sort((a,b)=>b.stats.precip-a.stats.precip)[0];
   const tents=v.nights.filter(n=>n.kind==='tent'),low=tents.every(n=>n.low!==null)&&tents.length?Math.min(...tents.map(n=>n.low)):null;
   const innOnly=!tents.length&&v.nights.length>=N-1&&v.nights.every(n=>n.kind==='inn');
-  const summary=v.status==='partial'?'部分路段数据待补齐':wet&&wet.stats.precip>0?`第 ${v.days.indexOf(wet)+1} 天雨雪较多`:'沿途天气与住宿，一起看';
+  const summary=v.status==='partial'?(v.days.some(d=>Object.values(d.stats).some(Number.isFinite))?'每日天气与沿途住宿':'暂未取得天气数据'):wet&&wet.stats.precip>0?`第 ${v.days.indexOf(wet)+1} 天雨雪较多`:'沿途天气与住宿，一起看';
   text(summary,52,206,32,'#f7fbf9',700);
   const detail=low!==null?`露营夜间最低约 ${number(low)}°C；睡袋建议见下方。`:tents.length?'营地夜间预报不完整，暂不推算全程睡袋温标。':innOnly?'住店方案已列出，出发前确认房态与接驳。':'住宿方式待核；不把营地名称当作已确认的床位。';
   text(detail,52,247,20,'#d9e8e3',450,W-104);
   rect(28,292,W-56,routeH,'#e8efeb',22);
-  v.days.forEach((d,i)=>{const x=left+i*CW;if(i)line(x-18,309,x-18,292+routeH-16,'#cad9d0');text(`D${i+1}  ${d.date.slice(5).replace('-','/')}`,x,324,22,P.teal,650,CW-20);lines(routeLines[i],x,359,17,P.muted,24,CW-28);text((d.distance?'约 '+number(d.distance)+' km · ':'')+'阵风 '+unit(d.stats.gust,' m/s'),x,292+routeH-18,17,P.muted,500,CW-20);});
+  v.days.forEach((d,i)=>{const x=left+i*CW;if(i)line(x-18,309,x-18,292+routeH-16,'#cad9d0');text(`D${i+1}  ${d.date.slice(5).replace('-','/')}`,x,324,22,P.teal,650,CW-20);lines(routeLines[i],x,359,17,P.muted,24,CW-28);text((d.distance?'约 '+number(d.distance)+' km · ':'')+'阵风 '+dayUnit(d,'gust',' m/s'),x,292+routeH-18,17,P.muted,500,CW-20);});
   function card(y,h,title,index,subtitle){rect(28,y,W-56,h,P.white,24,P.border);text(index,50,y+42,16,P.teal,600,32);text(title,88,y+44,25,P.ink,650,410);text(subtitle,W-52,y+42,16,P.muted,400,W/2,'right');}
   const tx=i=>left+i*(right-left)/(24*N);
   function frame(y,h,ticks,lo,hi){const bot=y+h,toY=v=>bot-(v-lo)/(hi-lo)*h;
@@ -100,15 +105,15 @@ async function draw(v){
     text('24',right,bot+25,14,P.muted,400,36,'right');return {top:y,bot,toY};}
   const samples=v.days.flatMap(d=>d.series||Array.from({length:24},()=>[null,null,null,null,null,null,'']));
   function plot(field,f,color){c.save();c.beginPath();c.rect(left,f.top-2,right-left,f.bot-f.top+4);c.clip();for(let i=1;i<samples.length;i++){const a=samples[i-1],b=samples[i];if(a[field]===null||b[field]===null)continue;const changed=a[6]!==b[6];line(tx(i-1),f.toY(a[field]),tx(i),f.toY(b[field]),color||temperatureColor((a[field]+b[field])/2),changed?1.7:3.3,changed?[2,4]:[]);}c.restore();}
-  card(start,288,'温度','01','°C · 数字为全天范围');
-  v.days.forEach((d,i)=>text(d.stats.min===null?'缺测':`${number(d.stats.min)}～${number(d.stats.max)}°C`,left+i*CW+CW/2,start+83,27,d.stats.min===null?P.muted:temperatureTextColor(d.stats.min),600,CW-28,'center'));
+  card(start,288,'温度','01','°C · 当日沿途范围');
+  v.days.forEach((d,i)=>text(dayTemperature(d),left+i*CW+CW/2,start+83,27,d.stats.min===null?P.muted:temperatureTextColor(d.stats.min),600,CW-28,'center'));
   const ts=samples.map(r=>r[0]).filter(Number.isFinite),lo=Math.floor((Math.min(...ts,0)-2)/5)*5,hi=Math.ceil((Math.max(...ts,5)+2)/5)*5;
   plot(0,frame(start+107,137,Array.from({length:5},(_,i)=>lo+(hi-lo)*i/4),lo,hi));
-  card(start+304,264,'云量','02','% · 数字为 08:00—18:00 平均');
-  v.days.forEach((d,i)=>text(unit(d.stats.cloud,'%',0),left+i*CW+CW/2,start+387,27,'#596260',600,CW-28,'center'));
+  card(start+304,264,'云量','02','% · 当日平均');
+  v.days.forEach((d,i)=>text(dayUnit(d,'cloud','%',0),left+i*CW+CW/2,start+387,27,'#596260',600,CW-28,'center'));
   plot(1,frame(start+413,112,[0,50,100],0,100),P.grey);
   card(start+584,288,'降水','03','柱状：每小时雨雪折合水量 · mm');
-  v.days.forEach((d,i)=>{text(unit(d.stats.precip,' mm'),left+i*CW+CW/2,start+665,27,P.teal,650,CW-28,'center');text(`雨 ${unit(d.stats.rain,' mm')} · 雪 ${unit(d.stats.snow,' cm')}`,left+i*CW+CW/2,start+692,16,P.muted,450,CW-20,'center');});
+  v.days.forEach((d,i)=>{text(dayUnit(d,'precip',' mm'),left+i*CW+CW/2,start+665,27,P.teal,650,CW-28,'center');text(`雨 ${dayUnit(d,'rain',' mm')} · 雪 ${dayUnit(d,'snow',' cm')}`,left+i*CW+CW/2,start+692,16,P.muted,450,CW-20,'center');});
   const peak=Math.max(.3,...samples.map(r=>r[2]||0)),limit=Math.ceil(peak*2)/2;const pf=frame(start+714,112,[0,limit/2,limit],0,limit);
   samples.forEach((r,i)=>{if(r[2]!==null)rect(tx(i)+1.2,pf.toY(r[2]),(right-left)/(24*N)*.7,pf.bot-pf.toY(r[2]),'#247b72',2);});
   rect(28,bottomY,split,bottomH,P.white,24,P.border);rect(rx,bottomY,split,bottomH,P.white,24,P.border);
@@ -119,7 +124,7 @@ async function draw(v){
   if(tents.length){text('全程舒适温标：'+(tents.every(n=>n.comfort!==null)?'≤ '+number(Math.min(...tents.map(n=>n.comfort)))+'°C':'营地夜温待补齐'),50,footer,22,P.teal,650,split-44);lines(wrapped('区域夜温留 5°C 余量；配保暖睡垫，怕冷者另加。温标为预估，不是保暖保证。',split-44,17),50,footer+32,17,P.muted,25,split-44);}
   else lines(wrapped(innOnly?'住店方案无需露营睡袋；床品、供暖及接驳需另确认。':'营地住宿方式未明确，暂不给睡袋温标；请补齐营地与住宿信息。',split-44,19),50,footer,19,P.muted,28,split-44);
   text('不露营 · '+(v.alternate?'可选走法':innOnly?'当前走法':'资料待补'),rx+22,bottomY+45,25,P.ink,650,split-44);
-  if(v.alternate){let y=bottomY+85;v.alternate.days.forEach((d,i)=>{lines(altHeads[i],rx+22,y,20,P.ink,27,split-44);y+=altHeads[i].length*27;lines(altLines[i],rx+22,y,18,P.muted,23,split-44);y+=altLines[i].length*23+3;text(`${d.stats.min===null?'缺测':number(d.stats.min)+'～'+number(d.stats.max)+'°C'} · 云 ${unit(d.stats.cloud,'%',0)} · 雨雪 ${unit(d.stats.precip,' mm')}`,rx+22,y,17,P.teal,500,split-44);y+=34;});lines(wrapped('以上为来源记载的住店行程，房态与开放情况需另核。',split-44,17),rx+22,bottomY+bottomH-48,17,P.muted,24,split-44);}
+  if(v.alternate){let y=bottomY+85;v.alternate.days.forEach((d,i)=>{lines(altHeads[i],rx+22,y,20,P.ink,27,split-44);y+=altHeads[i].length*27;lines(altLines[i],rx+22,y,18,P.muted,23,split-44);y+=altLines[i].length*23+3;text(`${dayTemperature(d)} · 云 ${dayUnit(d,'cloud','%',0)} · 雨雪 ${dayUnit(d,'precip',' mm')}`,rx+22,y,17,P.teal,500,split-44);y+=34;});lines(wrapped('以上为来源记载的住店行程，房态与开放情况需另核。',split-44,17),rx+22,bottomY+bottomH-48,17,P.muted,24,split-44);}
   else lines(wrapped(innOnly?'逐日住处见左栏；客栈可能存在季节性停业，订房时一并确认。':'尚无可核对的住店替代行程。后台补查结果将在后续查询复用。',split-44,20),rx+22,bottomY+90,20,P.muted,30,split-44);
   lines(footerLines,50,bottomY+bottomH+38,17,P.muted,27,W-100);
   return finish();
