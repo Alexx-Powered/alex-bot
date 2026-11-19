@@ -6,8 +6,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { withHeavyWorkGuard } from './heavy-work.mjs';
 import { sanitizeContextText } from './chat-safety.mjs';
 import {recordTiming,setTraceMessage} from './telemetry.mjs';
+import {failureDetail} from './trace-diagnostics.mjs';
 import {timeoutNotice} from './timeout-notice.mjs';
-import {GROUP_FEATURES,defaultGroupFeatures,basicGroupFeatures,validGroupFeatures,normalizeGroupFeatures,MORNING_PART_FEATURES,MORNING_FEATURE_KEYS,isMorningFeature} from './group-features.mjs';
+import {GROUP_FEATURES,defaultGroupFeatures,basicGroupFeatures,validGroupFeatures,normalizeGroupFeatures,MORNING_PART_FEATURES,MORNING_FEATURE_KEYS,MORNING_MAX_RETRIES,isMorningFeature,
+  DEFAULT_CHAT_OFF_HELP_NOTE,HELP_NOTE_LIMITS,normalizeGroupHelpNote} from './group-features.mjs';
 import {DEFAULT_WAKE_WORDS,WAKE_WORD_LIMITS,validWakeWords,validDisabledWakeWords,normalizeWakeWord,validWakeWordText,wakeWordKey,parseGroupWake} from './wake-words.mjs';
 
 export const CORE_LIMITS = Object.freeze({
@@ -27,6 +29,8 @@ const GROUP_CONTEXT_SIZE = 10;
 const GROUP_CONTEXT_SEEN_LIMIT = 512;
 const MAX_PENDING_INCOMING = 4;
 const MAX_OFFICIAL_COMMANDS = 16;
+const GROUP_JOIN_MAX_AGE_MS = 10 * 60_000;
+const GROUP_JOIN_CLOCK_SKEW_MS = 30_000;
 const ownerControlCommands = new Set(['/pause', '/status']);
 const contextControl = text => text.startsWith('/') || /\/(?:pair|group-bind|pause|resume|status|notify|help|ping)\b/i.test(text) || ['帮助','菜单'].includes(text);
 function sendingLimits(overrides) {
@@ -48,11 +52,14 @@ const validGroupName = (value) => typeof value === 'string' && value.trim() === 
 const validGroupKey = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const validDeliveryDeadline = value => value===undefined || (Number.isSafeInteger(value)&&value>=0&&value<=8_640_000_000_000_000);
 const groupKeyFor = (id) => hash(`group:${id}`);
-const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white') => ({
-  name,groupKey:groupKeyFor(id),groupHint:`sha256:${groupKeyFor(id).slice(0,12)}`,
-  ...(id.match(/^qq_[1-9]\d+_g_([1-9]\d+)$/)?{groupNumber:id.split('_').at(-1)}:{}),
-  enabled,features:features??defaultGroupFeatures(access),disabledWakeWords:[...disabledWakeWords],
-});
+const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white', helpNotes={}) => {
+  const groupKey=groupKeyFor(id),helpNote=helpNotes[groupKey];
+  return {name,groupKey,groupHint:`sha256:${groupKey.slice(0,12)}`,
+    ...(id.match(/^qq_[1-9]\d+_g_([1-9]\d+)$/)?{groupNumber:id.split('_').at(-1)}:{}),
+    enabled,features:features??defaultGroupFeatures(access),disabledWakeWords:[...disabledWakeWords],
+    ...(helpNote!==undefined?{helpNote}:{}),
+  };
+};
 function restoreGroup(entry) {
   if (!entry || typeof entry!=='object' || Array.isArray(entry) ||
       Object.keys(entry).some(key=>!['id','name','enabled','features','disabledWakeWords'].includes(key)) ||
@@ -74,6 +81,10 @@ const knownDeliveryCodes = new Set([
   'SENDING', 'SENT', 'DELIVERY_UNCERTAIN', 'STORAGE_ERROR', 'RATE_LIMITED',
   'PERMISSION_DENIED', 'CONTENT_REJECTED', 'PLATFORM_REJECTED', 'FATAL_ERROR',
 ]);
+const validMorningAttempt=entry=>entry&&typeof entry==='object'&&!Array.isArray(entry)&&
+  Object.keys(entry).every(key=>['count','lastCode'].includes(key))&&
+  Number.isInteger(entry.count)&&entry.count>=1&&entry.count<=1+MORNING_MAX_RETRIES&&
+  (entry.lastCode===undefined||(typeof entry.lastCode==='string'&&failureDetail('morning',{code:entry.lastCode}).code===entry.lastCode));
 
 function initialState() {
   return {
@@ -127,11 +138,26 @@ function restoreState(raw) {
   const gray = raw.grayGroups === undefined ? [] : raw.grayGroups;
   if (!Array.isArray(gray) || gray.length > CORE_LIMITS.grayGroups || (gray.length && !raw.ownerId)) throw new Error('STATE_INVALID');
   const grayGroups=gray.map(restoreGroup);
-  if(new Set([...allowedGroups,...grayGroups].map(g=>g.id)).size!==allowedGroups.length+grayGroups.length)throw new Error('STATE_INVALID');
+  const allGroups=[...allowedGroups,...grayGroups];
+  if(new Set(allGroups.map(g=>g.id)).size!==allGroups.length)throw new Error('STATE_INVALID');
+  // Keep the group records readable by older releases during rollback.
+  const groupHelpNotes=raw.groupHelpNotes===undefined?{}:raw.groupHelpNotes;
+  if(!groupHelpNotes||typeof groupHelpNotes!=='object'||Array.isArray(groupHelpNotes))throw new Error('STATE_INVALID');
+  const helpNotes=Object.entries(groupHelpNotes),groupKeys=new Set(allGroups.map(g=>groupKeyFor(g.id)));
+  if(helpNotes.some(([key,note])=>!groupKeys.has(key)||typeof note!=='string'||normalizeGroupHelpNote(note)!==note))throw new Error('STATE_INVALID');
+  const removedOfficialGroups=raw.removedOfficialGroups===undefined?[]:raw.removedOfficialGroups;
+  if(!Array.isArray(removedOfficialGroups)||removedOfficialGroups.length>CORE_LIMITS.historySize||
+      removedOfficialGroups.some(entry=>!validGroupKey(entry?.key)||!Number.isSafeInteger(entry.at)||entry.at<0)||
+      new Set(removedOfficialGroups.map(entry=>entry.key)).size!==removedOfficialGroups.length)throw Error('STATE_INVALID');
   const wakeWords=raw.wakeWords===undefined?structuredClone(DEFAULT_WAKE_WORDS):raw.wakeWords;
   const wakeWordRevision=raw.wakeWordRevision??0;
   if (!validWakeWords(wakeWords)||!Number.isSafeInteger(wakeWordRevision)||wakeWordRevision<0||
-      [...allowedGroups,...grayGroups].some(g=>(g.disabledWakeWords||[]).some(id=>!wakeWords.some(w=>w.id===id)))) throw Error('STATE_INVALID');
+      allGroups.some(g=>(g.disabledWakeWords||[]).some(id=>!wakeWords.some(w=>w.id===id)))) throw Error('STATE_INVALID');
+  const morningAttempts=raw.morningAttempts;
+  if(morningAttempts!==undefined&&(!morningAttempts||typeof morningAttempts!=='object'||Array.isArray(morningAttempts)||
+      typeof morningAttempts.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(morningAttempts.date)||
+      Object.entries(morningAttempts).some(([part,entry])=>part!=='date'&&
+        (!Object.hasOwn(MORNING_PART_FEATURES,part)||!validMorningAttempt(entry)))))throw Error('STATE_INVALID');
   return {
     version: 1,
     ownerId: raw.ownerId,
@@ -143,26 +169,43 @@ function restoreState(raw) {
     lastDeliveryCode: raw.lastDeliveryCode ?? null,
     allowedGroups,
     grayGroups,
+    ...(helpNotes.length?{groupHelpNotes:Object.fromEntries(helpNotes)}:{}),
+    ...(removedOfficialGroups.length?{removedOfficialGroups:removedOfficialGroups.map(({key,at})=>({key,at}))}:{}),
+    ...(morningAttempts?{morningAttempts:structuredClone(morningAttempts)}:{}),
     wakeWords:structuredClone(wakeWords),wakeWordRevision,
   };
 }
 
 // Only return fixed categories. Upstream error text, URLs, message bodies and
 // credentials must never reach status(), persisted state or API responses.
-function classifyError(error) {
+function classifyError(error, official) {
   // Preserve the existing settled-ledger vocabulary so an older release can
   // still read the latest state during rollback. The API keeps the exact cause.
   if(error?.code==='QQ_REQUEST_EXPIRED'&&error?.messageAttempted===false)return {code:'REQUEST_EXPIRED',persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false};
   if(error?.timedOut===true){
     if(error.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false,timeoutText:'图片上传到QQ超时（120秒时限），图片消息尚未提交，请稍后重试'};
-    return {code:'DELIVERY_UNCERTAIN',pause:true,uncertain:true};
+    return {code:'DELIVERY_UNCERTAIN',pause:!official||error.code!=='QQ_SEND_TIMEOUT',uncertain:true};
   }
   if(error?.code==='QQ_SEND_CANCELLED'&&error?.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false};
+  if(official&&error?.code==='QQ_TARGET_PERMISSION_DENIED'){
+    return {code:error.code,persistedCode:'PERMISSION_DENIED',pause:false,uncertain:false};
+  }
+  if(official&&error?.code==='QQ_NOT_CONNECTED'&&error.messageAttempted===false){
+    return {code:'NOT_CONNECTED',persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false};
+  }
+  if(official&&error?.code==='QQ_SERVICE_UNAVAILABLE'){
+    return error.messageAttempted===false?
+      {code:error.code,persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false}:
+      {code:'DELIVERY_UNCERTAIN',pause:false,uncertain:true};
+  }
+  if(official&&error?.messageAttempted===false&&['QQ_UPLOAD_FAILED','QQ_UPLOAD_RESPONSE_INVALID','QQ_CONNECTION_CHANGED'].includes(error.code)){
+    return {code:'PLATFORM_REJECTED',pause:false,uncertain:false};
+  }
   const status = Number(error?.httpStatus ?? error?.status ?? error?.statusCode);
   const category = `${error?.code ?? ''} ${error?.kind ?? ''}`.toLowerCase().slice(0, 256);
   const bizCode = error?.bizCode;
   if (status === 429 || /rate.?limit|too.?many|\b429\b/.test(category)) {
-    return { code: 'RATE_LIMITED', pause: true, uncertain: false };
+    return { code: 'RATE_LIMITED', pause: !official||error?.code!=='QQ_RATE_LIMITED', uncertain: false };
   }
   if (status === 401 || status === 403 || /permission|forbidden|unauthori|auth.?fail/.test(category)) {
     return { code: 'PERMISSION_DENIED', pause: true, uncertain: false };
@@ -186,6 +229,7 @@ function classifyError(error) {
 
 /** Owner C2C notifications and explicitly allowed group replies share one serial queue. */
 export class BridgeCore {
+  #weatherAlertPermits=new WeakSet();
   #loadState;
   #saveState;
   #send;
@@ -197,6 +241,7 @@ export class BridgeCore {
   #candidate = null;
   #groupPairing = null;
   #groupCandidate = null;
+  #pendingGroupJoins = new Set();
   #commandHandler;
   #pauseRequested = false;
   #limits;
@@ -210,6 +255,7 @@ export class BridgeCore {
   #groupRestrictions = new Map();
   #groupRevisions = new Map();
   #morningRevisions = new Map();
+  #qqRateLimitUntil = new Map();
   #caller = new AsyncLocalStorage();
   #oneBotMode;
 
@@ -238,6 +284,7 @@ export class BridgeCore {
 
   #budgetCode(now, { reply = false, count = 1, target } = {}) {
     if (this.#oneBotMode === 'receive-only') return 'RECEIVE_ONLY';
+    if (this.#qqRateLimitUntil.get(target)>now) return 'RATE_LIMITED';
     const dayAttempts = this.#state.attempts.filter(entry => entry.day === hkDay(now)).length;
     if (reply && dayAttempts + count > this.#limits.dailyAttempts - this.#limits.reservedNotifications) return 'RATE_LIMIT_REPLY_DAY';
     if (dayAttempts + count > this.#limits.dailyAttempts) return 'RATE_LIMIT_DAY';
@@ -371,9 +418,13 @@ export class BridgeCore {
     return groupId===undefined || (this.groupEnabled(groupId) && this.groupFeatures(groupId)[feature]===true);
   }
 
-  canDeliver({groupId,requiredAccess='chat',requiredFeature,proactiveGroup=false,deliveryDeadline}={}) {
+  canDeliver({groupId,requiredAccess='chat',requiredFeature,proactiveGroup=false,deliveryDeadline,weatherAlertPermit}={}) {
     if(!validDeliveryDeadline(deliveryDeadline)||(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline))return false;
     if(!this.sendingEnabled())return false;
+    if(weatherAlertPermit!==undefined){
+      if(!this.#weatherAlertPermits.has(weatherAlertPermit)||!weatherAlertPermit.current())return false;
+      return groupId===undefined||(this.groupAccess(groupId)==='white'&&this.canUseFeature(groupId,'weather'));
+    }
     if(groupId===undefined)return true;
     return this.#groupCanDeliver(groupId,requiredAccess,requiredFeature,proactiveGroup);
   }
@@ -501,10 +552,11 @@ export class BridgeCore {
     return this.#ready && Boolean(this.#state.ownerId) && !this.#state.paused && !this.#pauseRequested;
   }
 
-  status() {
+  status({includeHelpNotes=true}={}) {
     const now = this.#time();
     const day = hkDay(now);
     const dailyAttempts = this.#state.attempts.filter(entry => entry.day === day).length;
+    const helpNotes=includeHelpNotes?this.#state.groupHelpNotes:undefined;
     return {
       ready: this.#ready,
       paired: Boolean(this.#state.ownerId),
@@ -522,11 +574,12 @@ export class BridgeCore {
       lastDeliveryCode: this.#state.lastDeliveryCode,
       uncertainDeliveries: this.#state.deliveries.filter((entry) => entry.state === 'uncertain' || entry.state === 'inFlight').length,
       groupCount: this.#state.allowedGroups.length,
-      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup(g,'white')),
+      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup(g,'white',helpNotes)),
       grayGroupCount:this.#state.grayGroups.length,
-      grayGroups:this.#state.grayGroups.map(g=>describeGroup(g,'gray')),
+      grayGroups:this.#state.grayGroups.map(g=>describeGroup(g,'gray',helpNotes)),
       groupFeatureCatalog:GROUP_FEATURES.filter(feature=>!feature.hidden),
       groupDefaultFeatures:basicGroupFeatures(),
+      groupHelpNote:{...HELP_NOTE_LIMITS,defaultWhenChatOff:DEFAULT_CHAT_OFF_HELP_NOTE},
       wakeWords:structuredClone(this.#state.wakeWords),wakeWordRevision:this.#state.wakeWordRevision,wakeWordLimits:WAKE_WORD_LIMITS,
       pendingGroupPairing: Boolean((this.#groupPairing && now < this.#groupPairing.expiresAt) ||
         (this.#groupCandidate && now < this.#groupCandidate.expiresAt)),
@@ -609,6 +662,7 @@ export class BridgeCore {
       // submits an explicit mask, initially the basic three features.
       next[key].push({ id: this.#groupCandidate.id, name: this.#groupCandidate.name,
         ...(features===undefined?{}:{enabled:true,features:normalizeGroupFeatures(features)}) });
+      if (!this.#oneBotMode && next.removedOfficialGroups) next.removedOfficialGroups=next.removedOfficialGroups.filter(entry=>entry.key!==groupKey);
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       this.#clearGroupPairing();
       return result(true, access==='gray'?'GRAY_GROUP_ALLOWED':'GROUP_ALLOWED', { status: this.status() });
@@ -628,6 +682,53 @@ export class BridgeCore {
       try {await this.#persist(next);} catch {return this.#storageFailed();}
       return result(true,'GROUP_ALLOWED',{status:this.status()});
     });
+  }
+
+  async recordOfficialGroupJoin({groupId, joinedAt, messageId, isCurrent} = {}) {
+    if (this.#oneBotMode) return result(false, 'GROUP_JOIN_UNSUPPORTED');
+    if (!validGroupId(groupId) || !Number.isSafeInteger(joinedAt) || typeof isCurrent !== 'function' ||
+        (messageId !== undefined && !validId(messageId))) {
+      return result(false, 'INVALID_INPUT');
+    }
+    const fromMessage=messageId!==undefined;
+    const age=this.#time()-joinedAt;
+    if (age < -GROUP_JOIN_CLOCK_SKEW_MS || age > GROUP_JOIN_MAX_AGE_MS) return result(false, 'GROUP_JOIN_EXPIRED');
+    const groupKey=groupKeyFor(groupId);
+    const eventKey=hash(fromMessage?`official-group-seen:${groupId}:${messageId}`:`official-group-join:${groupId}:${joinedAt}`);
+    const pendingKey=fromMessage?groupKey:eventKey;
+    if (this.#pendingGroupJoins.has(pendingKey) || this.#state.incoming.includes(eventKey)) return result(false, 'DUPLICATE');
+    if (this.#pendingGroupJoins.size >= CORE_LIMITS.allowedGroups) return result(false, 'BUSY');
+    this.#pendingGroupJoins.add(pendingKey);
+    try {
+      return await this.#enqueue(async () => {
+        if (!this.#ready || !this.#state.ownerId) return result(false, 'NOT_PAIRED');
+        if (!isCurrent()) return result(false, 'GROUP_JOIN_DISCONNECTED');
+        const exists = [...this.#state.allowedGroups, ...this.#state.grayGroups].some(group => group.id === groupId);
+        if (fromMessage && exists) return result(false, 'GROUP_ALREADY_ALLOWED');
+        const removal=this.#state.removedOfficialGroups?.find(entry=>entry.key===groupKey);
+        if (removal && (fromMessage || joinedAt<=removal.at)) return result(false,'GROUP_DISCOVERY_REMOVED');
+        const now=this.#time();
+        if (fromMessage && (this.#groupPairing?.expiresAt>now ||
+            (this.#groupCandidate?.id===groupId && this.#groupCandidate.expiresAt>now))) return result(false,'GROUP_PAIRING_ACTIVE');
+        if (!exists && this.#state.allowedGroups.length >= CORE_LIMITS.allowedGroups) return result(false, 'GROUP_LIMIT_REACHED');
+        const next = structuredClone(this.#state);
+        next.incoming = [...next.incoming, eventKey].slice(-CORE_LIMITS.historySize);
+        if (removal) next.removedOfficialGroups=next.removedOfficialGroups.filter(entry=>entry.key!==groupKey);
+        if (!exists) {
+          next.allowedGroups.push({
+            id: groupId,
+            name: '新加入群 · ' + groupKey.slice(0, 8),
+            enabled: false,
+            features: Object.fromEntries(GROUP_FEATURES.map(({key}) => [key, false])),
+          });
+        }
+        try { await this.#persist(next); } catch { return this.#storageFailed(); }
+        if (this.#groupCandidate?.id === groupId) this.#clearGroupPairing();
+        return result(true, exists ? 'GROUP_ALREADY_ALLOWED' : 'GROUP_JOIN_RECORDED');
+      }, false);
+    } finally {
+      this.#pendingGroupJoins.delete(pendingKey);
+    }
   }
 
   async changeWakeWord({operation,id,text,revision}={}) {
@@ -679,8 +780,10 @@ export class BridgeCore {
     } finally {this.#releaseRestriction(group.id,ticket);}
   }
 
-  async setGroupFeatures({groupKey,features,enabled}={}) {
+  async setGroupFeatures({groupKey,features,enabled,helpNote}={}) {
     if (!validGroupKey(groupKey) || !validGroupFeatures(features) || typeof enabled!=='boolean') return result(false,'INVALID_INPUT');
+    const normalizedNote=helpNote===undefined?undefined:normalizeGroupHelpNote(helpNote);
+    if (normalizedNote===null) return result(false,'GROUP_HELP_NOTE_INVALID');
     const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>groupKeyFor(g.id)===groupKey);
     if (!group) return result(false,'GROUP_NOT_FOUND');
     // Block admission and ongoing work before waiting for the serial queue.
@@ -694,6 +797,7 @@ export class BridgeCore {
         const current=[...next.allowedGroups,...next.grayGroups].find(g=>g.id===group.id);
         if (!current) return result(false,'GROUP_NOT_FOUND');
         current.enabled=enabled;current.features=normalized;
+        if (normalizedNote!==undefined) next.groupHelpNotes={...next.groupHelpNotes,[groupKey]:normalizedNote};
         try {await this.#persist(next);} catch {return this.#storageFailed();}
         return result(true,'GROUP_FEATURES_SAVED',{status:this.status()});
       });
@@ -712,6 +816,9 @@ export class BridgeCore {
       const next = structuredClone(this.#state);
       next.allowedGroups = next.allowedGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       next.grayGroups = next.grayGroups.filter(group => groupKeyFor(group.id) !== groupKey);
+      if (next.groupHelpNotes) delete next.groupHelpNotes[groupKey];
+      if (!this.#oneBotMode) next.removedOfficialGroups=[...(next.removedOfficialGroups??[]).filter(entry=>entry.key!==groupKey),
+        {key:groupKey,at:this.#time()}].slice(-CORE_LIMITS.historySize);
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       for (const id of this.#groupContexts.keys()) if (groupKeyFor(id) === groupKey) this.#groupContexts.delete(id);
       return result(true, 'GROUP_REMOVED', { status: this.status() });
@@ -812,6 +919,7 @@ export class BridgeCore {
       if (replyTarget?.scope !== 'group' || replyTarget.targetId !== groupId || replyTarget.msgId !== id) return result(false, 'GROUP_REPLY_TARGET_INVALID');
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
+      if (this.groupAccess(groupId) !== null && !this.groupEnabled(groupId)) return result(false, 'GROUP_DISABLED');
       if (this.#canRememberGroup(groupId)) {
         const { command, addressed } = this.#groupCommand(groupId,text, message.mentioned);
         if (addressed && this.#state.incoming.includes(hash(`incoming:group:${groupId}:${id}`))) return result(false, 'DUPLICATE');
@@ -823,7 +931,7 @@ export class BridgeCore {
         this.#observe(message,groupContext);
         // Ordinary allowed-group chatter never joins the expensive serial queue.
         if (!addressed || !command) return result(true, 'IGNORED');
-        if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
+        if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)&&!/^\/(?:(?:开启|关闭)\s*)?实时预警(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
         if(this.groupEnabled(groupId))setTraceMessage(text);
       } else if (!this.#groupPairing) return result(false, 'GROUP_DENIED');
     } else if (this.#ready && this.#state.ownerId && message?.kind === 'c2c') {
@@ -922,7 +1030,10 @@ export class BridgeCore {
     if(!isAllowed())return;
     const media = message.media || [];
     // Owner voice is processed once in the foreground after memory opt-out checks.
-    const data={text:message.kind==='group'?this.#groupCommand(message.groupId,message.text,message.mentioned).command:message.text,media:message.readVoiceTranscript?media.filter(a=>a.kind!=='audio'):media,eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
+    const {command, addressed} = message.kind === 'group'
+      ? this.#groupCommand(message.groupId, message.text, message.mentioned)
+      : {command: message.text, addressed: true};
+    const data={text:command,addressed,media:message.readVoiceTranscript?media.filter(a=>a.kind!=='audio'):media,eventKey:hash('social-event:'+message.kind+':'+(message.groupId||'')+':'+message.id)};
     try{Promise.resolve(this.observeMessage(data,{...context,eventKey:data.eventKey,isAllowed,
       allowsFeature:feature=>isAllowed()&&this.canUseFeature(message.groupId,feature)})).catch(()=>{});}catch{}
   }
@@ -956,7 +1067,7 @@ export class BridgeCore {
     if (!addressed || !command) return result(true, 'IGNORED');
     // No group participant, including the owner, may invoke private management
     // or inspect owner status through group commands. /help is a fixed menu.
-    if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
+    if (command.startsWith('/') && !['/ping', '/help'].includes(command)&&!/^\/(?:识图|记忆)(?:\s|$)/u.test(command)&&!/^\/(?:(?:开启|关闭)\s*)?实时预警(?:\s|$)/u.test(command)) return result(true, 'IGNORED');
     const incomingKey = hash(`incoming:group:${groupId}:${id}`);
     if (this.#state.incoming.includes(incomingKey)) return result(false, 'DUPLICATE');
     const next = structuredClone(this.#state);
@@ -970,7 +1081,8 @@ export class BridgeCore {
       if (budgetCode) return result(false,budgetCode);
       const {renderHelpImage}=await import('./help-image.mjs');
       if (!this.groupEnabled(groupId)||this.#groupRevisions.get(groupId)!==revision) return result(false,'GROUP_ACCESS_DENIED');
-      const image=renderHelpImage({features:this.groupFeatures(groupId),words:this.#enabledWakeWords(groupId).map(word=>word.text)});
+      const image=renderHelpImage({features:this.groupFeatures(groupId),words:this.#enabledWakeWords(groupId).map(word=>word.text),
+        helpNote:this.#state.groupHelpNotes?.[groupKeyFor(groupId)]});
       return this.#notify({
         image,requiredAccess:'chat',text:'本群使用指南',idempotencyKey:`reply:${incomingKey}`,
       }, target, groupId);
@@ -1011,6 +1123,26 @@ export class BridgeCore {
     // or MCP input can supply images, file paths, URLs or arbitrary recipients.
     if(image===undefined)return result(false,'INVALID_INPUT');
     return this.#enqueue(() => this.#notify({text:'',image,idempotencyKey}));
+  }
+
+  weatherAlertTargets(){
+    return [...(this.#state.ownerId?[{key:hash('chat-scope-c2c:'+this.#state.ownerId),scope:'c2c',name:'主人私聊',allowed:true}]:[]),
+      ...this.#state.allowedGroups.map(g=>({key:hash('chat-scope-group:'+g.id),groupKey:groupKeyFor(g.id),scope:'group',name:g.name,
+        allowed:this.groupEnabled(g.id)&&this.canUseFeature(g.id,'weather')}))];
+  }
+
+  /** A local subscription grant, never a recipient supplied by a model or QQ text. */
+  notifyWeatherAlert({targetKey,image,idempotencyKey,authorize,deliveryDeadline}={}){
+    const owner=this.#state.ownerId&&hash('chat-scope-c2c:'+this.#state.ownerId)===targetKey;
+    const group=this.#state.allowedGroups.find(g=>hash('chat-scope-group:'+g.id)===targetKey);
+    if((!owner&&!group)||typeof authorize!=='function')return Promise.resolve(result(false,'ALERT_TARGET_DENIED'));
+    const revision=this.#groupRevisions.get(group?.id),epoch=this.#pauseEpoch,ownerId=this.#state.ownerId;
+    const permit={current:()=>this.#pauseEpoch===epoch&&this.#state.ownerId===ownerId&&authorize()===true&&
+      (!group||this.#groupRevisions.get(group.id)===revision)};
+    this.#weatherAlertPermits.add(permit);
+    return this.#enqueue(()=>!permit.current()?result(false,'ALERT_CANCELLED'):
+      this.#notify({text:'',image,idempotencyKey,requiredFeature:'weather',deliveryDeadline,weatherAlertPermit:permit},undefined,group?.id,Boolean(group)))
+      .finally(()=>this.#weatherAlertPermits.delete(permit));
   }
 
   /** Explicitly authorized operation summaries only; recipients come from state. */
@@ -1056,6 +1188,33 @@ export class BridgeCore {
     }));
   }
 
+  // Claim before starting upstream work so a restart cannot reset the daily limit.
+  claimMorningAttempt(date,part,authorize) {
+    return this.#enqueue(async()=>{
+      if(!this.#ready||date!==hkDay(this.#time())||!Object.hasOwn(MORNING_PART_FEATURES,part)||!authorize()){
+        return result(false,'MORNING_CANCELLED');
+      }
+      const attempts=this.#state.morningAttempts?.date===date?this.#state.morningAttempts:{date};
+      const {count=0,lastCode}=attempts[part]??{};
+      if(count>=1+MORNING_MAX_RETRIES)return result(false,'MORNING_RETRIES_EXHAUSTED',{attempt:count,lastCode});
+      const attempt=count+1;
+      try{await this.#persist({...this.#state,morningAttempts:{...attempts,[part]:{count:attempt,...(lastCode?{lastCode}:{})}}});}
+      catch{return this.#storageFailed();}
+      return {ok:true,attempt};
+    },false);
+  }
+
+  recordMorningFailure(date,part,attempt,code) {
+    return this.#enqueue(async()=>{
+      const attempts=this.#state.morningAttempts;
+      if(!Object.hasOwn(MORNING_PART_FEATURES,part)||attempts?.date!==date||attempts[part]?.count!==attempt)return;
+      const lastCode=failureDetail('morning',{code}).code;
+      if(!lastCode||attempts[part].lastCode===lastCode)return;
+      try{await this.#persist({...this.#state,morningAttempts:{...attempts,[part]:{count:attempt,lastCode}}});}
+      catch{this.#storageFailed();}
+    },false);
+  }
+
   // Generation only: an unrelated settings save temporarily blocks sending,
   // but must not discard another unchanged morning part. The synchronous
   // per-part revision already invalidates closed/reopened or removed targets.
@@ -1097,7 +1256,7 @@ export class BridgeCore {
       if (this.#state.paused || this.#pauseRequested) return blocked('PAUSED');
       const budgetCode = this.#budgetCode(this.#time(), { count: needed });
       if (budgetCode) return blocked(budgetCode);
-      const results = []; let attempted = 0, sent = 0, stoppedCode = null;
+      const results = []; let attempted = 0, sent = 0, stoppedCode = null, targetDenial = null;
       for (const target of targets) {
         if (target.existing) { results.push(duplicate(target)); continue; }
         if(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline){
@@ -1114,13 +1273,16 @@ export class BridgeCore {
         if (delivery.code === 'SENT') sent++;
         results.push({ destination: target.destination, ok: delivery.ok, code: delivery.code,
           ...(delivery.deliveryState ? { deliveryState: delivery.deliveryState } : {}) });
-        if (!delivery.ok && delivery.code !== 'DUPLICATE') stoppedCode = delivery.code;
+        if(delivery.code==='QQ_TARGET_PERMISSION_DENIED') targetDenial=delivery.code;
+        else if (!delivery.ok && delivery.code !== 'DUPLICATE') stoppedCode = delivery.code;
       }
-      return result(stoppedCode === null, stoppedCode ?? 'SENT', { results, attempted, sent });
+      const failure=stoppedCode??targetDenial;
+      return result(failure===null, failure??'SENT', { results, attempted, sent });
     });
   }
 
   async #notify(input, replyTarget, groupId, proactiveGroup = false) {
+    if(input?.weatherAlertPermit!==undefined&&!this.canDeliver({groupId,weatherAlertPermit:input.weatherAlertPermit}))return result(false,'ALERT_CANCELLED');
     if(!validDeliveryDeadline(input?.deliveryDeadline))return result(false,'INVALID_INPUT');
     if(input?.deliveryDeadline!==undefined&&this.#time()>=input.deliveryDeadline)return result(false,'REQUEST_EXPIRED');
     const ticket = this.#officialRequest.getStore();
@@ -1130,7 +1292,7 @@ export class BridgeCore {
     if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
     if (groupId !== undefined) {
       if (!validGroupId(groupId) || this.groupAccess(groupId)===null) return result(false, 'GROUP_DENIED');
-      if(!this.#groupCanDeliver(groupId,input?.requiredAccess||((input?.image||input?.video)?'white':'chat'),input?.requiredFeature,proactiveGroup))return result(false,'GROUP_ACCESS_DENIED');
+      if(!input?.weatherAlertPermit&&!this.#groupCanDeliver(groupId,input?.requiredAccess||((input?.image||input?.video)?'white':'chat'),input?.requiredFeature,proactiveGroup))return result(false,'GROUP_ACCESS_DENIED');
       if (!proactiveGroup && (replyTarget?.scope !== 'group' || replyTarget.targetId !== groupId || !validId(replyTarget.msgId))) return result(false, 'GROUP_REPLY_TARGET_INVALID');
     }
     const { text, idempotencyKey, image, video } = input ?? {};
@@ -1165,15 +1327,18 @@ export class BridgeCore {
     // Persist the budget and key BEFORE any network call. A crash here favors
     // suppressing an uncertain notification over sending it twice.
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
-    let failure = null, receiptHash;
+    let failure = null, receiptHash, rejectedBizCode;
     try {
-      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.deliveryDeadline!==undefined?{deliveryDeadline:input.deliveryDeadline}:{}), ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
+      const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.weatherAlertPermit?{weatherAlertPermit:input.weatherAlertPermit}:{}), ...(input?.deliveryDeadline!==undefined?{deliveryDeadline:input.deliveryDeadline}:{}), ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
       if (response?.ok === false) throw response;
       if (this.#oneBotMode) {
         if (response?.ok !== true || !/^[a-f0-9]{64}$/.test(response.receiptHash ?? '')) throw Error('ONEBOT_DELIVERY_UNKNOWN');
         receiptHash = response.receiptHash;
       }
-    } catch (error) { failure = classifyError(error); }
+    } catch (error) {
+      failure = classifyError(error,!this.#oneBotMode);
+      rejectedBizCode = error?.bizCode;
+    }
     const finished = structuredClone(this.#state);
     const record = finished.deliveries.find((entry) => entry.key === key);
     if (receiptHash) record.receiptHash = receiptHash;
@@ -1194,6 +1359,18 @@ export class BridgeCore {
       pending.code = 'DELIVERY_UNCERTAIN';
       this.#state.lastDeliveryCode = 'STORAGE_ERROR';
       return this.#storageFailed();
+    }
+    if(failure?.code==='RATE_LIMITED'&&!failure.pause){
+      const now=this.#time();
+      for(const [id,until] of this.#qqRateLimitUntil)if(until<=now)this.#qqRateLimitUntil.delete(id);
+      this.#qqRateLimitUntil.set(target,now+60_000);
+    }
+    if(failure?.code==='QQ_TARGET_PERMISSION_DENIED'&&groupId!==undefined){
+      const group=[...finished.allowedGroups,...finished.grayGroups].find(entry=>entry.id===groupId);
+      const groupHint=hint(groupId);
+      const detail={code:failure.code,groupHint,bizCode:rejectedBizCode};
+      recordTiming('qq_group_permission',0,{status:'error',error:detail});
+      console.warn('[qq_group_permission] '+JSON.stringify({...detail,groupName:group?.name,reason:'请检查该群的 QQ 发送权限及机器人成员状态'}));
     }
     if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress) this.#rememberGroup(groupId, {
       key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: video ? '[已发送动态天气视频]' : image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,

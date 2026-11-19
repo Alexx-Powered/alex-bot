@@ -11,6 +11,9 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const OPENID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const TERMINAL_CODES = new Set(['GATEWAY_FATAL_CLOSE', 'GATEWAY_RETRY_EXHAUSTED']);
+const GROUP_PERMISSION_CODES = new Set([40034101, 40054002, 40054003]);
+const NETWORK_FAILURES = new Set(['ECONNRESET','ECONNREFUSED','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','ENOTFOUND','EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','UND_ERR_SOCKET']);
 // Used only to stop a later @ copy from re-admitting a command already received
 // through an alias. BridgeCore remains responsible for routing and permissions.
 const ALIAS_ADDRESS = /^(?:梁圣|梁祖|梁嗨|小难梁|大肥鱼)\s+\S/u;
@@ -31,7 +34,7 @@ export class QQAdapterError extends Error {
   }
 }
 
-function safeError(error, fallback) {
+function safeError(error, fallback, scope) {
   const closeCode = Number.isInteger(error?.closeCode) ? error.closeCode : undefined;
   if (closeCode === 4915) return new QQAdapterError('QQ_BOT_BANNED', { kind: 'blocked', fatal: true });
   if (closeCode === 4914) return new QQAdapterError('QQ_BOT_UNAVAILABLE', { kind: 'blocked', fatal: true });
@@ -45,11 +48,17 @@ function safeError(error, fallback) {
   const bizCode = error?.bizCode;
   const details = { httpStatus, bizCode };
   if(error?.name==='TimeoutError'||error?.name==='AbortError'||/^Request timeout \[/u.test(error?.message||''))return new QQAdapterError('QQ_HTTP_TIMEOUT',{...details,timedOut:true});
-  if (httpStatus === 429 || bizCode === 50002) {
+  if (httpStatus === 429 || bizCode === 50002 || bizCode === 40034100) {
     return new QQAdapterError('QQ_RATE_LIMITED', { ...details, kind: 'rate_limited' });
+  }
+  if (scope && httpStatus !== 401 && (bizCode === 40034105 || (scope === 'group' && GROUP_PERMISSION_CODES.has(bizCode)))) {
+    return new QQAdapterError('QQ_TARGET_PERMISSION_DENIED', details);
   }
   if (httpStatus === 401 || httpStatus === 403 || bizCode === 40034105) {
     return new QQAdapterError('QQ_PERMISSION_DENIED', { ...details, kind: 'permission_denied' });
+  }
+  if (httpStatus === 0 || (httpStatus >= 500 && httpStatus <= 599) || NETWORK_FAILURES.has(error?.code) || NETWORK_FAILURES.has(error?.cause?.code)) {
+    return new QQAdapterError('QQ_SERVICE_UNAVAILABLE', details);
   }
   return new QQAdapterError(fallback, details);
 }
@@ -115,6 +124,7 @@ export function imageBase64(image) {
 /** Official QQ API transport only. The caller owns pairing, quotas and policy. */
 export class QQAdapter {
   #onMessage;
+  #onGroupJoin;
   #onStatus;
   #createBot;
   #now;
@@ -126,13 +136,16 @@ export class QQAdapter {
   #current = { state: 'disconnected', code: null };
   #observed = new Map();
   #lastGroupDiagnostic = null;
+  #lastGroupJoin = null;
+  #lastGroupObservation = null;
   #lastSendDiagnostic = null;
 
-  constructor({ onMessage = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true,
+  constructor({ onMessage = () => {}, onGroupJoin = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true,
     groupAddressed = (_groupId,text) => ALIAS_ADDRESS.test(text.trim()) } = {}) {
     if (typeof canSend !== 'function') throw new TypeError('INVALID_SEND_GUARD');
     if (typeof groupAddressed !== 'function') throw new TypeError('INVALID_GROUP_ADDRESS_GUARD');
     this.#onMessage = onMessage;
+    this.#onGroupJoin = onGroupJoin;
     this.#onStatus = onStatus;
     this.#createBot = createBot;
     this.#now = now;
@@ -144,9 +157,11 @@ export class QQAdapter {
     return { ...this.#current };
   }
 
-  /** Addressing diagnostics only, never IDs, content, names or authorization. */
+  /** Event metadata only, never IDs, content, names or authorization. */
   diagnostics() {
     return { lastGroup: this.#lastGroupDiagnostic ? { ...this.#lastGroupDiagnostic } : null,
+      ...(this.#lastGroupJoin?{lastGroupJoin:{...this.#lastGroupJoin}}:{}),
+      ...(this.#lastGroupObservation?{lastGroupObservation:{...this.#lastGroupObservation}}:{}),
       ...(this.#lastSendDiagnostic?{lastSend:{...this.#lastSendDiagnostic}}:{}) };
   }
 
@@ -163,6 +178,8 @@ export class QQAdapter {
     this.#botMentionId = null;
     this.#observed.clear();
     this.#lastGroupDiagnostic = null;
+    this.#lastGroupJoin = null;
+    this.#lastGroupObservation = null;
     // SDK 1.0.5 stop() is synchronous and aborts its background connection.
     try { old?.stop(); } catch {}
   }
@@ -180,8 +197,8 @@ export class QQAdapter {
         baseUrl: 'https://api.bot.qq.com',
         tokenBaseUrl: 'https://api.bot.qq.com',
         markdownSupport: false,
-        // QQ exposes C2C and group events through the same intent bit. Only
-        // explicit group @ events pass below; guild/interaction APIs are unused.
+        // QQ exposes C2C messages, group messages and group joins through
+        // the same intent bit. No new gateway subscription is needed.
         intents: 1 << 25,
         reconnect: { maxAttempts: 3, delays: [1000, 5000, 15000] },
         logger: NOOP_LOGGER,
@@ -189,6 +206,7 @@ export class QQAdapter {
       this.#bot = bot;
       this.#botMentionId = isId(appId) ? appId : null;
       const active = () => this.#generation === generation && this.#bot === bot;
+      const isCurrent = () => active() && this.#current.state === 'connected';
       const ready = () => {
         if (active() && this.#current.state !== 'blocked') this.#emitStatus('connected');
       };
@@ -211,11 +229,41 @@ export class QQAdapter {
         if (failure.fatal) { try { bot.stop(); } catch {} }
       });
       bot.on('message', async (_ctx, message) => {
-        if (!active() || this.#current.state !== 'connected') return;
+        if (!isCurrent()) return;
         const normalized = this.#normalize(message);
         if (!normalized) return;
-        try { await this.#onMessage(normalized.message, normalized.expiresAt); } catch {
+        try {
+          if (normalized.message.kind==='group') {
+            const observation=this.#onGroupJoin({groupId:normalized.message.groupId,
+              joinedAt:normalized.issuedAt,messageId:normalized.message.id,isCurrent});
+            if (observation) {
+              const diagnostic={rawType:message.rawEventType,receivedAt:this.#now(),decision:'pending'};
+              this.#lastGroupObservation=diagnostic;
+              const outcome=await observation;
+              diagnostic.decision=outcome?.code||'ignored';
+              if (!isCurrent() || (outcome && outcome.code!=='GROUP_PAIRING_ACTIVE')) return;
+            }
+          }
+          await this.#onMessage(normalized.message, normalized.expiresAt);
+        } catch {
           if (active() && this.#current.state !== 'blocked') this.#emitStatus(this.#current.state, 'QQ_MESSAGE_HANDLER_FAILED');
+        }
+      });
+      bot.on('rawEvent', async (event) => {
+        if (!active() || event?.eventType !== 'GROUP_ADD_ROBOT') return;
+        const {group_openid: groupId, timestamp} = event.data ?? {};
+        const diagnostic={receivedAt:this.#now(),timestampType:typeof timestamp,decision:'invalid'};
+        this.#lastGroupJoin=diagnostic;
+        if (!isCurrent()) { diagnostic.decision='disconnected';return; }
+        const seconds=typeof timestamp==='string'&&/^\d{1,10}$/.test(timestamp)?Number(timestamp):timestamp;
+        if (!isId(groupId) || !Number.isSafeInteger(seconds) || seconds <= 0) return;
+        try {
+          diagnostic.decision='pending';
+          const outcome=await this.#onGroupJoin({groupId,joinedAt:seconds*1000,isCurrent});
+          diagnostic.decision=outcome?.code||'ignored';
+        } catch {
+          diagnostic.decision='failed';
+          if (isCurrent()) this.#emitStatus(this.#current.state, 'QQ_GROUP_JOIN_HANDLER_FAILED');
         }
       });
       // start() lives until shutdown. Do not await it as a connection request.
@@ -314,7 +362,7 @@ export class QQAdapter {
       ...(media.length?{media}:{}),
       replyTarget: { scope, targetId, msgId: message.messageId },
     };
-    return { message: normalized, expiresAt: this.#observed.get(key).expiresAt };
+    return { message: normalized, issuedAt, expiresAt: this.#observed.get(key).expiresAt };
   }
 
   #target(ownerId, replyTarget, groupId, proactiveGroup = false) {
@@ -337,14 +385,14 @@ export class QQAdapter {
     return target;
   }
 
-  async send({ ownerId, text, replyTarget, image, video, groupId, requiredFeature, proactiveGroup = false, requiredAccess = 'chat', richMedia = false, deliveryDeadline } = {}) {
+  async send({ ownerId, text, replyTarget, image, video, groupId, requiredFeature, proactiveGroup = false, requiredAccess = 'chat', richMedia = false, deliveryDeadline, weatherAlertPermit } = {}) {
     if(deliveryDeadline!==undefined&&(!Number.isSafeInteger(deliveryDeadline)||deliveryDeadline<0||deliveryDeadline>8_640_000_000_000_000))throw new QQAdapterError('QQ_DELIVERY_DEADLINE_INVALID');
     if (!isId(ownerId)) throw new QQAdapterError('QQ_OWNER_INVALID');
     if (typeof text !== 'string' || text.length > MAX_TEXT_LENGTH ||
         (image === undefined && video === undefined && !text.trim())) throw new QQAdapterError('QQ_TEXT_INVALID');
     if(video!==undefined&&(!validVideo(video)||image!==undefined||richMedia))throw new QQAdapterError('QQ_VIDEO_INVALID');
     if(typeof richMedia!=='boolean'||(richMedia&&(image===undefined||!text.trim())))throw new QQAdapterError('QQ_TEXT_INVALID');
-    if (!this.#bot || this.#current.state !== 'connected') throw new QQAdapterError('QQ_NOT_CONNECTED');
+    if (!this.#bot || this.#current.state !== 'connected') throw new QQAdapterError('QQ_NOT_CONNECTED', {messageAttempted:false});
     // Only BridgeCore's explicit local broadcast method sets proactiveGroup;
     // public notifications and Python/chat tool results cannot supply it.
     const authorizedTarget = this.#target(ownerId, replyTarget, groupId, proactiveGroup);
@@ -361,7 +409,7 @@ export class QQAdapter {
     let phase = fileData === null ? 'send' : 'upload';
     let messageAttempted = false;
     const assertSendAllowed=()=>{
-      const allowed=this.#canSend({groupId,proactiveGroup,requiredAccess,...(requiredFeature?{requiredFeature}:{}),...(deliveryDeadline!==undefined?{deliveryDeadline}:{})})===true;
+      const allowed=this.#canSend({groupId,proactiveGroup,requiredAccess,...(weatherAlertPermit?{weatherAlertPermit}:{}),...(requiredFeature?{requiredFeature}:{}),...(deliveryDeadline!==undefined?{deliveryDeadline}:{})})===true;
       if(deliveryDeadline!==undefined&&this.#now()>=deliveryDeadline)throw new QQAdapterError('QQ_REQUEST_EXPIRED');
       if(!allowed)throw new QQAdapterError('QQ_SEND_CANCELLED');
     };
@@ -400,7 +448,7 @@ export class QQAdapter {
       // Upload success alone never reaches this return. Neither phase retries.
       return { ok: true };
     } catch (error) {
-      const normalized = error instanceof QQAdapterError ? error : safeError(error, phase === 'upload' ? 'QQ_UPLOAD_FAILED' : 'QQ_SEND_FAILED');
+      const normalized = error instanceof QQAdapterError ? error : safeError(error, phase === 'upload' ? 'QQ_UPLOAD_FAILED' : 'QQ_SEND_FAILED',authorizedTarget.scope);
       const failure = new QQAdapterError(normalized.timedOut?(phase==='upload'?'QQ_UPLOAD_TIMEOUT':'QQ_SEND_TIMEOUT'):normalized.code, { ...normalized, phase, messageAttempted });
       this.#lastSendDiagnostic={at:new Date(this.#now()).toISOString(),scope:authorizedTarget.scope,
         code:failure.code,phase,messageAttempted,...(failure.httpStatus!==undefined?{httpStatus:failure.httpStatus}:{}),

@@ -166,7 +166,7 @@ test('API failures expose numeric classification only and are never retried', as
   bot.sendError = Object.assign(new Error('secret-token and private QQ text'), { httpStatus: 403, bizCode: 40034105, path: '/private-user-id' });
   await assert.rejects(f.adapter.send({ ownerId: 'OWNER_OPENID', text: 'report' }), (error) => {
     assert.ok(error instanceof QQAdapterError);
-    assert.equal(error.code, 'QQ_PERMISSION_DENIED');
+    assert.equal(error.code, 'QQ_TARGET_PERMISSION_DENIED');
     assert.equal(error.httpStatus, 403);
     assert.equal(error.bizCode, 40034105);
     assert.equal(error.cause, undefined);
@@ -331,7 +331,7 @@ test('image upload rejection or timeout never sends a message or retries the upl
   for (const [error, code] of [
     [Object.assign(new Error('private raw upload error'), { httpStatus: 403 }), 'QQ_PERMISSION_DENIED'],
     [Object.assign(new Error('private raw upload error'), { httpStatus: 429 }), 'QQ_RATE_LIMITED'],
-    [Object.assign(new Error('private raw upload timeout'), { httpStatus: 0 }), 'QQ_UPLOAD_FAILED'],
+    [Object.assign(new Error('private raw upload timeout'), { httpStatus: 0 }), 'QQ_SERVICE_UNAVAILABLE'],
   ]) {
     await t.test(code, async () => {
       const f = fixture(); const bot = await f.connect();
@@ -441,7 +441,7 @@ test('installed SDK sends empty-text images with no content field and one reques
   } });
   await adapter.connect({ appId: 'test-only', appSecret: 'test-only' });
   await fake.emit('ready');
-  await assert.rejects(adapter.send({ ownerId: 'OWNER_OPENID', text: '', image: { buffer: PNG, mimeType: 'image/png' } }), { code: 'QQ_SEND_FAILED', phase: 'send', messageAttempted: true });
+  await assert.rejects(adapter.send({ ownerId: 'OWNER_OPENID', text: '', image: { buffer: PNG, mimeType: 'image/png' } }), { code: 'QQ_SERVICE_UNAVAILABLE', phase: 'send', messageAttempted: true });
   assert.equal(requests.length, 2);
   assert.equal(requests[0].path, '/v2/users/OWNER_OPENID/files');
   assert.equal(requests[0].body.srv_send_msg, false);

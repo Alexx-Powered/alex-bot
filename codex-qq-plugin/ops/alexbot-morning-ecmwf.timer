@@ -1,0 +1,10 @@
+[Unit]
+Description=Fetch tomorrow's overnight ECMWF hours at 22:55 Beijing
+
+[Timer]
+OnCalendar=*-*-* 22:55:00 Asia/Shanghai
+Persistent=false
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

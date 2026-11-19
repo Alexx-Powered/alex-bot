@@ -2,6 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { failureDetail } from './trace-diagnostics.mjs';
 
 export const BRIDGE_ORIGIN = 'http://127.0.0.1:19327';
 const DEFAULT_HOME = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,7 +12,7 @@ const WEATHER_ERROR_CODES = new Set(['LOCATION_AMBIGUOUS', 'LOCATION_NOT_FOUND',
 const CODES = new Set([
   'MORNING_NOT_DUE','NO_MORNING_GROUPS','MORNING_REPORT_INVALID','MORNING_REPORT_FAILED',
   'MORNING_PREPARED','MORNING_DATA_INCOMPLETE','MORNING_CANCELLED','CAMPUS_REPORT_FAILED',
-  'MORNING_WINDOW_ENDED','GROUP_MORNING_UNAVAILABLE','CAMPUS_IMAGE_MISSING',
+  'MORNING_WINDOW_ENDED','MORNING_RETRIES_EXHAUSTED','GROUP_MORNING_UNAVAILABLE','CAMPUS_IMAGE_MISSING',
   'OK', 'SENT', 'DUPLICATE', 'NOT_CONFIGURED', 'NOT_CONNECTED', 'NOT_PAIRED',
   'OWNER_NOT_PAIRED', 'PAUSED', 'RATE_LIMITED', 'DAILY_LIMIT', 'DAILY_LIMIT_REACHED',
   'RECEIVE_ONLY','PILOT_GROUP_LIMIT','PILOT_BROADCAST_DISABLED','REQUEST_EXPIRED','RATE_LIMIT_TARGET','RATE_LIMIT_CALLER',
@@ -25,7 +26,7 @@ const CODES = new Set([
   'PERMISSION_DENIED', 'PLATFORM_REJECTED', 'FATAL_ERROR', 'SENDING',
   'RATE_LIMIT_DAY', 'RATE_LIMIT_REPLY_DAY', 'RATE_LIMIT_MINUTE', 'HISTORY_FULL', 'NOT_ATTEMPTED', 'MORNING_NOT_ENABLED', 'MORNING_ANALYSIS_UNAVAILABLE',
   'QQ_BOT_BANNED', 'QQ_BOT_UNAVAILABLE', 'QQ_RECONNECT_EXHAUSTED',
-  'QQ_GATEWAY_STOPPED', 'QQ_RATE_LIMITED', 'QQ_PERMISSION_DENIED',
+  'QQ_GATEWAY_STOPPED', 'QQ_RATE_LIMITED', 'QQ_PERMISSION_DENIED', 'QQ_TARGET_PERMISSION_DENIED', 'QQ_SERVICE_UNAVAILABLE',
   'QQ_DISCONNECTED', 'QQ_CONNECTION_ERROR', 'QQ_MESSAGE_HANDLER_FAILED',
   'QQ_CONNECTION_ENDED', 'QQ_CONNECT_FAILED',
 ]);
@@ -94,6 +95,20 @@ export function projectNotify(body) {
     if (typeof body[key] === 'boolean') result[key] = body[key];
   }
   if (['inFlight', 'sent', 'rejected', 'uncertain'].includes(body.deliveryState)) result.deliveryState = body.deliveryState;
+  return result;
+}
+
+function projectGroupMorning(body) {
+  const result=projectNotify(body);
+  result.code=failureDetail('morning',{code:body.code}).code??result.code;
+  for(const key of ['attempted','sent','prepared']){
+    if(Number.isSafeInteger(body[key])&&body[key]>=0)result[key]=body[key];
+  }
+  if(Array.isArray(body.failedParts)){
+    result.failedParts=body.failedParts.slice(0,2).filter(row=>row?.part==='weather'||row?.part==='campus')
+      .map(({part,code})=>({part,code:failureDetail('morning',{code}).code??safeCode(code)??'UNKNOWN'}));
+  }
+  if(typeof body.failureNotice?.ok==='boolean')result.failureNotice=projectNotify(body.failureNotice);
   return result;
 }
 
@@ -201,15 +216,18 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
 
   return Object.freeze({
     async status() { return projectStatus(await request('/api/status')); },
+    async morningWeatherGroups() {
+      const body=await request('/api/status');
+      const count=body?.groupMorning?.weatherGroups;
+      if(body?.ok!==true||!Number.isSafeInteger(count)||count<0)throw new BridgeClientError('BRIDGE_INVALID_RESPONSE');
+      return count;
+    },
     async groupMorning() {
-      const data=await request('/api/group/morning/run',{},900_000);
-      const result=projectNotify(data);
-      for (const key of ['attempted','sent']) if (Number.isSafeInteger(data[key])&&data[key]>=0) result[key]=data[key];
-      return result;
+      return projectGroupMorning(await request('/api/group/morning/run',{},900_000));
     },
     async prepareGroupMorning() {
-      const data=await request('/api/group/morning/prepare',{},600_000);
-      return {...projectNotify(data),prepared:Number.isSafeInteger(data.prepared)?data.prepared:0};
+      const data=await request('/api/group/morning/prepare',{},930_000);
+      return {prepared:0,...projectGroupMorning(data)};
     },
     async weatherPreview({cities=['beijing']}={}) {
       if(!Array.isArray(cities)||cities.length<1||cities.length>2||cities.some(c=>!validCityQuery(c))) throw new BridgeClientError('BRIDGE_INVALID_INPUT');
@@ -223,6 +241,13 @@ export function createBridgeClient({ home = process.env.QQ_BRIDGE_HOME || DEFAUL
       if(!['daily','test'].includes(mode)||(cities!==undefined&&(!Array.isArray(cities)||cities.length<1||cities.length>2||cities.some(c=>!validCityQuery(c))))) throw new BridgeClientError('BRIDGE_INVALID_INPUT');
       const data=await request('/api/weather/briefing',{mode,...(cities===undefined?{}:{cities})});
       return projectWeatherError(data) ?? projectNotify(data);
+    },
+    async morningWeatherTest({idempotencyKey}={}) {
+      if(typeof idempotencyKey!=='string'||!/^[a-zA-Z0-9._:-]{1,64}$/.test(idempotencyKey))throw new BridgeClientError('BRIDGE_INVALID_INPUT');
+      const data=await request('/api/weather/briefing',{mode:'test',scheduledMorning:true,idempotencyKey},135_000);
+      return {...projectNotify(data),
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(data.date??'')?{date:data.date}:{}),
+        ...(['cams_global','gefs_aerosols'].includes(data.pm25Source)?{pm25Source:data.pm25Source}:{})};
     },
     async notify({ text, idempotencyKey }) {
       if (typeof text !== 'string' || !text.trim() || text.length > 1500

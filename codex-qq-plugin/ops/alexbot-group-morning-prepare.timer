@@ -1,8 +1,8 @@
 [Unit]
-Description=Prepare opted-in morning reports at 07:28 Beijing
+Description=Prepare opted-in morning reports at 07:25 Beijing
 
 [Timer]
-OnCalendar=*-*-* 07:28:00 Asia/Shanghai
+OnCalendar=*-*-* 07:25:00 Asia/Shanghai
 Persistent=false
 AccuracySec=1s
 Unit=alexbot-group-morning-prepare.service

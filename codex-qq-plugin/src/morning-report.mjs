@@ -2,14 +2,21 @@ import {morningPlan} from './morning-calendar.mjs';
 import {renderMorningChart} from './morning-chart.mjs';
 import {withHeavyWork} from './heavy-work.mjs';
 import {ScheduledMorningWeather} from './morning-weather.mjs';
+import {measureSpan} from './telemetry.mjs';
 export class MorningReportService{
-  constructor({commands,scheduledCommands,worker,now=Date.now,chart=renderMorningChart}){Object.assign(this,{commands,worker,now,chart});this.scheduledCommands=scheduledCommands??new ScheduledMorningWeather(commands);}
+  constructor({commands,scheduledCommands,home,worker,now=Date.now,chart=renderMorningChart}){Object.assign(this,{commands,worker,now,chart});this.scheduledCommands=scheduledCommands??new ScheduledMorningWeather(commands,{home});}
   plan(){return morningPlan(this.now());}
-  async create({scheduledMorning=false}={}){
+  async create({scheduledMorning=false,retrySources=true,backupWeather=true,visualCrossingWeather=false}={}){
     const now=this.now(),plan=morningPlan(now);
-    const brief=await (scheduledMorning===true?this.scheduledCommands:this.commands).briefing({cities:[plan.city],renderImage:false,includeData:true});
+    const brief=await (scheduledMorning===true?this.scheduledCommands:this.commands).briefing({cities:[plan.city],renderImage:false,includeData:true,
+      ...(scheduledMorning===true&&retrySources===false?{retrySources:false}:{}),
+      ...(scheduledMorning===true?{backupWeather}:{}),
+      ...(scheduledMorning===true&&visualCrossingWeather===true?{visualCrossingWeather:true}:{})});
     if(brief.date!==plan.date||brief.cities[0]!==plan.city)throw new Error('MORNING_DATE_CITY_CHANGED');
-    if(scheduledMorning===true&&brief.morningQuality?.complete!==true)throw Object.assign(new Error('MORNING_DATA_INCOMPLETE'),{code:'MORNING_DATA_INCOMPLETE',morningQuality:brief.morningQuality??{complete:false,missing:['weather','air'],retried:[]}});
+    if(scheduledMorning===true&&brief.morningQuality?.complete!==true)throw Object.assign(new Error('MORNING_DATA_INCOMPLETE'),{
+      code:'MORNING_DATA_INCOMPLETE',morningQuality:brief.morningQuality??{complete:false,missing:['weather','air'],retried:[]},
+      retryable:brief.retryable===true,causeCode:brief.causeCode,httpStatus:brief.httpStatus,
+    });
     const input=brief.inputs;
     const data={now:new Date(now).toISOString(),...plan,weather:input.weather[0],air:input.air};
     let analysis;
@@ -22,7 +29,9 @@ export class MorningReportService{
         return r.report;
       });
     }catch{analysis={date:plan.date,city:plan.city,title:'运动建议暂不可用',summary:'分析服务未完成，暂不推荐户外运动时段。',windows:[],recommendation:null,notes:['运动分析暂不可用']};}
-    const image=await withHeavyWork(()=>this.chart({inputs:input,analysis,plan}));
-    return {ok:true,date:plan.date,cities:[plan.city],text:`${plan.cityName}早安日报：今日天气与户外指数。`,image,analysis,plan,...(brief.morningQuality?{morningQuality:brief.morningQuality}:{})};
+    const image=await withHeavyWork(()=>measureSpan('weather_render',()=>this.chart({inputs:input,analysis,plan})));
+    return {ok:true,date:plan.date,cities:[plan.city],text:`${plan.cityName}早安日报：今日天气与户外指数。`,image,analysis,plan,
+      ...(brief.morningQuality?{morningQuality:brief.morningQuality,
+        pm25Source:input.air?.source?.model==='gefs_aerosols'?'gefs_aerosols':'cams_global'}:{})};
   }
 }

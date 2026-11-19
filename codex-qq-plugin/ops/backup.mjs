@@ -16,6 +16,7 @@ try{
     const home='/var/lib/alexbot';
     const names=['.private/credentials.json','.private/agent-config.json','.private/campus-config.json','.private/campus-session.json','.private/monitoring-config.json','.private/social-config.json','.private/admin-token','.private/integration-token','.private/state.json','.private/model-budget.json','.private/campus-output/latest.json','.private/campus-output/memory.json','config/send-limits.json','config/chat-policy.md','config/morning-report.json'];
     for(const name of await fs.readdir(path.join(home,'.private/morning-scheduler')))if(/^\d{4}-\d{2}-\d{2}\.json$/.test(name))names.push('.private/morning-scheduler/'+name);
+    names.push('.private/weather-alerts.json');
     const files={};
     for(const name of names){try{const raw=await fs.readFile(path.join(home,name));if(raw.length>2_000_000)throw Error('OVERSIZE');files[name]=raw.toString('base64');}catch(e){if(e.code!=='ENOENT')throw e;}}
     const snapshot=await promisify(execFile)('/opt/alex-bot-runtime/python/app-venv/bin/python',[fileURLToPath(new URL('../python/chat_memory_snapshot.py',import.meta.url))],{maxBuffer:6*1024*1024,timeout:15000});

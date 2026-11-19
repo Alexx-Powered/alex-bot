@@ -1,8 +1,18 @@
 import {WEATHER_TOOLS} from './weather-catalog.mjs';
 
 export const MORNING_PART_FEATURES = Object.freeze({weather:'morningWeather',campus:'morningCampus'});
+export const MORNING_MAX_RETRIES = 3;
 export const MORNING_FEATURE_KEYS = Object.freeze(Object.values(MORNING_PART_FEATURES));
 export const isMorningFeature = key => MORNING_FEATURE_KEYS.includes(key);
+export const HELP_NOTE_LIMITS = Object.freeze({maxLength:240,maxLines:6});
+export const DEFAULT_CHAT_OFF_HELP_NOTE = '为避免打扰,本群仅启用自然语言理解,chat未启用';
+
+export function normalizeGroupHelpNote(value) {
+  if (typeof value!=='string') return null;
+  const note=value.replace(/\r\n?/g,'\n').trim();
+  return note.length<=HELP_NOTE_LIMITS.maxLength && note.split('\n').length<=HELP_NOTE_LIMITS.maxLines &&
+    !/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\p{Cs}]/u.test(note)?note:null;
+}
 
 export const GROUP_FEATURES = Object.freeze([
   {key:'chat',label:'模型聊天'},

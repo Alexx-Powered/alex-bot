@@ -37,6 +37,92 @@ test('official group matching accepts a separate member OpenID, requires confirm
   assert.equal(core.status().groupCount,2);
 });
 
+test('official SDK join appears in the console with every feature disabled and no outbound action',async()=>{
+  let saved=initial();
+  const store={token:'a'.repeat(64),integrationToken:'b'.repeat(64),async init(){},
+    async readCredentials(){return {appId:'12345',appSecret:'fixture-secret'};},
+    async loadState(){return structuredClone(saved);},async saveState(value){saved=structuredClone(value);}};
+  const handlers=new Map();
+  let finish;
+  const bot={on:(name,fn)=>handlers.set(name,fn),start:()=>new Promise(resolve=>{finish=resolve;}),
+    stop:()=>finish?.(),send:()=>assert.fail('Discovery must be silent')};
+  const app=await createBridgeServer({port:0,store,campusService:{status:async()=>({enabled:false}),close(){}},
+    conversationAgent:{handle:async()=>assert.fail('Disabled group must not use tools or chat')},
+    adapterFactory:options=>new QQAdapter({...options,createBot:()=>bot})});
+  const port=await app.listen();
+  const request=async (route,body)=>{
+    const response=await fetch(`http://127.0.0.1:${port}/api/${route}`,{
+      method:body?'POST':'GET',headers:{Authorization:'Bearer '+store.token,'Content-Type':'application/json'},
+      ...(body?{body:JSON.stringify(body)}:{}),
+    });
+    assert.equal(response.status,200);
+    return response.json();
+  };
+  const ts=Math.floor(Date.now()/1000);
+  const join=async (type,groupId,timestamp=ts)=>{
+    const event=dispatchEvent(type,{group_openid:groupId,op_member_openid:'SOME_MEMBER',timestamp},'fixture');
+    assert.equal(event.action,'raw');
+    await handlers.get('rawEvent')({eventType:event.type,data:event.data});
+  };
+  const say=async (groupId,id,content,type='GROUP_MESSAGE_CREATE',at=Date.now())=>{
+    const {msg}=dispatchEvent(type,{id,group_openid:groupId,author:{member_openid:'SOME_MEMBER'},
+      timestamp:new Date(at).toISOString(),content},'fixture');
+    await handlers.get('message')({}, {...msg,replyTarget:{scope:'group',targetId:groupId,msgId:id}});
+  };
+  try{
+    await app.adapter.connect(await store.readCredentials());
+    handlers.get('ready')();
+    await join('GROUP_MEMBER_ADD','NOT_A_BOT_JOIN');
+    await join('GROUP_ADD_ROBOT','OLD_EVENT',ts-3600);
+    assert.equal(app.adapter.diagnostics().lastGroupJoin.decision,'GROUP_JOIN_EXPIRED');
+    const groupId='OFFICIAL_NEW';
+    await Promise.all([join('GROUP_ADD_ROBOT',groupId,String(ts)),join('GROUP_ADD_ROBOT',groupId)]);
+    const status=await request('status');
+    assert.equal(status.core.groupCount,2);
+    const group=status.core.allowedGroups.find(g=>g.groupKey===key(groupId));
+    assert.match(group.name,/^新加入群 · [a-f0-9]{8}$/);
+    assert.equal(group.enabled,false);
+    assert.deepEqual(group.features,Object.fromEntries(Object.keys(defaultGroupFeatures('white')).map(k=>[k,false])));
+    assert.equal(app.core.canDeliver({groupId,proactiveGroup:true}),false);
+    assert.equal((await app.core.handleMessage(incoming(groupId,'test','/help'))).code,'GROUP_DISABLED');
+    assert.equal(saved.attempts.length,0);
+    assert.equal(saved.incoming.length,1);
+
+    const features={...group.features,weather:true};
+    assert.equal((await request('group/features',{groupKey:group.groupKey,enabled:true,features})).code,'GROUP_FEATURES_SAVED');
+    await join('GROUP_ADD_ROBOT',groupId,ts+1);
+    assert.equal(app.core.groupEnabled(groupId),true);
+    assert.deepEqual(app.core.groupFeatures(groupId),features);
+
+    assert.equal((await request('group/remove',{groupKey:group.groupKey})).ok,true);
+    await say(groupId,'REMOVED_MESSAGE','已移除的群仍有消息');
+    assert.equal(app.adapter.diagnostics().lastGroupObservation.decision,'GROUP_DISCOVERY_REMOVED');
+    const restarted=new BridgeCore({loadState:store.loadState,saveState:store.saveState,send:async()=>assert.fail('No send')});
+    await restarted.init();
+    assert.equal((await restarted.recordOfficialGroupJoin({groupId,joinedAt:(ts+1)*1000,isCurrent:()=>true})).code,'DUPLICATE');
+    assert.equal((await restarted.recordOfficialGroupJoin({groupId,joinedAt:Date.now(),messageId:'AFTER_RESTART',isCurrent:()=>true})).code,'GROUP_DISCOVERY_REMOVED');
+    assert.equal(restarted.status().groupCount,1);
+
+    await say('OLD_GROUP','OLD_MESSAGE','历史群消息','GROUP_MESSAGE_CREATE',Date.now()-3600_000);
+    assert.equal(app.core.status().groupCount,1);
+    await say('MISSED_JOIN','OBSERVED','/help','GROUP_AT_MESSAGE_CREATE');
+    const discovered=(await request('status')).core.allowedGroups.find(g=>g.groupKey===key('MISSED_JOIN'));
+    assert.equal(discovered.enabled,false);
+    assert.deepEqual(discovered.features,group.features);
+    assert.equal(app.adapter.diagnostics().lastGroupObservation.decision,'GROUP_JOIN_RECORDED');
+    assert.doesNotMatch(JSON.stringify(app.adapter.diagnostics()),/MISSED_JOIN|SOME_MEMBER|OBSERVED|\/help/);
+
+    const pairing=await app.core.startGroupPairing({name:'手动匹配的群'});
+    await say('MANUAL_GROUP','PAIR','/group-bind '+pairing.groupPairingCode,'GROUP_AT_MESSAGE_CREATE');
+    assert.equal((await request('group/confirm',{groupKey:key('MANUAL_GROUP'),features:basicGroupFeatures()})).ok,true);
+    assert.equal(saved.attempts.length,0);
+
+    await app.adapter.disconnect();
+    await join('GROUP_ADD_ROBOT','STALE_CONNECTION');
+    assert.equal(app.core.status().groupCount,3);
+  }finally{await app.close();}
+});
+
 test('official SDK uses the live global dictionary for duplicate admission and per-group switches',async()=>{
   let saved=initial();saved.allowedGroups.push({id:'OFFICIAL_B',name:'另一个群'});
   const now=Date.parse('2026-11-03T01:00:00Z'),pending=[],queries=[];let core;
@@ -108,5 +194,21 @@ test('official admin API preserves identity while saving words and confirming a 
       assert.equal(status.groupMorning.weatherGroups,Number(part==='morningWeather'));
       assert.equal(status.groupMorning.campusGroups,Number(part==='morningCampus'));
     }
+    const settings={groupKey:key('OFFICIAL_B'),enabled:true,features:{...basicGroupFeatures(),chat:false}};
+    const helpNote='本群优先使用天气查询。\n查询时带上地点。';
+    assert.equal((await request('group/features',{...settings,helpNote},store.integrationToken)).status,403);
+    for (const invalid of [null,'字'.repeat(241),'一\n二\n三\n四\n五\n六\n七','前\u0000后']) {
+      assert.equal((await request('group/features',{...settings,helpNote:invalid})).code,'GROUP_HELP_NOTE_INVALID');
+    }
+    assert.equal(saved.groupHelpNotes,undefined);
+    assert.equal((await request('group/features',{...settings,helpNote:'  '+helpNote.replace('\n','\r\n')+'  '})).code,'GROUP_FEATURES_SAVED');
+    assert.equal((await request('group/features',settings)).code,'GROUP_FEATURES_SAVED');
+    const restored=new BridgeCore({loadState:store.loadState,saveState:store.saveState,send:async()=>assert.fail('No send')});
+    await restored.init();
+    assert.equal(restored.status().allowedGroups[0].helpNote,undefined);
+    assert.equal(restored.status().allowedGroups[1].helpNote,helpNote);
+    assert.equal((await request('status',undefined,store.integrationToken)).core.allowedGroups[1].helpNote,undefined);
+    assert.equal((await request('group/features',{...settings,helpNote:''})).code,'GROUP_FEATURES_SAVED');
+    assert.equal((await request('status')).core.allowedGroups[1].helpNote,'');
   }finally{await app.close();}
 });

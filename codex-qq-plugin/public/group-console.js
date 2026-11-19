@@ -23,6 +23,7 @@ window.createGroupConsole = ({api,action}) => {
   let catalog=[],defaults={},directory=[],groups=[],signature='',selected,ready=false,busy=false,initialized=false;
   let wakeEditor=null,lastCore={},groupPanel='features';
   const baselines=new WeakMap();
+  const settingsSignature=({disabledWakeWords,...group})=>JSON.stringify(group);
   function read(container) {
     const value={...baselines.get(container)};
     for (const input of container.querySelectorAll('input[data-features]')) {
@@ -87,7 +88,7 @@ window.createGroupConsole = ({api,action}) => {
       const button=document.createElement('button');button.type='button';button.className='group-nav-item';
       button.setAttribute('aria-pressed',String(selected===group.groupKey));
       const name=document.createElement('strong');name.textContent=group.name;
-      const info=document.createElement('span');info.textContent=(group.groupNumber||'已授权群')+' · '+(group.enabled===false?'已停用':'已启用');
+      const info=document.createElement('span');info.textContent=(group.groupNumber||'已登记群')+' · '+(group.enabled===false?'已停用':'已启用');
       button.append(name,info);button.onclick=()=>select(group.groupKey);get('groupNavigation').append(button);
     }
     get('groupCount').textContent=String(groups.length);
@@ -100,7 +101,7 @@ window.createGroupConsole = ({api,action}) => {
     const form=document.createElement('form');form.className='group-card';form.dataset.groupKey=group.groupKey;
     const header=document.createElement('div');header.className='group-editor-heading';
     const heading=document.createElement('h3');heading.textContent=group.name;
-    const detail=document.createElement('p');detail.className='help';detail.textContent=group.groupNumber?'群号 '+group.groupNumber:'官方机器人已授权群';
+    const detail=document.createElement('p');detail.className='help';detail.textContent=group.groupNumber?'群号 '+group.groupNumber:'QQ 官方机器人群';
     header.append(heading,detail);
     const enabledRow=document.createElement('label');enabledRow.className='setting-row group-enable';
     const enabledText=document.createElement('span');enabledText.className='setting-copy';
@@ -109,6 +110,16 @@ window.createGroupConsole = ({api,action}) => {
     enabledText.append(title,hint);
     const enabled=switchInput('启用这个群',group.enabled!==false);enabledRow.append(enabledText,enabled);
     const features=document.createElement('div');features.className='feature-sections';grid(features,group.features||defaults);
+    const {maxLength=240,maxLines=6,defaultWhenChatOff=''}=lastCore.groupHelpNote||{};
+    const initialHelpNote=group.helpNote??(group.features?.chat===false?defaultWhenChatOff:'');
+    const helpNoteLabel=document.createElement('label');helpNoteLabel.htmlFor='groupHelpNote';helpNoteLabel.textContent='帮助页备注';
+    const helpNote=document.createElement('textarea');helpNote.id='groupHelpNote';helpNote.rows=3;
+    helpNote.maxLength=maxLength;helpNote.value=initialHelpNote;helpNote.setAttribute('aria-describedby','groupHelpNoteHint');
+    const helpNoteHint=document.createElement('p');helpNoteHint.id='groupHelpNoteHint';helpNoteHint.className='help';
+    const helpNoteDescription=`显示在本群 /help 图片底部。清空后隐藏，最多 ${maxLength} 字、${maxLines} 行。`;
+    helpNoteHint.textContent=helpNoteDescription;
+    helpNote.oninput=()=>{helpNote.removeAttribute('aria-invalid');helpNoteHint.textContent=helpNoteDescription;};
+    helpNoteLabel.append(helpNote);
     const controls=document.createElement('div');controls.className='actions group-savebar';
     const basic=document.createElement('button');basic.type='button';basic.className='subtle';basic.textContent='基础功能';basic.onclick=()=>preset(features,false);
     const all=document.createElement('button');all.type='button';all.className='subtle';all.textContent='全部开启';all.onclick=()=>preset(features,true);
@@ -116,11 +127,19 @@ window.createGroupConsole = ({api,action}) => {
     const remove=document.createElement('button');remove.type='button';remove.className='subtle danger';remove.textContent='移除群';remove.onclick=()=>action('group/remove',{groupKey:group.groupKey});
     controls.append(basic,all,remove,save);
     const note=document.createElement('p');note.className='help settings-note';note.textContent='更改后点击保存。两个 07:30 推送独立开关；全部开启包含 DeepSeek 余额与两项定时推送。';
-    form.append(enabledRow,features,note,controls);
+    const alertLink=document.createElement('button');alertLink.type='button';alertLink.className='secondary';alertLink.textContent='管理本群实时气象预警';
+    alertLink.onclick=()=>document.dispatchEvent(new CustomEvent('weather-alerts-select',{detail:group.groupKey}));
+    form.append(enabledRow,features,alertLink,helpNoteLabel,helpNoteHint,note,controls);
     form.onsubmit=async event=>{
       event.preventDefault();save.disabled=true;
-      await action('group/features',{groupKey:group.groupKey,enabled:enabled.checked,features:read(features)});
+      const result=await action('group/features',{groupKey:group.groupKey,enabled:enabled.checked,features:read(features),
+        ...(helpNote.value!==initialHelpNote?{helpNote:helpNote.value}:{})});
       save.disabled=false;
+      if(result?.code==='GROUP_HELP_NOTE_INVALID') {
+        helpNote.setAttribute('aria-invalid','true');
+        helpNoteHint.textContent=`请检查备注内容，限 ${maxLength} 字和 ${maxLines} 行。`;
+        helpNote.focus();
+      }
     };
     const navigation=document.createElement('nav');navigation.className='group-subnavigation';navigation.role='tablist';navigation.setAttribute('aria-label','本群设置');
     const featureTab=document.createElement('button'),wakeTab=document.createElement('button');
@@ -160,16 +179,21 @@ window.createGroupConsole = ({api,action}) => {
       ready=core.paired&&!core.paused&&transport.state==='connected';
       get('managedGroups').classList.remove('hidden');
       get('groupMorningState').textContent=schedule.active?
-        '北京时间 '+(schedule.prepareActive?'07:28 准备 · ':'')+'07:30 发送 · 天气 '+(schedule.weatherGroups||0)+' 群 · 自习 '+(schedule.campusGroups||0)+' 群':'北京时间 07:30 · 调度当前未运行';
+        '北京时间 '+(schedule.prepareActive?schedule.prepareTime+' 准备 · ':'')+schedule.time+' 发送 · '+schedule.cutoffTime+' 截止 · 天气 '+(schedule.weatherGroups||0)+' 群 · 自习 '+(schedule.campusGroups||0)+' 群':'调度当前未运行';
       catalog=core.groupFeatureCatalog||[];defaults=core.groupDefaultFeatures||{};
       if (!initialized&&catalog.length) {grid(get('groupNewFeatures'),defaults);initialized=true;}
       const next=[...(core.allowedGroups||[]),...(core.grayGroups||[])];
-      const nextSignature=JSON.stringify(next.map(({disabledWakeWords,...group})=>group));
+      const previous=groups.find(g=>g.groupKey===selected);
+      const current=next.find(g=>g.groupKey===selected);
+      const nextSignature=JSON.stringify(next.map(settingsSignature));
       groups=next;
-      if (signature===nextSignature) {wakeEditor?.update(core,groups.find(g=>g.groupKey===selected));return;}
-      signature=nextSignature;
-      if (selected===undefined||(selected!==null&&!groups.some(g=>g.groupKey===selected))) selected=groups[0]?.groupKey||null;
-      select(selected);
+      if (signature!==nextSignature) {
+        signature=nextSignature;
+        if (selected===undefined||(selected!==null&&!current)) {select(groups[0]?.groupKey||null);return;}
+        navigation();
+        if (current&&(!previous||settingsSignature(current)!==settingsSignature(previous))) {renderEditor();return;}
+      }
+      wakeEditor?.update(core,current);
     },
   };
 };

@@ -38,8 +38,9 @@ class HikingTests(unittest.TestCase):
         del weather['湖畔']
         card=plan_weather(self.profile(),date(2026,11,7),weather)
         self.assertEqual(card['days'][0]['stats']['min'],10)
-        self.assertEqual(card['days'][0]['coverage']['min'],13)
-        self.assertIsNone(card['days'][0]['series'][16][0])
+        self.assertEqual(card['days'][0]['coverage']['min'],24)
+        self.assertEqual(card['days'][0]['weather_reference'],'山村')
+        self.assertEqual(card['days'][0]['series'][16][0],10)
         self.assertIsNone(card['nights'][0]['low'])
     def test_partial_day_reports_known_hours_instead_of_erasing_every_stat(self):
         series=[[hour-5,hour*2,1,.5,.1,hour,0] for hour in range(24)]
@@ -101,6 +102,18 @@ class HikingTests(unittest.TestCase):
         self.assertEqual(extract_profiles('测试山',pages,'unused',requester=lambda:json.dumps({'profiles':[p]})),[])
     def test_private_topic_not_sent_to_search(self):
         with self.assertRaises(ValueError):make_trip('我家后山',source='去我家后山徒步')
+    def test_extraction_line_numbers_bind_original_evidence_without_llm_copying(self):
+        lines=['测试山路线攻略，各天行程如下。','D1 山村至湖畔营地，湖畔营地露营。','D2 湖畔营地返回山村，徒步结束。']
+        p={'topic':'测试山','variant':'两日','days':[
+            {'route':['山村','湖畔营地'],'sleep':{'name':'湖畔营地','kind':'tent'},'source':0,'evidence_lines':[2,2]},
+            {'route':['湖畔营地','山村'],'sleep':None,'source':0,'evidence_lines':[3,3]}]}
+        pages=[{'url':'https://www.8264.com/a','title':'测试山攻略','text':'\n'.join(lines)}]
+        result=extract_profiles('测试山',pages,'unused',requester=lambda:json.dumps({'profiles':[p]}))
+        self.assertEqual(result[0]['days'][0]['evidence'],lines[1])
+        p['days'][0]['evidence_lines']=[3,3]
+        self.assertEqual(extract_profiles('测试山',pages,'unused',requester=lambda:json.dumps({'profiles':[p]})),[])
+        p['days'][0]['evidence_lines']=[0,100]
+        self.assertEqual(extract_profiles('测试山',pages,'unused',requester=lambda:json.dumps({'profiles':[p]})),[])
     def test_chinese_day_labels_and_camp_do_not_invent_tents_or_inns(self):
         p={'topic':'测试山','variant':'三日穿越','days':[
           {'route':['起点村','湖畔营地'],'sleep':{'name':'湖畔营地','kind':'tent'},'source':0,'evidence':'第一天：测试山从起点村徒步到湖畔营地，结束当天行程。'},
@@ -117,13 +130,31 @@ class HikingTests(unittest.TestCase):
         result=extract_profiles('测试山',pages,'unused',requester=lambda:json.dumps({'profiles':[p]}))
         self.assertEqual(result[0]['sources'][0]['url'],'https://www.8264.com/a')
         self.assertEqual(len(result[0]['sources']),1)
-    def test_unmapped_route_uses_unique_source_named_start_with_bounded_lookup(self):
+    def test_unmapped_route_does_not_trust_a_single_global_homonym(self):
         p=self.profile();calls=[]
         def locator(name,anchor=None):
             calls.append(name)
             return {'lat':30,'lon':100,'source':'https://www.openstreetmap.org/node/1'} if name=='山村' else None
         points=resolve_points('测试山',[p],locator=locator)
-        self.assertIn('山村',points);self.assertNotIn('湖畔',points);self.assertLessEqual(len(calls),7)
+        self.assertEqual(points,{});self.assertLessEqual(len(calls),7)
+    def test_unmapped_route_uses_local_consensus_and_rejects_remote_homonym(self):
+        p=self.profile();p['days'][0]['route']=['山村','湖畔','垭口'];calls=[]
+        known={n:{'lat':lat,'lon':lon,'source':f'https://www.openstreetmap.org/node/{i}'} for i,n,lat,lon in [(1,'山村',31,93),(2,'湖畔',28.5,98.6),(3,'垭口',28.51,98.61)]}
+        def locator(name,anchor=None):calls.append(name);return known.get(name)
+        points=resolve_points('测试山',[p],locator=locator)
+        self.assertEqual(set(points),{'湖畔','垭口'});self.assertLessEqual(len(calls),7)
+    def test_representative_weather_changes_by_day_and_does_not_fill_source_gaps(self):
+        p=self.profile();p['days'][0]['route']=['未知起点','山村','未知营地'];p['days'][0]['sleep']={'name':'未知营地','kind':'tent'}
+        p['days'][1]['route']=['未知营地','湖畔','未知终点']
+        weather=self.weather();weather['山村']['2026-11-07T11:00']['temperature_2m']=None
+        value=plan_weather(p,date(2026,11,7),weather)
+        self.assertEqual([d['weather_reference'] for d in value['days']],['山村','湖畔'])
+        self.assertEqual(value['days'][0]['coverage']['min'],23)
+        self.assertEqual(value['days'][0]['coverage']['cloud'],24)
+        self.assertIsNone(value['days'][0]['series'][11][0]);self.assertIsNone(value['nights'][0]['comfort'])
+    def test_mountain_pass_is_a_weather_point_not_an_arbitrary_place(self):
+        def fake(*a,**k):return {'features':[{'properties':{'name':'次丁垭口','osm_type':'N','osm_id':7703068703,'osm_key':'mountain_pass','osm_value':'yes'},'geometry':{'coordinates':[98.65,28.53]}}]}
+        self.assertEqual(locate('次丁垭口',fetcher=fake)['lat'],28.53)
     def test_approved_regional_climate_name_keeps_complete_historical_context(self):
         from types import SimpleNamespace
         profile=self.profile();card={**plan_weather(profile,date(2026,11,7),self.weather()),'topic':'测试山','start':'2026-11-07','status':'ok','timings':{}}
@@ -144,6 +175,8 @@ class HikingTests(unittest.TestCase):
             with patch('bounded_research.run_child',return_value=result):out=run_next(q,store=store)
             self.assertEqual(out['metrics']['hiking_profiles'],1);self.assertEqual(out['metrics']['rag_updates'],1)
             self.assertEqual(HikingStore(q).get('测试山')[0]['variant'],'两日穿越')
+            with q._transaction() as db:metrics=json.loads(db.execute('SELECT metrics FROM jobs').fetchone()[0])
+            self.assertEqual(metrics['hiking_profiles'],1);self.assertEqual(metrics['rag_updates'],1)
     def test_auto_reference_never_overwrites_same_named_reviewed_route(self):
         with self.tempdir() as temp:
             store=RagStore(Path(temp)/'rag.sqlite3');p=self.profile();p['reviewed']=True

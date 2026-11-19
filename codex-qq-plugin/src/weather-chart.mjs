@@ -287,6 +287,8 @@ function missingProbabilityPlugin() {
 export function renderWeatherChart(input) {
   const model = prepareWeatherChart(input);
   const { weatherSeries, airSeries } = model;
+  const gefs = input.air?.source?.model === 'gefs_aerosols';
+  const airSource = gefs ? 'NOAA GEFS-Aerosols' : 'CAMS / ECMWF';
   const canvas = createCanvas(WIDTH, HEIGHT), ctx = canvas.getContext('2d');
   ctx.fillStyle = '#f1f5fa'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
   write(ctx, '亚历克斯 · 天气', 48, 49, 24, '#38627a', 'bold');
@@ -326,7 +328,7 @@ export function renderWeatherChart(input) {
     fitText(ctx, line, 68, 592 + i * 33, 1064, 23, COLORS.muted);
   });
 
-  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, 'CAMS / ECMWF / Open-Meteo · μg/m³');
+  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, gefs ? `${airSource} · μg/m³` : 'CAMS / ECMWF / Open-Meteo · μg/m³');
   airLegend(ctx);
   const validAir = airSeries.values.filter(value => value !== null);
   if (validAir.length) {
@@ -337,7 +339,7 @@ export function renderWeatherChart(input) {
   } else placeholder(ctx, 905, `${airSeries.name} PM2.5 暂无有效数据`, '稍后刷新重试');
   const missingAir = airSeries.values.filter(value => value === null).length;
   fitText(ctx, 'PM2.5 浓度色阶', 68, 1072, 1064, 22);
-  const airNote = `CAMS 空气质量预报。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
+  const airNote = `空气质量预报。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
   fitText(ctx, airNote, 68, 1105, 1064, 22);
 
   panel(ctx, 1160, 440, '03  逐小时降水概率', 'ECMWF IFS / Open-Meteo · %');
@@ -375,11 +377,11 @@ export function renderWeatherChart(input) {
   fitText(ctx, weatherSeries.map(series => `${series.name}  总云量 ${rangeLabel(series.cloudCoverPct, '%')}`).join(' / '), 68, 2010, 1064, 23);
 
   const acquisition = [...weatherSeries.map(series => ({ name: shortLabel(ctx, series.name, 150, 22), value: series.fetchedAt })),
-    { name: `CAMS（${shortLabel(ctx, airSeries.name, 110, 22)}）`, value: airSeries.fetchedAt }].map(item => {
+    { name: `空气（${shortLabel(ctx, airSeries.name, 110, 22)}）`, value: airSeries.fetchedAt }].map(item => {
     const stamp = typeof item.value === 'string' ? Date.parse(item.value) : NaN;
     return `${item.name} ${Number.isFinite(stamp) ? localTime(stamp).slice(5).replace('T', ' ') : '无有效数据'}`;
   }).join(' / ');
-  fitText(ctx, '温度 / 降水 / 云量：ECMWF IFS · PM2.5：CAMS / ECMWF', 48, 2100, 1104, 23);
+  fitText(ctx, `温度 / 降水 / 云量：ECMWF IFS · PM2.5：${airSource}`, 48, 2100, 1104, 23);
   write(ctx, 'https://open-meteo.com/', 48, 2139, 23, '#38627a');
   fitText(ctx, `数据获取：${acquisition}`, 48, 2178, 1104, 22);
   return { buffer: canvas.toBuffer('image/png'), mimeType: 'image/png' };

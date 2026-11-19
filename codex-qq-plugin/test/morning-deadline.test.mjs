@@ -4,7 +4,7 @@ import {BridgeCore} from '../src/core.mjs';
 import {QQAdapter} from '../src/qq-adapter.mjs';
 import {basicGroupFeatures} from '../src/group-features.mjs';
 
-const deadline=Date.parse('2026-11-03T07:45:00+08:00');
+const deadline=Date.parse('2026-11-03T07:40:00+08:00');
 const image={buffer:Buffer.from([137,80,78,71,13,10,26,10]),mimeType:'image/png'};
 async function fixture({send=async()=>({ok:true}),groups=1}={}){
   const clock={value:deadline-1000};
@@ -61,7 +61,7 @@ class FakeBot {
   async sendText(target,text){this.messages.push({target,text});return {id:'offline-message'};}
 }
 
-test('a media upload crossing 07:45 never submits a message and persists a settled expiry',async t=>{
+test('a media upload crossing 07:40 never submits a message and persists a settled expiry',async t=>{
   const bot=new FakeBot(),guards=[];let f;
   const adapter=new QQAdapter({createBot:()=>bot,now:()=>f.clock.value,canSend:request=>{
     guards.push(request);return f.core.canDeliver(request);

@@ -47,11 +47,10 @@ def _published(value):
 def research_queries(topic):
     # Space-separated family/slope terms improve discovery without claiming an
     # alias, coordinates, or a shared access policy. Only two predetermined calls.
-    expanded=topic[:-2]+' '+topic[-2:] if topic.endswith(('西坡','东坡','南坡','北坡')) and len(topic)>=4 else topic
     terms=_topic_terms(topic)
     # An explicit official-site query avoids spending the complete small page
     # budget on commercial travel listings. This remains exactly two calls.
-    return (f'{" ".join(terms)} 徒步 site:gov.cn',f'{expanded} 徒步 路线 行程 营地 住宿')
+    return (f'{" ".join(terms)} 徒步 site:gov.cn',f'{topic} 徒步 攻略 D1 D2 逐日行程 营地 住宿')
 
 
 def _topic_terms(topic):
@@ -123,13 +122,14 @@ def research_once(topic, provider, *, clock=time.monotonic, wall_clock=time.time
     # Procurement/consultation notices mentioning landscaping are not walking
     # route descriptions. Discard them before spending the bounded page budget.
     hits=[hit for hit in hits if not re.search(r'采购|招标|中标|招租|征求.*意见|意见.*反馈',hit.title)]
-    hits=sorted(hits,key=lambda hit:(not provider.can_fetch(hit.url),
-                  not (urlsplit(hit.url).hostname or '').lower().endswith('.gov.cn')))[:MAX_HITS]
     eligible=[hit for hit in hits if provider.can_fetch(hit.url)]
     # Keep a notice slot and two route-description slots. Three official press
     # releases often mention a mountain but contain no day-by-day itinerary.
     official=[hit for hit in eligible if (urlsplit(hit.url).hostname or '').lower().endswith('.gov.cn')]
-    routes=[hit for hit in eligible if hit not in official]
+    routes=sorted([hit for hit in eligible if hit not in official],key=lambda hit:not bool(re.search(r'攻略|路线|行程|环线|穿越',hit.title)))
+    # Reserve the route slots before the six-hit cap; otherwise four official
+    # news results can crowd out the itinerary found by the second query.
+    hits=(official[:1]+routes+official[1:])[:MAX_HITS]
     allowed=(official[:1]+routes+official[1:])[:MAX_PAGES] if routes and initial_hits is None else eligible[:MAX_PAGES]
     metrics['discovered_hits']=len(hits);metrics['eligible_pages']=len(allowed)
     pool=ThreadPoolExecutor(max_workers=2)
@@ -166,9 +166,12 @@ def research_once(topic, provider, *, clock=time.monotonic, wall_clock=time.time
     metrics['total_ms']=round((clock()-started)*1000,3)
     expired=clock()>=deadline
     failed=not candidates and bool(metrics['errors'])
-    return {'status':'timeout' if expired else ('completed' if candidates else ('failed' if failed else 'empty')),
-            'error_code':'RESEARCH_DEADLINE' if expired else ('RESEARCH_SOURCE_UNAVAILABLE' if failed else None),
-            'metrics':metrics,'candidates':[] if expired else candidates}
+    metrics['partial_fetch']=expired or len(done)<len(futures)
+    # A slow third page must not erase the complete, validated first two pages.
+    # Keep the same deadline and leave unfinished requests to the supervisor.
+    return {'status':'completed' if candidates else ('timeout' if expired else ('failed' if failed else 'empty')),
+            'error_code':None if candidates else ('RESEARCH_DEADLINE' if expired else ('RESEARCH_SOURCE_UNAVAILABLE' if failed else None)),
+            'metrics':metrics,'candidates':candidates}
 
 
 def run_child(packet, *, timeout=HARD_SECONDS, worker_script=None):
@@ -184,19 +187,32 @@ def run_child(packet, *, timeout=HARD_SECONDS, worker_script=None):
     except OSError:
         return {'status':'failed','error_code':'RESEARCH_CHILD_START_FAILED','candidates':[],'metrics':{}}
     tick=time.monotonic()
+    terminated=False
     try:
         output,_=process.communicate(json.dumps(packet,ensure_ascii=False).encode(),timeout=timeout)
     except subprocess.TimeoutExpired:
-        process.kill();process.communicate(timeout=2)
-        return {'status':'timeout','error_code':'RESEARCH_HARD_TIMEOUT','candidates':[],
-                'metrics':{'total_ms':round((time.monotonic()-tick)*1000,3),'child_terminated':True}}
-    if process.returncode or len(output)>65536:
+        process.kill();output,_=process.communicate(timeout=2);terminated=True
+    if (process.returncode and not terminated) or len(output)>65536:
         return {'status':'failed','error_code':'RESEARCH_CHILD_FAILED','candidates':[],'metrics':{}}
     try:
-        result=json.loads(output)
-        if not isinstance(result,dict) or result.get('status') not in {'completed','empty','timeout','failed'}: raise ValueError()
+        # The child checkpoints admitted pages before starting its one optional
+        # extraction. Killing a stalled model/fetch preserves that checkpoint.
+        result=None
+        for line in reversed(output.strip().splitlines()):
+            try:
+                candidate=json.loads(line)
+                if isinstance(candidate,dict) and candidate.get('status') in {'completed','empty','timeout','failed'}:
+                    result=candidate;break
+            except ValueError:
+                if not terminated:raise
+        if result is None:raise ValueError()
+        if terminated:
+            if result.get('status')!='completed' or not result.get('candidates'):raise ValueError()
+            result.setdefault('metrics',{}).update(child_terminated=True,partial_fetch=True,total_ms=round((time.monotonic()-tick)*1000,3))
         return result
-    except ValueError:
+    except (ValueError,IndexError):
+        if terminated:return {'status':'timeout','error_code':'RESEARCH_HARD_TIMEOUT','candidates':[],
+                              'metrics':{'total_ms':round((time.monotonic()-tick)*1000,3),'child_terminated':True}}
         return {'status':'failed','error_code':'RESEARCH_INVALID_OUTPUT','candidates':[],'metrics':{}}
 
 
@@ -231,6 +247,8 @@ def run_next(queue, *, provider='bing_rss', api_key='',store=None):
         if store:
             try:result['metrics']['rag_updates']=ingest_candidates(store,job['topic'],result.get('candidates',[]))
             except Exception:result['metrics']['rag_update_failed']=True
+        try:queue.note_enrichment(job['job_id'],{k:v for k,v in result['metrics'].items() if k in {'hiking_profiles','rag_updates','rag_update_failed'}})
+        except (ResearchQueueBusy,ResearchQueueError):pass
     return result
 
 

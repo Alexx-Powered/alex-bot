@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { QQAdapter } from '../src/qq-adapter.mjs';
 
-async function fixture(denied=false){
+async function fixture(rejection){
   const real=new QQBot({appId:'test-only',appSecret:'test-only',markdownSupport:false,logger:{info(){},warn(){},error(){},debug(){}}});
   const requests=[],handlers=new Map();let finish;
   real.tokenManager.getAccessToken=async()=>'offline-fake-token';
   real.apiClient.request=async(_token,method,path,body)=>{
     requests.push({method,path,body});
-    if(denied)throw Object.assign(new Error('PRIVATE_PLATFORM_BODY'),{httpStatus:403});
+    if(rejection)throw Object.assign(new Error('PRIVATE_PLATFORM_BODY'),rejection);
     return {id:'offline-message'};
   };
   const bot={on:(name,fn)=>handlers.set(name,fn),start:()=>new Promise(resolve=>{finish=resolve;}),stop:()=>finish?.(),sendText:real.sendText.bind(real)};
@@ -41,10 +41,25 @@ test('ordinary group replies still require observed fresh targets and explicit f
 });
 
 test('broadcast permission rejection is sanitized, never retried and never falls back to a passive message',async()=>{
-  const f=await fixture(true);try{
+  const f=await fixture({httpStatus:403});try{
     await assert.rejects(f.adapter.send(input),error=>error.code==='QQ_PERMISSION_DENIED'&&error.httpStatus===403&&error.phase==='send'&&error.messageAttempted===true&&!JSON.stringify(error).includes('PRIVATE_PLATFORM_BODY'));
     assert.equal(f.requests.length,1);assert.deepEqual(f.requests[0].body,{content:'完成简报',msg_type:0});
   }finally{await f.adapter.disconnect();}
+});
+
+test('QQ group permission and upstream availability failures retain their distinct codes',async t=>{
+  for(const [rejection,code] of [
+    [{httpStatus:400,bizCode:40034105},'QQ_TARGET_PERMISSION_DENIED'],
+    [{httpStatus:400,bizCode:40054002},'QQ_TARGET_PERMISSION_DENIED'],
+    [{httpStatus:401,bizCode:40034105},'QQ_PERMISSION_DENIED'],
+    [{httpStatus:503},'QQ_SERVICE_UNAVAILABLE'],
+  ])await t.test(code,async()=>{
+    const f=await fixture(rejection);try{
+      await assert.rejects(f.adapter.send(input),{code,phase:'send',messageAttempted:true});
+      assert.equal(f.requests.length,1);
+      assert.equal(f.adapter.status().state,'connected');
+    }finally{await f.adapter.disconnect();}
+  });
 });
 
 test('ordinary fresh group authorization remains time-limited when broadcast support is enabled',async()=>{

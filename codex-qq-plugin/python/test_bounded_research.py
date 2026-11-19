@@ -1,6 +1,6 @@
 """Hard deadlines, real LangChain enqueue, and canonical promotion isolation."""
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
+import hashlib,json
 from pathlib import Path
 import tempfile
 import time
@@ -46,6 +46,25 @@ class BoundedResearchTests(unittest.TestCase):
         provider=Provider();provider.fail=True;result=research_once('哈巴西坡',provider)
         self.assertEqual(result['status'],'failed');self.assertEqual(len(provider.queries),1)
         self.assertEqual(len(provider.pages),0);self.assertEqual(result['metrics']['retries'],0)
+
+    def test_slow_page_does_not_erase_successful_pages_at_deadline(self):
+        class Slow(Provider):
+            def fetch(self,hit,timeout):
+                if hit.url.endswith('/2'):time.sleep(.3)
+                return super().fetch(hit,timeout)
+        pages=[];result=research_once('哈巴西坡',Slow(),budget_seconds=.1,profile_pages=pages)
+        self.assertEqual(result['status'],'completed');self.assertEqual(len(result['candidates']),2)
+        self.assertEqual(len(pages),2);self.assertTrue(result['metrics']['partial_fetch'])
+        self.queue.enqueue('哈巴西坡');job=self.queue.claim_next();self.queue.finish(job['job_id'],result)
+        self.assertEqual(self.queue.status('哈巴西坡')['candidate_count'],2)
+
+    def test_completed_page_checkpoint_survives_a_stalled_extraction(self):
+        result=research_once('哈巴西坡',Provider())
+        script=self.root/'checkpoint.py'
+        script.write_text('import sys,time\nsys.stdin.buffer.read()\nsys.stdout.write('+repr(json.dumps(result))+'+"\\n")\nsys.stdout.flush()\ntime.sleep(30)\n',encoding='utf8')
+        out=run_child({},timeout=.5,worker_script=script)
+        self.assertEqual(out['status'],'completed');self.assertTrue(out['metrics']['child_terminated'])
+        self.assertEqual(len(out['candidates']),3)
 
     def test_official_notices_leave_room_for_actual_itineraries(self):
         class Mixed(Provider):

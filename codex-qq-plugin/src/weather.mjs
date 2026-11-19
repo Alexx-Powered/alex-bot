@@ -5,9 +5,13 @@ export const FORECAST_TIMEZONE = 'Asia/Shanghai';
 export const HOUR_MS = 3_600_000;
 import { CITIES, validatePlace } from './locations.mjs';
 import { summarizeWeather } from './wind-summary.mjs';
+import {measureSpan} from './telemetry.mjs';
 export { CITIES } from './locations.mjs';
 const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/ecmwf';
-const WEATHER_METADATA = 'https://api.open-meteo.com/data/ecmwf_ifs/static/meta.json';
+// Open-Meteo publishes the matching IFS time-series metadata on its public bucket.
+const WEATHER_METADATA = 'https://openmeteo.s3.amazonaws.com/data/ecmwf_ifs/static/meta.json';
+const WEATHER_BACKUP_ENDPOINT = 'https://previous-runs-api.open-meteo.com/v1/forecast';
+const WEATHER_BACKUP_METADATA = 'https://s3.us-west-2.amazonaws.com/openmeteo/data/ecmwf_ifs/static/meta.json';
 const MAX_BODY_BYTES = 512 * 1024;
 const VARIABLES = ['temperature_2m', 'relative_humidity_2m', 'precipitation', 'precipitation_probability', 'rain', 'snowfall', 'cloud_cover', 'apparent_temperature'];
 
@@ -33,7 +37,9 @@ export async function fetchForecastJson(url, { fetchImpl = globalThis.fetch, now
   try {
     const response = await fetchImpl(url, { method: 'GET', redirect: 'error', cache: 'no-store',
       headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
-    if (!response.ok) throw new ForecastDataError(response.status === 429 ? 'FORECAST_SOURCE_RATE_LIMITED' : 'FORECAST_SOURCE_HTTP_ERROR');
+    if (!response.ok) throw Object.assign(
+      new ForecastDataError(response.status === 429 ? 'FORECAST_SOURCE_RATE_LIMITED' : 'FORECAST_SOURCE_HTTP_ERROR'),
+      {httpStatus:response.status});
     const contentType = response.headers.get('content-type') || '';
     if (!/\bapplication\/json\b/i.test(contentType)) throw new ForecastDataError('FORECAST_RESPONSE_INVALID');
     const date = Date.parse(response.headers.get('date') || '');
@@ -65,7 +71,9 @@ export async function fetchForecastJson(url, { fetchImpl = globalThis.fetch, now
     return { data, httpDate: new Date(date).toISOString() };
   } catch (error) {
     if (error instanceof ForecastDataError) throw error;
-    throw new ForecastDataError(['TimeoutError', 'AbortError'].includes(error?.name) ? 'FORECAST_SOURCE_TIMEOUT' : 'FORECAST_SOURCE_UNAVAILABLE');
+    const timedOut=['TimeoutError','AbortError'].includes(error?.name);
+    throw Object.assign(new ForecastDataError(timedOut?'FORECAST_SOURCE_TIMEOUT':'FORECAST_SOURCE_UNAVAILABLE'),
+      timedOut?{timedOut,timeoutMs}:{causeCode:error?.cause?.code??error?.code});
   }
 }
 
@@ -141,7 +149,26 @@ export function assessRain(hourly) {
 }
 const shown = (value, suffix = '') => value === null ? '缺数据' : `${Math.round(value * 10) / 10}${suffix}`;
 
-export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch, scheduledMorning = false, fetchTimeoutMs = 45_000 } = {}) {
+export function retryableWeatherSource(error) {
+  return ['FORECAST_SOURCE_TIMEOUT','FORECAST_SOURCE_UNAVAILABLE','FORECAST_COVERAGE_INCOMPLETE','FORECAST_DATA_MISSING',
+    'FORECAST_MODEL_STALE','FORECAST_RESPONSE_STALE'].includes(error?.code)||
+    (error?.code==='FORECAST_SOURCE_HTTP_ERROR'&&
+      ([404,408].includes(error.httpStatus)||(error.httpStatus>=500&&error.httpStatus<=599)));
+}
+
+export async function getWeatherBrief(options={}) {
+  if(options.scheduledMorning===true)return fetchWeatherBrief(options);
+  const now=forecastNow(options.now),deadline=performance.now()+15_000;
+  try{
+    return await fetchWeatherBrief({...options,now,backupSource:true,fetchTimeoutMs:8000});
+  }catch(error){
+    const remaining=Math.floor(deadline-performance.now());
+    if(!retryableWeatherSource(error)||remaining<=0)throw error;
+    return fetchWeatherBrief({...options,now,backupSource:false,fetchTimeoutMs:remaining});
+  }
+}
+
+async function fetchWeatherBrief({ city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch, fetchTimeoutMs = 45_000, backupSource = false, scheduledMorning = false } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('WEATHER_CITY_UNSUPPORTED');
@@ -152,15 +179,24 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
   const date = localDate(now + (day === 'tomorrow' ? 24 * HOUR_MS : 0));
   const midnight = Date.parse(date + 'T00:00:00+08:00');
   const nextMidnight = midnight + days * 24 * HOUR_MS;
-  const url = new URL(WEATHER_ENDPOINT);
+  const backup=backupSource===true;
+  const url = new URL(backup?WEATHER_BACKUP_ENDPOINT:WEATHER_ENDPOINT);
   url.search = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude),
     hourly: [...VARIABLES,'wind_speed_10m','wind_direction_10m','wind_gusts_10m',...(exerciseFields?['shortwave_radiation','weather_code']:[])].join(','), models: 'ecmwf_ifs', timezone: FORECAST_TIMEZONE,
     daily: 'weather_code', start_date: date, end_date: localDate(nextMidnight), temperature_unit: 'celsius', precipitation_unit: 'mm' }).toString();
   url.searchParams.set('wind_speed_unit','ms');
-  const [forecast, metadata] = await Promise.all([
-    fetchForecastJson(url.href, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }), fetchForecastJson(WEATHER_METADATA, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }),
+  const request=address=>fetchForecastJson(address,{fetchImpl,now,timeoutMs:fetchTimeoutMs});
+  const getForecast=()=>request(url.href);
+  const getMetadata=()=>request(backup?WEATHER_BACKUP_METADATA:WEATHER_METADATA);
+  const validateMetadata=metadata=>validateModelMetadata(metadata.data,{now,requiredEnd:nextMidnight,maxRunAgeHours:24});
+  // Retain both stages in the trace, including when one host fails.
+  const results=await Promise.allSettled([
+    measureSpan(backup?'weather_forecast_backup':'weather_forecast_primary',getForecast),
+    measureSpan(backup?'weather_metadata_backup':'weather_metadata_primary',async()=>validateMetadata(await getMetadata())),
   ]);
-  const freshness = validateModelMetadata(metadata.data, { now, requiredEnd: nextMidnight, maxRunAgeHours: 24 });
+  const failed=results.find(item=>item.status==='rejected');
+  if(failed)throw failed.reason;
+  const [forecast,freshness]=results.map(item=>item.value);
   const data = forecast.data;
   const index = hourlyIndex(data, { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' });
   // Optional daily code must belong to the requested first day, never the fetch day or the second day.
@@ -207,7 +243,7 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     rainTotalMm: total(hourly.map((p) => p.rainMm)), snowfallTotalCm: total(hourly.map((p) => p.snowfallCm)),
     maxHourlyPrecipitationProbabilityPct: probability.max, probabilityComplete: probability.complete, rain: assessRain(hourly) };
   const source = { name: 'ECMWF IFS，经 Open-Meteo 提供', model: 'ecmwf_ifs', provider: 'Open-Meteo',
-    type: 'model_forecast', documentation: 'https://open-meteo.com/en/docs/ecmwf-api',
+    type: 'model_forecast', documentation: backup?'https://open-meteo.com/en/docs/previous-runs-api':'https://open-meteo.com/en/docs/ecmwf-api',
     metadataDocumentation: 'https://open-meteo.com/en/docs/model-updates', attribution: 'ECMWF / Open-Meteo', url: url.href };
   const intervalText = summary.rain.intervals.map((p) => days === 1
     ? `${p.start.slice(11, 16)}–${p.end.slice(11, 16) === '00:00' ? '24:00' : p.end.slice(11, 16)}`
@@ -222,9 +258,10 @@ export async function getWeatherBrief({ city, place: resolvedPlace, day = 'today
     `来源：ECMWF IFS / Open-Meteo https://open-meteo.com/ ；模型预报，非实测。时区 ${FORECAST_TIMEZONE}。`,
   ].join('\n');
   const hourlyText = hourly.map((p) => `${p.time.slice(11, 16)} ${shown(p.temperatureC, '°C')} ${shown(p.humidityPct, '%')} ${shown(p.precipitationMm, 'mm')} ${shown(p.precipitationProbabilityPct, '%')} 云量${shown(p.cloudCoverPct, '%')}`).join('\n');
-  let windTimedOut=false;
-  const {windBrief,weatherSummary} = await summarizeWeather(hourly,{date,weatherCode,onTimeout:()=>{windTimedOut=true;}});
-  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText, windBrief,weatherSummary,...(windTimedOut?{timeoutNotice:'天气与风速摘要计算超时（10秒时限），其余预报正常展示'}:{}),
+  let timeoutNotice;
+  const {windBrief,weatherSummary} = await summarizeWeather(hourly,{date,weatherCode,scheduledMorning,
+    onTimeout:ms=>{timeoutNotice=`天气与风速摘要计算超时（${ms/1000}秒时限），其余预报正常展示`;}});
+  return { kind: 'weather', city: { ...place }, date, day, days, timezone: FORECAST_TIMEZONE, hourly, summary, text, hourlyText, windBrief,weatherSummary,...(timeoutNotice?{timeoutNotice}:{}),
     source, fetchedAt: new Date(now).toISOString(), modelRunAt: null, freshness, warnings,
     temporalNote: '温湿度与总云量为行首时刻；降水量/概率对应 time 至 periodEnd。降水为雨雪合计。阵风为覆盖该行的3小时窗口最大值。' };
 }

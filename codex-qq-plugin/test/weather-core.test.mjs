@@ -191,7 +191,7 @@ test('uncertain image send pauses further fetching, counts the attempt, and neve
   assert.equal(JSON.stringify(f.persisted.value).includes('private upstream'), false);
 });
 
-test('upload failure before a message attempt is rejected rather than uncertain, pauses, and retains quota', async () => {
+test('known upload failure before a message attempt leaves sending enabled and retains quota', async () => {
   const f = fixture({ send: async () => {
     throw { code: 'QQ_UPLOAD_FAILED', phase: 'upload', messageAttempted: false, message: 'private upload response' };
   } });
@@ -199,14 +199,11 @@ test('upload failure before a message attempt is rejected rather than uncertain,
   assert.deepEqual(await f.core.handleMessage(message('failed-upload')), {
     ok: false, code: 'PLATFORM_REJECTED', deliveryState: 'rejected',
   });
-  assert.equal(f.core.status().paused, true);
-  assert.equal(f.core.status().pauseReason, 'PLATFORM_REJECTED');
+  assert.equal(f.core.status().paused, false);
   assert.equal(f.core.status().dailyAttempts, 1);
   assert.equal(f.core.status().uncertainDeliveries, 0);
-  assert.equal((await f.core.handleMessage(message('after-upload-failure'))).code, 'PAUSED');
   f.core = new BridgeCore(f.deps);
   await f.core.init();
-  await f.core.setPaused(false);
   assert.equal((await f.core.handleMessage(message('failed-upload'))).code, 'DUPLICATE');
   assert.equal(f.core.status().dailyAttempts, 1);
   assert.equal(f.calls.length, 1);

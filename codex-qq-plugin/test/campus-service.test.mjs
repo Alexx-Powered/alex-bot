@@ -43,7 +43,7 @@ test('unauthorized queries are denied and two authorized queries run sequentiall
 test('campus HTTP API authenticates all operations and sends one image only to the paired owner',async()=>{
   const sent=[],calls=[],store={token:'a'.repeat(64),init:async()=>{},readCredentials:async()=>null,loadState:async()=>null,saveState:async()=>{}};
   const image={buffer:Buffer.alloc(16),mimeType:'image/png'};
-  const campus={status:async()=>({enabled:true,configured:true}),close(){},run:async(args,mode)=>{calls.push({args,mode});return {data:data(),image};}};
+  const campus={status:async()=>({enabled:true,configured:true}),close(){},run:async(args,mode,options)=>{calls.push({args,mode,options});return {data:data(),image};}};
   let saved;
   const app=await createBridgeServer({port:0,store,campusService:campus,campusConfigStore:{save:async v=>{saved=v;return {enabled:true,configured:true};}},
     adapterFactory:()=>({status:()=>({state:'connected'}),disconnect:async()=>{},send:async value=>{sent.push(value);return {ok:true};}})});
@@ -55,6 +55,10 @@ test('campus HTTP API authenticates all operations and sends one image only to t
     const savedResult=await(await post('/api/campus/config',{enabled:true,username:'offline-student',password:'offline-password'})).json();
     assert.equal(saved.password,'offline-password');assert.doesNotMatch(JSON.stringify(savedResult),/offline-student|offline-password/);
     assert.equal((await(await post('/api/campus/query',{})).json()).schema_version,'buaa-classrooms.v1');assert.equal(sent.length,0);
+    assert.equal((await post('/api/morning/preview',{part:'campus'},false)).status,401);
+    const preview=await(await post('/api/morning/preview',{part:'campus'})).json();
+    assert.equal(preview.ok,true);assert.equal(preview.imageBytes,image.buffer.length);assert.equal(sent.length,0);
+    assert.deepEqual(calls.at(-1).options,{scheduledMorning:true});
     const request={date:'2026-10-29',requestId:'b'.repeat(32)};
     assert.equal((await(await post('/api/campus/briefing',request)).json()).code,'SENT');assert.equal(sent.length,1);assert.equal(sent[0].ownerId,'owner');assert.equal(sent[0].groupId,undefined);assert.equal(sent[0].text,'');
     assert.equal((await(await post('/api/campus/briefing',request)).json()).code,'DUPLICATE');assert.equal(sent.length,1);

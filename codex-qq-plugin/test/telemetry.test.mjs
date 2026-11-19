@@ -18,6 +18,30 @@ async function fixture(t,options={}){
   return {home,file,telemetry,requests,settle};
 }
 
+test('paused replies carry a PAUSED outcome without collecting an unadmitted message',async t=>{
+  const f=await fixture(t);
+  const result=await f.telemetry.run({scope:'c2c'},async()=>({ok:false,code:'PAUSED',text:'private-unadmitted-text'}));
+  assert.equal(result.code,'PAUSED');await f.settle();
+  const run=JSON.parse(f.requests[0].body);
+  assert.deepEqual(run.inputs,{event:'qq_event',scope:'c2c'});
+  assert.deepEqual(run.outputs,{ok:false,code:'PAUSED'});
+  assert.match(run.error,/PAUSED/);assert.doesNotMatch(JSON.stringify(run),/private-unadmitted-text/);
+  assert.equal((await f.telemetry.status()).recent[0].status,'error');
+});
+
+test('group permission diagnostics report the short console identifier and keep group names local',async t=>{
+  const f=await fixture(t);
+  await f.telemetry.run({operation:'morning.dispatch',date:'2026-11-16'},async()=>{
+    recordTiming('qq_group_permission',0,{status:'error',error:{code:'QQ_TARGET_PERMISSION_DENIED',bizCode:40034105,
+      groupHint:'sha256:012345abcdef',groupName:'private-group-alias'}});
+    return {ok:false,code:'QQ_TARGET_PERMISSION_DENIED'};
+  });
+  await f.settle();
+  const run=f.requests.map(r=>JSON.parse(r.body)).find(r=>r.name==='qq_group_permission');
+  assert.match(run.error,/40034105.*sha256:012345abcdef/);
+  assert.doesNotMatch(JSON.stringify(f.requests),/private-group-alias/);
+});
+
 test('unadmitted content and arbitrary metrics, output, IDs and credentials never become remote inputs or errors',async t=>{
   const f=await fixture(t),secret='private-content-never-upload';
   const result=await f.telemetry.run({scope:'group',access:'gray',senderId:secret,sessionKey:secret,config:{apiKey:secret}},async()=>{

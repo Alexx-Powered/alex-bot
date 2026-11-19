@@ -3,6 +3,7 @@ import tempfile
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
@@ -45,16 +46,22 @@ class NativeForecastTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             prefix=Path(directory)/'native-test'
             frames=[Image.new('F',(4,4),float(i)) for i in range(48)]
-            store_frames(prefix,frames)
-            hit=cached_frames(prefix,4,24,(0,100))
+            updated_at=1793718000
+            store_frames(prefix,frames,updated_at)
+            hit, cached_update=cached_frames(prefix,4,24,(0,100))
+            self.assertEqual(cached_update,updated_at)
             self.assertEqual([f.getpixel((2,2)) for f in hit],list(range(24)))
             for frame in [*frames,*hit]:frame.close()
-            prefix.with_suffix('.48.grid').write_bytes(struct.pack('<f',1))
+            path=prefix.with_suffix('.48.grid')
+            path.write_bytes(path.read_bytes()[8:])
+            self.assertIsNone(cached_frames(prefix,4,24,(0,100)))
+            path.write_bytes(struct.pack('<f',1))
             self.assertIsNone(cached_frames(prefix,4,24,(0,100)))
 
     def test_range_reads_validate_pin_and_reuse_blocks(self):
         data=bytes(range(256))*1024
         calls=[]
+        modified='Wed, 11 Nov 2026 00:00:00 GMT'
         def response(req):
             spec=req.headers['Range'].removeprefix('bytes=')
             if spec.startswith('-'):
@@ -64,13 +71,15 @@ class NativeForecastTests(unittest.TestCase):
                 first,last=map(int,spec.split('-'))
             calls.append((first,last))
             return httpx.Response(206,content=data[first:last+1],headers={
-                'ETag':'"fixed"','Content-Range':f'bytes {first}-{last}/{len(data)}'})
+                'ETag':'"fixed"','Content-Range':f'bytes {first}-{last}/{len(data)}',
+                'Last-Modified':modified})
         with httpx.Client(transport=httpx.MockTransport(response)) as client:
             url='https://example.invalid/fixed'
             for block_size in (8192,16384,32768):
                 with self.subTest(block_size=block_size):
                     calls.clear()
                     file=RangeFile(client,url,time.monotonic()+2,block_size=block_size)
+                    self.assertEqual(file.updated_at,int(parsedate_to_datetime(modified).timestamp()))
                     intervals=[(200,260),(245,255),(block_size-8,block_size+7),(len(data)-22,len(data))]*4
                     with ThreadPoolExecutor(max_workers=12) as pool:
                         result=list(pool.map(lambda pair:file.cat_file(url,*pair),intervals))

@@ -2,7 +2,7 @@ import {createCanvas, GlobalFonts, loadImage} from '@napi-rs/canvas';
 import {existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {CHINESE_FONT} from './render-fonts.mjs';
-import {GROUP_FEATURES} from './group-features.mjs';
+import {DEFAULT_CHAT_OFF_HELP_NOTE,GROUP_FEATURES} from './group-features.mjs';
 import {WEATHER_TOOLS} from './weather-catalog.mjs';
 
 // The console mascot keeps its original colors and proportions.
@@ -14,63 +14,70 @@ const boldFamily = boldPath && existsSync(boldPath) && GlobalFonts.registerFromP
   ? 'Alex Help Bold, ' + CHINESE_FONT : CHINESE_FONT;
 
 const tools = [
-  {feature:'status', group:'服务与账户', command:'查 OpenAI 状态', tag:'服务状态', example:'ChatGPT 现在正常吗？'},
-  {feature:'status', group:'服务与账户', command:'查 DeepSeek 状态', tag:'服务状态', example:'DeepSeek 现在正常吗？'},
-  {feature:'status', group:'服务与账户', command:'查 Gemini 状态', tag:'服务状态', example:'Gemini API 现在正常吗？'},
-  {feature:'status', group:'服务与账户', command:'查 Claude 状态', tag:'服务状态', example:'Claude 恢复了吗？'},
-  {feature:'status', group:'服务与账户', command:'查 Kimi 状态', tag:'服务状态', example:'Kimi 服务有故障吗？'},
-  {feature:'balance', group:'服务与账户', command:'查 DeepSeek 余额', tag:'API 余额', example:'DeepSeek 账户还剩多少钱？'},
+  {feature:'status', group:'AI 服务', command:'查 OpenAI 状态', tag:'AI 服务状态',
+    detail:'支持 OpenAI、DeepSeek、Gemini、Claude、Kimi', example:'ChatGPT 现在正常吗？'},
   {feature:'campus', group:'校园与生活', command:'发 三号楼空教室情况', tag:'空教室', example:'今晚三号楼哪里能自习？'},
   {feature:'conversion', group:'校园与生活', command:'换算 1 马里 公里', tag:'固定换算', example:'1 马里是多少公里？'},
   {feature:'status', group:'校园与生活', command:'查滑动变祖器状态', tag:'梁系评分', example:'滑动变祖器现在几级了？'},
-  {feature:'images', group:'图片、语音与记忆', command:'/识图', tag:'先发图片', example:'这张图里写了什么？'},
-  {feature:'memory', group:'图片、语音与记忆', command:'/记忆 查看', tag:'成员记忆'},
+  {feature:'images', group:'图片与语音', command:'/识图', tag:'先发图片', example:'这张图里写了什么？'},
 ];
 const daily = [
   {feature:'morningWeather', command:'早间天气', tag:'天气与运动'},
   {feature:'morningCampus', command:'三号楼自习简报', tag:'空教室'},
 ];
-const known = new Set(['chat','voice',...tools.map(t=>t.feature),...daily.map(t=>t.feature),...WEATHER_TOOLS.map(t=>t.feature)]);
+const known = new Set(['chat','voice','memory','balance',...tools.map(t=>t.feature),...daily.map(t=>t.feature),...WEATHER_TOOLS.map(t=>t.feature)]);
+const hiddenWeatherTools = new Set(['air_quality_image','radar_catalog']);
 const weatherLabels = {
-  radar_image: {command:'发 雷达 地点', tag:'支持全球'},
+  radar_image: {command:'发 雷达 华北', tag:'支持全球'},
   weather_image: {command:'发 天气 城市', tag:'2 日简报'},
-  air_quality_image: {command:'发 空气 城市', tag:'PM2.5'},
-  radar_catalog: {command:'雷达目录 [省份]', tag:'国内站点'},
 };
 
 /** Permission-driven copy. This catalogue describes capabilities; it never enables them. */
-export function prepareHelpContent({features = {}, words = [], privateChat = false} = {}) {
+export function prepareHelpContent({features = {}, words = [], privateChat = false, helpNote} = {}, random = Math.random) {
   const enabled = key => features[key] === true;
-  const preferred = ['梁圣','大肥鱼','小瘦鱼'];
   const actualWords = privateChat ? [] : [...new Set(words)];
-  const displayWords = [...preferred.filter(w=>actualWords.includes(w)),...actualWords.filter(w=>!preferred.includes(w))];
-  const prefix = favorite => {
+  const shortWords = actualWords.filter(word=>[...word].length===2);
+  const fallbackWord = actualWords.find(word=>[...word].length<=4) ?? '@机器人';
+  let remaining = [];
+  const prefix = () => {
     if (privateChat) return '';
-    const word = actualWords.includes(favorite) ? favorite : actualWords.find(w=>[...w].length<=4);
-    return (word || '@机器人') + ' ';
+    if (!shortWords.length) return fallbackWord + ' ';
+    if (!remaining.length) remaining = [...shortWords];
+    const [word] = remaining.splice(Math.floor(random()*remaining.length),1);
+    return word + ' ';
   };
-  const weather = WEATHER_TOOLS.filter(t=>enabled(t.feature)).flatMap(t=>{
+  const weather = WEATHER_TOOLS.filter(t=>enabled(t.feature)&&!hiddenWeatherTools.has(t.tool)).flatMap(t=>{
     const command=weatherLabels[t.tool]?.command || t.command;
-    const rows=[{command:prefix('梁圣')+command,tag:weatherLabels[t.tool]?.tag || t.title}];
-    if(t.tool==='cloud_video') rows.push({command:prefix('梁圣')+'发 历史云图 南京',tag:'近 6 小时观测'});
+    const rows=[{command:prefix()+command,tag:weatherLabels[t.tool]?.tag || t.title}];
+    if(t.tool==='cloud_video') rows.push({command:prefix()+'发 历史云图 南京',tag:'近 6 小时观测'});
     return rows;
   });
-  if(enabled('weather'))weather.push({command:prefix('梁圣')+'发 徒步 党岭',tag:'沿线天气与住宿'});
   const activeTools = tools.filter(t=>enabled(t.feature));
-  const utilities = activeTools.map(t=>({...t,command:prefix('大肥鱼')+t.command}));
-  if (enabled('voice')) utilities.push({group:'图片、语音与记忆',command:'发语音，说出问题',tag:'语音理解'});
+  const utilities = activeTools.map(t=>({...t,command:prefix()+t.command}));
+  if (enabled('voice')) utilities.push({group:'图片与语音',command:'发语音，说出问题',tag:'语音理解'});
   const scheduled = privateChat ? [] : daily.filter(t=>enabled(t.feature));
   const extra = GROUP_FEATURES.filter(t=>!t.hidden&&enabled(t.key)&&!known.has(t.key)).map(t=>({command:t.label,tag:'已开启'}));
   const examples = [];
-  if (enabled('weather')) examples.push(prefix('小瘦鱼')+'北京天气如何？');
-  if (enabled('radar')) examples.push(prefix('小难梁')+'外面打雷了，看看成都的雷达图');
+  if (enabled('weather')) examples.push(prefix()+'北京天气如何？');
+  if (enabled('radar')) examples.push(prefix()+'看看华北现在的雷达图');
   for (const item of activeTools) {
     if (examples.length >= 2) break;
-    if (item.example) examples.push(prefix('小瘦鱼')+item.example);
+    if (item.example) examples.push(prefix()+item.example);
   }
-  return {privateChat, words:displayWords, weather, utilities, scheduled, extra, examples,
-    chat:enabled('chat'), chatOff:!privateChat && features.chat === false,
-    helpCommand:prefix('小瘦鱼')+'/help'};
+  const chatOff=!privateChat && features.chat===false;
+  return {privateChat, words:actualWords, weather, utilities, scheduled, extra, examples,
+    chat:enabled('chat'),chatOff,helpNote:privateChat?'':(helpNote??(chatOff?DEFAULT_CHAT_OFF_HELP_NOTE:'')),
+    helpCommand:prefix()+'/help'};
+}
+
+function groupWakeWords(words) {
+  const liang = [], fish = [], others = [];
+  for (const word of words) {
+    if (word.includes('梁')) liang.push(word);
+    else if (word.includes('鱼')) fish.push(word);
+    else others.push(word);
+  }
+  return [liang,fish,others].filter(group=>group.length).map(group=>group.sort((a,b)=>[...a].length-[...b].length));
 }
 
 // Match the weather report's export width and page background without loading its chart renderer.
@@ -101,8 +108,8 @@ function linesFor(ctx, value, maxWidth) {
   return lines;
 }
 
-export function renderHelpImage(input) {
-  const model = prepareHelpContent(input);
+export function renderHelpImage(input, random) {
+  const model = prepareHelpContent(input,random);
   const measureCanvas = createCanvas(1,1), measure = measureCanvas.getContext('2d');
   const labels = [], shapes = [], rules = [];
   function label(value,x,top,maxWidth,size=14,leading=22,fill=color.ink,bold=false) {
@@ -121,7 +128,7 @@ export function renderHelpImage(input) {
   right('HELP / 01',width-gutter,y,10.5);
   y=49;
   label('小瘦鱼 bot 指令合集',gutter,y,400,28,40,color.ink,true);
-  label('支持自然语言提问，也支持指令查询',gutter,95,400,13,21,color.secondary);
+  label('支持固定指令查询，也支持自然语言理解',gutter,95,400,13,21,color.secondary);
 
   const heroTop=128;
   label('快速开始 · QUICK START',40,heroTop+20,258,10.5,16,'#d9b476');
@@ -135,7 +142,22 @@ export function renderHelpImage(input) {
     y+=label('主人私聊',52,y,320,16,25,color.heroInk,true);
   } else if (model.words.length) {
     label('本群可用唤醒词',52,y,320,10.5,17,'#c0d4cd');y+=22;
-    for (let i=0;i<model.words.length;i+=3) y+=label(model.words.slice(i,i+3).join('　'),52,y,320,16,26,color.heroInk);
+    const wakeX=52, wakeWidth=336, wakeGap=18, wakeSize=15, wakeLeading=25;
+    for (const group of groupWakeWords(model.words)) {
+      let offset=0;
+      for (const word of group) {
+        measure.font=font(wakeSize);
+        const wordWidth=measure.measureText(word).width;
+        if (offset && offset+wordWidth>wakeWidth) {
+          y+=wakeLeading;
+          offset=0;
+        }
+        const height=label(word,wakeX+offset,y,wakeWidth-offset,wakeSize,wakeLeading,color.heroInk);
+        if (height>wakeLeading) y+=height;
+        else offset+=wordWidth+wakeGap;
+      }
+      if (offset) y+=wakeLeading;
+    }
   } else {
     label('本群唤醒方式',52,y,320,10.5,17,'#c0d4cd');y+=22;
     y+=label('@ 机器人后发送问题',52,y,320,16,25,color.heroInk);
@@ -144,7 +166,7 @@ export function renderHelpImage(input) {
   box(40,wakeTop,360,y-wakeTop,color.wake,12,color.wakeBorder);
   y+=12;
   const stripTop=y;
-  const stripText=model.examples.length?'查询与计算，直接说需求即可':'下方仅显示当前会话已开启的功能';
+  const stripText=model.examples.length?'支持自然语言直接提问':'下方仅显示当前会话已开启的功能';
   y+=12+label(stripText,52,y+12,336,13,21,'#314541')+12;
   box(40,stripTop,360,y-stripTop,color.gold,11);
   y+=20;
@@ -171,22 +193,27 @@ export function renderHelpImage(input) {
     const commandWidth=bodyWidth-(tagWidth?tagWidth+15:0);
     measure.font=font(15);
     const commandLines=linesFor(measure,item.command,commandWidth);
-    const h=Math.max(46,commandLines.length*23+22);
-    const commandTop=start+(h-commandLines.length*23)/2;
+    const primaryHeight=Math.max(46,commandLines.length*23+22);
+    const commandTop=start+(primaryHeight-commandLines.length*23)/2;
     label(item.command,bodyX,commandTop,commandWidth,15,23,color.ink);
-    if(item.tag)right(item.tag,392,start+(h-15)/2,10.5);
+    if(item.tag)right(item.tag,392,start+(primaryHeight-15)/2,10.5);
+    let h=primaryHeight;
+    if(item.detail) {
+      const detailTop=primaryHeight-6;
+      h=detailTop+label(item.detail,bodyX,start+detailTop,bodyWidth,11.5,18,color.secondary)+10;
+    }
     box(36,start,368,h,fill,12);
     y+=h+10;
   }
   if(model.weather.length) {
-    const top=sectionStart('天气预报',`${model.weather.length} 项`);
+    const top=sectionStart('天气预报','固定指令示例');
     model.weather.forEach(item=>row(item));
     const hasVideos=model.weather.some(item=>/预报$/.test(item.tag));
     y+=label(hasVideos?'预报视频默认 24 小时，加 48h 可看两天。地点可换成城市、省区或大区。':'将地点替换为你想查询的位置。',36,y+2,368,11,18,color.secondary);
     sectionEnd(top);
   }
   if(model.utilities.length) {
-    const top=sectionStart('实用工具',`${model.utilities.length} 项`);
+    const top=sectionStart('实用工具','固定指令示例');
     let previous;
     for(const item of model.utilities) {
       if(item.group!==previous) {
@@ -201,16 +228,15 @@ export function renderHelpImage(input) {
   if(model.scheduled.length) {
     const top=sectionStart('每天 07:30','本群已订阅');
     model.scheduled.forEach(item=>row(item,color.daily));
-    y+=label('按本群订阅自动推送，无需发送指令',36,y+2,368,11,18,color.secondary);
+    y+=label('按本群订阅自动推送',36,y+2,368,11,18,color.secondary);
     sectionEnd(top);
   }
   if(model.extra.length) {
-    const top=sectionStart('其他功能',`${model.extra.length} 项`);
+    const top=sectionStart('其他功能');
     model.extra.forEach(item=>row(item));y-=10;sectionEnd(top);
   }
-  const noteTop=sectionStart('使用说明','自然语言提问');
+  const noteTop=sectionStart(model.examples.length?'自然语言示例':'会话提示');
   if(model.examples.length) {
-    y+=label('不必照抄指令，也可以这样问：',36,y,368,13,22,color.secondary);y+=8;
     model.examples.forEach((value,i)=>{
       const start=y;y+=12;
       label(`示例 ${String(i+1).padStart(2,'0')}`,48,y,344,10.5,16,color.accent);y+=21;
@@ -219,12 +245,12 @@ export function renderHelpImage(input) {
     });
   }
   if(model.chat) y+=label('附加功能：日常聊天',36,y+4,368,12,22,color.secondary)+6;
-  if(model.chatOff) {
+  if(model.helpNote) {
     const top=y+4;y=top+12;
-    y+=label('为避免打扰,本群仅启用自然语言理解,chat未启用',48,y,344,12.5,21,color.warning);
-    y+=12;box(36,top,368,y-top,color.warningFill,11,color.warningBorder);
+    for(const line of model.helpNote.split('\n')) y+=line?label(line,48,y,344,12.5,21,model.chatOff?color.warning:color.ink):12;
+    y+=12;box(36,top,368,y-top,model.chatOff?color.warningFill:color.row,11,model.chatOff?color.warningBorder:color.border);
   }
-  if(!model.examples.length&&!model.chat&&!model.chatOff) y+=label('当前仅显示已开启的功能。',36,y,368,13,22,color.secondary);
+  if(!model.examples.length&&!model.chat&&!model.helpNote) y+=label('当前仅显示已开启的功能。',36,y,368,13,22,color.secondary);
   sectionEnd(noteTop);
   y+=20;
   y+=label(model.helpCommand,24,y,260,10.5,18,color.secondary);

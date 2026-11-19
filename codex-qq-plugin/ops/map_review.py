@@ -64,6 +64,9 @@ def require_map_review(candidate, current=None):
     if revision=='ca4d2112d477ead69b29991346867bce1530930e00c879bd3d336e6b4f6140bd':return
     # Duration parsing and a low-detail forecast caption on the same confirmed basemap.
     if revision=='75d96ca0cfbf0936aa4b410b4bcef1eec5492908ea7ec579a1ddefa6a94ca7a3':return
+    # Owner reviewed the source-line preview and approved the wording “更新于” on 2026-11-11.
+    # The exact revision adds source timestamps and retains the confirmed map and labels.
+    if revision=='a1b66258f8f836b09ad54cf599fcf0655139d06342277b4408eee478135aa8ad':return
     try:review=json.loads((candidate/'data/weather-boundary-review.json').read_bytes())
     except (OSError,ValueError) as exc:raise ValueError(HOLD+': missing boundary review') from exc
     if review.get('state')!='approved' or review.get('additionalChecks')!=[]:

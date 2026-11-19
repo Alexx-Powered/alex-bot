@@ -34,9 +34,10 @@ test('study image endpoint authenticates, limits images, stays owner-only and de
 });
 async function fixture(weatherCommands) {
   const store=memoryStore(), sent=[];
-  let receive;
-  const app=await createBridgeServer({port:0,store,campusService:{status:async()=>({enabled:false}),handle:async()=>null,close(){},run:async()=>({image:{buffer:Buffer.alloc(32),mimeType:'image/png'}})},...(weatherCommands?{weatherCommands,morningReport:{plan:()=>({city:'beijing'}),create:()=>weatherCommands.briefing({cities:['beijing'],renderImage:true})}}:{}),adapterFactory:({onMessage})=>{
+  let receive,reportStatus;
+  const app=await createBridgeServer({port:0,store,campusService:{status:async()=>({enabled:false}),handle:async()=>null,close(){},run:async()=>({image:{buffer:Buffer.alloc(32),mimeType:'image/png'}})},...(weatherCommands?{weatherCommands,morningReport:{plan:()=>({city:'beijing'}),create:()=>weatherCommands.briefing({cities:['beijing'],renderImage:true})}}:{}),adapterFactory:({onMessage,onStatus})=>{
     receive=onMessage; let state='disconnected';
+    reportStatus=(next,code)=>{state=next;onStatus({state,code});};
     return {status:()=>({state,code:null}),async connect(){state='connected'},async disconnect(){state='disconnected'},
       async send(data){if(state!=='connected')throw Object.assign(new Error('NOT_CONNECTED'),{code:'NOT_CONNECTED'});sent.push(data);return {id:'test'}}};
   }});
@@ -44,8 +45,30 @@ async function fixture(weatherCommands) {
   const request=(route,data,headers={})=>fetch(url+route,{method:data===undefined?'GET':'POST',headers:{
     Authorization:'Bearer '+store.token,...(data===undefined?{}:{'Content-Type':'application/json'}),...headers},
     ...(data===undefined?{}:{body:JSON.stringify(data)})});
-  return {app,store,sent,request,url,receive};
+  return {app,store,sent,request,url,receive,reportStatus};
 }
+
+test('official connection errors can recover without clearing a manual stop or ignoring a bot ban',async()=>{
+  const f=await fixture();
+  try{
+    const handshake=await f.app.core.startPairing();
+    await f.receive({kind:'c2c',id:'pair',senderId:'owner',text:'/pair '+handshake.pairingCode});
+    await f.app.core.confirmPairing();
+    f.reportStatus('error','QQ_SERVICE_UNAVAILABLE');
+    await f.app.core.waitForPendingOperations();
+    assert.equal(f.app.core.status().paused,false);
+    f.reportStatus('connected',null);
+    await f.receive({kind:'c2c',id:'ping',senderId:'owner',text:'/ping'});
+    assert.equal(f.sent.length,1);
+    await f.app.core.setPaused(true);
+    f.reportStatus('connected',null);
+    assert.equal(f.app.core.status().paused,true);
+    await f.app.core.setPaused(false);
+    f.reportStatus('blocked','QQ_BOT_BANNED');
+    await f.app.core.waitForPendingOperations();
+    assert.equal(f.app.core.status().paused,true);
+  }finally{await f.app.close();}
+});
 
 test('loopback API rejects missing auth and cross-origin browser mutations',async()=>{
   const f=await fixture();try{

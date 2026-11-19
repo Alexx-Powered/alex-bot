@@ -22,14 +22,14 @@ def pooled_downloads():
         yield partial(_read, client, {host: Event() for host in HOSTS})
 
 
-def _read(client, throttled, url, limit=2_000_000):
+def _read(client, throttled, url, limit=2_000_000, *, timeout=httpx.USE_CLIENT_DEFAULT):
     parts = urlsplit(url)
     if parts.scheme != 'https' or parts.netloc not in HOSTS:
         raise VideoFailure('VIDEO_SOURCE_INVALID')
     if throttled[parts.netloc].is_set():
         raise VideoFailure('VIDEO_SOURCE_UNAVAILABLE')
     try:
-        with sample('video_download_slowest'), client.stream('GET', url) as response:
+        with sample('video_download_slowest'), client.stream('GET', url, timeout=timeout) as response:
             if response.is_redirect:
                 raise VideoFailure('VIDEO_SOURCE_INVALID')
             if response.status_code == 429:
@@ -51,6 +51,6 @@ def _read(client, throttled, url, limit=2_000_000):
         raise VideoFailure('VIDEO_SOURCE_UNAVAILABLE', transient=isinstance(error, httpx.TransportError)) from None
 
 
-def request(url, limit=2_000_000):
+def request(url, limit=2_000_000, *, timeout=httpx.USE_CLIENT_DEFAULT):
     with pooled_downloads() as fetch:
-        return fetch(url, limit)
+        return fetch(url, limit, timeout=timeout)

@@ -9,6 +9,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from threading import Lock
 
@@ -24,6 +25,13 @@ FIELDS = {'temperature': ('temperature_2m', '°C', -100, 70),
           'pm25': ('pm2_5', 'μg/m³', 0, 5000)}
 DOMAINS = {'ecmwf_ifs': 'ECMWF IFS', 'cams_global': 'CAMS 全球', 'cams_europe': 'CAMS 欧洲'}
 BLOCK = 32768
+CACHE_TIMESTAMP_SIZE = 8
+
+
+def valid_update_time(updated_at, run_at, now):
+    if type(updated_at) is int and type(run_at) is int and 0 < run_at <= updated_at <= now + 60:
+        return updated_at
+    return None
 
 
 def libraries():
@@ -45,6 +53,7 @@ class RangeFile:
         self.failure = None
         self.budget = 24 * 1024 * 1024
         self.etag = None
+        self.updated_at = None
         tail, start, self.length = self._request('bytes=-16384')
         if start != max(0, self.length - 16384):
             raise ValueError('invalid footer')
@@ -80,6 +89,14 @@ class RangeFile:
                     and (self.etag is None or self.etag == tag)
                     and int(response.headers['Content-Length']) == size):
                 raise ValueError('inconsistent range')
+            if self.etag is None:
+                modified = response.headers.get('Last-Modified')
+                try:
+                    stamp = parsedate_to_datetime(modified) if modified else None
+                    if stamp is not None and stamp.tzinfo is not None:
+                        self.updated_at = int(stamp.timestamp())
+                except (ValueError, OverflowError, OSError):
+                    pass
             self.etag = tag
             with self.lock:
                 self.budget -= size
@@ -247,24 +264,27 @@ def cached_frames(prefix, side, count, bounds):
     for available in (48,24) if count==24 else (48,):
         path = prefix.with_suffix(f'.{available}.grid')
         try:
-            if path.is_symlink() or path.stat().st_size != available*side*side*4:
+            if path.is_symlink() or path.stat().st_size != CACHE_TIMESTAMP_SIZE+available*side*side*4:
                 continue
             with path.open('rb') as stream:
+                updated_at = int.from_bytes(stream.read(CACHE_TIMESTAMP_SIZE), 'little') or None
                 data = np.fromfile(stream, dtype='<f4', count=count*side*side).reshape(count,side,side)
             if not np.isfinite(data).all() or data.min() < bounds[0]-.001 or data.max() > bounds[1]+.001:
                 continue
-            return [Image.fromarray(frame) for frame in data]
+            return [Image.fromarray(frame) for frame in data], updated_at
         except (OSError, ValueError):
             continue
     return None
 
 
-def store_frames(prefix, frames):
+def store_frames(prefix, frames, updated_at):
     # Storage is private and disposable. A full disk or competing job cannot break a forecast.
     tmp = None
     try:
         with tempfile.NamedTemporaryFile(dir=prefix.parent, prefix='native-', suffix='.tmp', delete=False) as f:
             tmp = Path(f.name)
+            # Keep the timestamp and frame data in the same atomic cache entry.
+            f.write((updated_at or 0).to_bytes(CACHE_TIMESTAMP_SIZE, 'little'))
             for frame in frames:
                 f.write(frame.tobytes('raw','F;32F'))
         os.replace(tmp,prefix.with_suffix(f'.{len(frames)}.grid'))
@@ -297,8 +317,10 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None):
                 response.raise_for_status()
                 manifest = response.json()
             run = datetime.strptime(manifest['reference_time'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+            run_at = int(run.timestamp())
+            source = DOMAINS[domain]+' · Open-Meteo'
             max_age = {'ecmwf_ifs':24, 'cams_global':36, 'cams_europe':48}[domain]*3600
-            if not (0 <= now-run.timestamp() <= max_age) or name not in manifest['variables']:
+            if not (0 <= now-run_at <= max_age) or name not in manifest['variables']:
                 raise ValueError('run not available')
             verify_grid(domain, manifest['crs_wkt'])
             url = f"{base}/{run.strftime('%Y/%m/%d/%H%MZ')}/{name}.om"
@@ -309,13 +331,15 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None):
                 prefix = cache_dir/('native-'+hashlib.sha256(repr(identity).encode()).hexdigest())
                 hit = cached_frames(prefix,raster_side(domain,view),len(times),(low,high))
                 if hit is not None:
-                    return hit, DOMAINS[domain]+' · Open-Meteo'
+                    frames, updated_at = hit
+                    return frames, source, valid_update_time(updated_at, run_at, now)
             store = RangeFile(client, url, deadline, block_size=block_size)
+            updated_at = valid_update_time(store.updated_at, run_at, now)
             with reader_type.from_fsspec(store, url) as root:
                 with root.get_child_by_name('crs_wkt') as crs:
                     verify_grid(domain,crs.read_scalar())
                 with root.get_child_by_name('unit') as units, root.get_child_by_name('forecast_reference_time') as ref:
-                    if units.read_scalar() != unit or ref.read_scalar() != int(run.timestamp()):
+                    if units.read_scalar() != unit or ref.read_scalar() != run_at:
                         raise ValueError('inconsistent metadata')
                 with root.get_child_by_name('time') as axis:
                     if axis.shape != (root.shape[-1],) or not (len(times) <= axis.shape[0] <= 400):
@@ -330,10 +354,10 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None):
                     count = 48
                 frames = projected_frames(root, domain, view, slice(k,k+count), (low, high), workers=workers)
                 if prefix:
-                    store_frames(prefix,frames)
+                    store_frames(prefix,frames,updated_at)
                 for frame in frames[len(times):]:
                     frame.close()
                 frames = frames[:len(times)]
-        return frames, DOMAINS[domain]+' · Open-Meteo'
+        return frames, source, updated_at
     except (ImportError, OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, httpx.HTTPError) as err:
         raise VideoFailure('VIDEO_NATIVE_UNAVAILABLE') from err

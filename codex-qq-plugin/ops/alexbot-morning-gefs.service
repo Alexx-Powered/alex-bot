@@ -1,0 +1,23 @@
+[Unit]
+Description=Prepare NOAA GEFS-Aerosols point forecasts for winter weather reports
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=alexbot
+Group=alexbot
+WorkingDirectory=/var/lib/alexbot
+Environment=QQ_BRIDGE_HOME=/var/lib/alexbot QQ_PYTHON=/opt/alex-bot-runtime/python/app-venv/bin/python TZ=Asia/Shanghai
+ExecStart=/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/scripts/cache-morning-gefs.mjs
+TimeoutStartSec=190s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/alexbot/.private
+LimitCORE=0
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%

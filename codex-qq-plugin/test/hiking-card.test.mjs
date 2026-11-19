@@ -36,6 +36,11 @@ test('partial per-day statistics retain visible values and still render a valid 
   assert.equal(image.mimeType,'image/png');assert.ok((await loadImage(image.buffer)).width>2000);
   assert.equal(value.days[0].stats.min,-3);assert.equal(value.days[0].series[12][0],null);
 });
+test('representative-point label is constrained to the daily route and fits the card',async()=>{
+  const value=fixture(2);value.days[0].weather_reference='山脊营地';
+  const image=await renderHikingCard(value);assert.ok(image.buffer.length>10000);
+  value.days[0].weather_reference='虚构营地';assert.throws(()=>validateHikingCard(value),/INVALID/);
+});
 test('3 and 14 walking days retain readable day width within canvas memory budget',async()=>{
   const small=await loadImage((await renderHikingCard(fixture(3))).buffer),long=await loadImage((await renderHikingCard(fixture(14))).buffer);
   assert.ok(small.width>2000);assert.ok(long.width>small.width);
@@ -47,7 +52,7 @@ test('new fixed command cannot bypass group weather permission',async()=>{
   const result=await agent.handle('发 徒步 党岭',{scope:'group',access:'white',features,sessionKey:'a'.repeat(64)});
   assert.equal(result.image,undefined);assert.ok(result.text);
 });
-test('real Node to Python LangChain carries partial daily values into a sendable image without model or QQ',async()=>{
+test('real Node to Python LangChain carries weather reference and camping/room alternatives without model or QQ',async()=>{
   const root=fileURLToPath(new URL('../',import.meta.url)),parent=path.join(root,'test-output','hiking-node');await mkdir(parent,{recursive:true});
   const home=await mkdtemp(path.join(parent,'run-')),config=path.join(home,'rag.json'),store=path.join(home,'rag.sqlite3');
   await writeFile(config,JSON.stringify({enabled:true,store_path:store}));
@@ -59,8 +64,9 @@ sys.path.insert(0,${JSON.stringify(path.join(root,'python'))})
 import hiking_trip as h
 from hiking_catalog import validate_profile
 point={'lat':30,'lon':100,'source':'https://www.openstreetmap.org/node/1'}
-profile=validate_profile({'topic':'合成测试山','variant':'测试一日往返','sources':[{'url':'https://example.org/fixture','date':'2026-11-08'}],
- 'days':[{'route':['起点村','未知湖','起点村'],'sleep':None}],'points':{'起点村':point}})
+profile=validate_profile({'topic':'合成测试山','variant':'测试两日往返','sources':[{'url':'https://example.org/fixture','date':'2026-11-08'}],
+ 'days':[{'route':['起点村','未知湖','起点村'],'sleep':{'name':'起点村','kind':'tent','options':['tent','inn']}},
+         {'route':['起点村','未知湖','起点村'],'sleep':None}],'points':{'起点村':point}})
 h.catalog=lambda:[profile]
 h.resolve_points=lambda *a,**kw:{'起点村':point}
 def forecast(points,start,end,**kw):
@@ -77,7 +83,12 @@ runpy.run_path(${JSON.stringify(path.join(root,'python','agent_worker.py'))},run
     const reply=await agent.handle('发 徒步 合成测试山',{scope:'c2c',sessionKey:'a'.repeat(64)});
     assert.equal(reply.text,'');assert.ok(Buffer.isBuffer(reply.image.buffer));assert.equal(reply.image.mimeType,'image/png');assert.ok((await loadImage(reply.image.buffer)).width>1000);
     const day=outputs.at(-1).hikingCard.days[0];
-    assert.equal(day.stats.min,10);assert.equal(day.stats.cloud,40);assert.equal(day.stats.precip,21);
-    assert.equal(day.coverage.min,21);assert.equal(day.coverage.precip,21);assert.equal(day.series[12][0],null);
+    assert.equal(day.stats.min,10);assert.equal(day.stats.cloud,40);assert.equal(day.stats.precip,24);
+    assert.equal(day.coverage.min,24);assert.equal(day.coverage.precip,24);assert.equal(day.series[12][0],10);
+    assert.equal(day.weather_reference,'起点村');
+    const card=outputs.at(-1).hikingCard;
+    assert.equal(card.nights[0].kind,'tent');assert.equal(card.nights[0].comfort,10);
+    assert.deepEqual(card.nights[0].options,['tent','inn']);
+    assert.equal(card.alternate.nights[0].kind,'inn');assert.equal(card.alternate.nights[0].comfort,null);
   }finally{worker.close();await new Promise(r=>setTimeout(r,200));await rm(home,{recursive:true,force:true});}
 });

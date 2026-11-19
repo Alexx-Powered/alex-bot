@@ -18,8 +18,16 @@ export class WeatherToolbox{
     setTraceParameters({city:a.city??a.target??a.cities?.join(' / '),day:a.day,hours:a.hours});
     if(name==='local_weather_briefing'){const r=await this.commands.briefing(a);return r.image?{...r,text:'',richMedia:false}:r;}
     if(name==='weather_image'&&a.day==='tomorrow'){
-      try{const r=await this.commands.briefing({cities:[a.city],day:a.day});return {text:'',image:r.image};}
-      catch(error){recordRequestFailure(error);return {text:timeoutNotice(error)||'预报数据暂不可用，请稍后查询。'};}
+      try{
+        const {image}=await this.commands.briefing({cities:[a.city],day:a.day});
+        return {text:'',image};
+      }catch(error){
+        recordRequestFailure(error);
+        if(error?.code==='LOCATION_AMBIGUOUS')return {text:'地名有重名，请加省市：\n'+(error.suggestions??[]).slice(0,8).join('\n')};
+        if(['LOCATION_NOT_FOUND','LOCATION_INPUT_INVALID'].includes(error?.code))return {text:'未找到该地点，请补充省市或使用地名全称。'};
+        if(error?.code==='LOCATION_SOURCE_UNAVAILABLE')return {text:'地点查询暂不可用，请稍后查询。'};
+        return {text:timeoutNotice(error)||'预报数据暂不可用，请稍后查询。'};
+      }
     }
     if(name.endsWith('_video'))return this.handle((a.hours===48?'发 48h动态':'发 动态')+({cloud_video:'云图',pm25_video:'PM2.5',precipitation_video:'降水',temperature_video:'温度'})[name]+' '+a.city);
     const text=name==='weather_image'?'发 天气 '+a.city:name==='air_quality_image'?'发 雾霾 '+a.city:name==='radar_image'?(a.source==='global'?'发全球雷达 ':'发 雷达 ')+a.target:'雷达目录 '+a.query;

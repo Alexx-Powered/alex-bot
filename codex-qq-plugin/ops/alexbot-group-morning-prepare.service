@@ -10,7 +10,7 @@ Group=alexbot
 WorkingDirectory=/var/lib/alexbot
 Environment=QQ_BRIDGE_HOME=/var/lib/alexbot TZ=Asia/Shanghai
 ExecStart=/usr/local/bin/node /opt/alex-bot/current/codex-qq-plugin/scripts/group-morning.mjs --prepare
-TimeoutStartSec=600
+TimeoutStartSec=950
 Restart=no
 UMask=0077
 NoNewPrivileges=yes

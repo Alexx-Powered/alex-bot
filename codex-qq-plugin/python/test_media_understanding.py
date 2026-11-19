@@ -1,9 +1,11 @@
+import base64
 import io
 import json
 import socket
 import unittest
 import wave
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from langchain_core.messages import AIMessage
 from media_understanding import VisionFacts,valid_media_url,image_data,download,build_media_tool,transcribe_audio
 
@@ -27,13 +29,39 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(valid_media_url('https://qqbot.ugcimg.cn/fixture.wav'),'https://qqbot.ugcimg.cn/fixture.wav')
         with self.assertRaises(Exception):download(URL,resolver=lambda *a,**k:[(socket.AF_INET,None,None,None,('127.0.0.1',443))])
     def test_image_uses_actual_bytes_and_ignores_metadata(self):
-        self.assertTrue(image_data(png()).startswith('data:image/jpeg;base64,'))
+        source=io.BytesIO()
+        metadata=PngInfo()
+        metadata.add_text('comment','not sent')
+        Image.new('RGB',(1440,900),'red').save(source,format='PNG',pnginfo=metadata)
+        views,layout=image_data(source.getvalue())
+        self.assertEqual(layout,'')
+        self.assertEqual(len(views),1)
+        self.assertTrue(views[0].startswith('data:image/png;base64,'))
+        with Image.open(io.BytesIO(base64.b64decode(views[0].split(',',1)[1]))) as decoded:
+            self.assertEqual(decoded.size,(1440,900))
+            self.assertNotIn('comment',decoded.info)
         with self.assertRaises(Exception):image_data(b'not an image')
+    def test_long_screenshot_preserves_top_middle_and_bottom_at_readable_size(self):
+        source=io.BytesIO()
+        long_image=Image.new('RGB',(480,4200),'white')
+        for i,color in enumerate(['red','green','blue']):
+            long_image.paste(color,(0,i*1400,480,(i+1)*1400))
+        long_image.save(source,format='PNG')
+        views,layout=image_data(source.getvalue())
+        self.assertEqual(len(views),3)
+        self.assertIn('从上到下',layout)
+        for encoded,color in zip(views,[(255,0,0),(0,128,0),(0,0,255)],strict=True):
+            with Image.open(io.BytesIO(base64.b64decode(encoded.split(',',1)[1]))) as decoded:
+                self.assertEqual(decoded.width,480)
+                self.assertGreaterEqual(decoded.height,1400)
+                self.assertEqual(decoded.getpixel((240,decoded.height//2)),color)
     def test_actual_langchain_vision_tool_has_no_url_parameter(self):
         model=Model(json.dumps({'description':'猫猫举着饭碗','visible_text':'开饭','is_meme':True}))
-        t=build_media_tool({'kind':'image','url':URL},{'apiKey':'fixture'},{},fetch=lambda _:png(),vision_factory=lambda _:model)
+        t=build_media_tool({'kind':'image','url':URL},{'apiKey':'fixture'},{},fetch=lambda _:png(),vision_factory=lambda _:model,question='饭碗旁写了什么？')
         result=t.invoke({'kind':'image'});self.assertTrue(result['is_meme'])
-        self.assertEqual(model.messages[1].content[1]['type'],'image_url')
+        blocks=model.messages[1].content
+        self.assertIn('饭碗旁写了什么？',blocks[0]['text'])
+        self.assertEqual(blocks[1]['image_url']['detail'],'original')
         with self.assertRaises(Exception):t.invoke({'kind':'image','url':'https://evil.test'})
     def test_platform_transcript_needs_no_paid_model(self):
         t=build_media_tool({'kind':'audio','transcript':'今天我很开心'},{},{},fetch=lambda _:self.fail('No download'),asr_factory=lambda _:self.fail('No API'))

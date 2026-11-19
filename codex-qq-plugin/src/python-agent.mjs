@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
-import {beginSpan,hasActiveTrace,recordTiming,recordRequestFailure,setTraceOperation,videoWorkerStages} from './telemetry.mjs';
+import {beginSpan,hasActiveTrace,recordTiming,recordRequestFailure,setTraceOperation,videoWorkerStages,campusWorkerStages} from './telemetry.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
 export function pythonEnvironment(source=process.env){
   const env={};for(const key of ['SystemRoot','WINDIR','PATH','TEMP','TMP','TMPDIR','HOME','USERPROFILE','LOCALAPPDATA','APPDATA','PLAYWRIGHT_BROWSERS_PATH','QQ_FONT_REGULAR','QQ_FONT_BOLD','QQ_RAG_CONFIG'])if(source[key])env[key]=source[key];
@@ -26,11 +26,12 @@ export class PythonAgentWorker{
     if(!this.#current)return;
     const task=this.#current;this.#current=null;clearTimeout(task.timer);
     const error=Object.assign(failure(),{toolExecuted:task.called,...details});
-    task.videoSpan?.end('error',undefined,error);
+    task.workerSpan?.end('error',undefined,error);
     task.record('worker_total',performance.now()-task.startedAt,{status:'error',error});
     task.reject(error);
   }
-  #timeout(){const task=this.#current;this.#stop({timedOut:true,timeoutMs:task?.limitMs??this.timeoutMs,stage:task?.stage});}
+  #timeout(){const task=this.#current;this.#stop({timedOut:true,timeoutMs:task?.limitMs??this.timeoutMs,stage:task?.stage,
+    ...(task?.requestType==='campus'?{code:'CAMPUS_WORKER_TIMEOUT'}:{})});}
   close(){this.#closed=true;clearTimeout(this.#idleTimer);this.#stop();}
   get busy(){return this.#queued>0||Boolean(this.#current)||this.#closed;}
   prewarm(){if(this.#closed)return false;try{this.#start();this.#scheduleIdle();return true;}catch{return false;}}
@@ -54,17 +55,19 @@ export class PythonAgentWorker{
   async #line(line){
     const value=JSON.parse(line),task=this.#current;
     if(!task||value.id!==task.id)throw failure();
-    if(value.type==='video_stage'&&task.requestType==='weather_video'){
-      if(!videoWorkerStages.includes(value.stage))return;
-      if(value.phase==='start'&&!task.videoSpan){
-        task.videoName=value.stage;task.videoSpan=task.begin(value.stage,value.startedAtMs);
-      }else if(task.videoSpan&&value.stage===task.videoName&&['ok','error','fallback'].includes(value.phase)){
-        task.videoSpan.run(()=>{
+    const video=value.type==='video_stage'&&task.requestType==='weather_video';
+    const campus=value.type==='campus_stage'&&task.requestType==='campus';
+    if(video||campus){
+      if(!(video?videoWorkerStages:campusWorkerStages).includes(value.stage))return;
+      if(value.phase==='start'&&!task.workerSpan){
+        task.workerStage=value.stage;task.workerSpan=task.begin(value.stage,value.startedAtMs);
+      }else if(task.workerSpan&&value.stage===task.workerStage&&['ok','error','fallback'].includes(value.phase)){
+        if(video)task.workerSpan.run(()=>{
           for(const s of Array.isArray(value.samples)?value.samples.slice(0,2):[]){
             if(s&&['video_decode_slowest','video_download_slowest'].includes(s.name))recordTiming(s.name,s.ms,s);
           }
         });
-        task.videoSpan.end(value.phase,value.ms,value);task.videoSpan=null;
+        task.workerSpan.end(value.phase,value.ms,value);task.workerSpan=null;
       }
       return;
     }
@@ -87,7 +90,7 @@ export class PythonAgentWorker{
     const ragFailure=value.kind==='rag'&&['unavailable','denied','invalid','rejected'].includes(value.status);
     const ragError=value.kind==='rag'&&RAG_ERRORS.has(value.errorCode)?{code:value.errorCode}:undefined;
     const workerError=task.toolError??(value.kind==='error'?{reason:value.code}:ragFailure?(ragError??{code:'RAG_STORE_UNAVAILABLE'}):value.data?.ok===false?{code:value.data.code}:undefined);
-    task.videoSpan?.end('error',undefined,workerError);
+    task.workerSpan?.end('error',undefined,workerError);
     task.record('worker_total',performance.now()-task.startedAt,{status:workerError?'error':'ok',error:workerError});
     if(Number.isFinite(value.startupMs))task.record('worker_startup',value.startupMs,{startedAtMs:task.sentAtMs});
     for(const timing of Array.isArray(value.timings)?value.timings.slice(0,32):[])if(timing&&typeof timing==='object')task.record(timing.name,timing.ms,{...timing,...Number.isFinite(timing.offsetMs)&&Number.isFinite(value.startupMs)?{startedAtMs:task.sentAtMs+value.startupMs+timing.offsetMs}:{}});
@@ -111,7 +114,7 @@ export class PythonAgentWorker{
     if(value.kind==='analysis'&&!['morning','social','media','insight','social_insight_save','public_status','global_radar','weather_video','rag_index'].includes(task.requestType))throw failure();
     if(value.kind==='conversion'&&task.requestType!=='request'&&!(task.requestType==='execute'&&task.requestName==='convert_units'))throw failure();
     if(value.kind==='error'){
-      const allowed=new Set(['MODEL_AUTH_ERROR','MODEL_BALANCE_INSUFFICIENT','MODEL_PROVIDER_RATE_LIMITED','MODEL_PROVIDER_UNAVAILABLE','MODEL_TIMEOUT','MODEL_CONNECTION_ERROR','MODEL_TOOL_ROUTING_FAILED']);
+      const allowed=new Set(['MODEL_AUTH_ERROR','MODEL_BALANCE_INSUFFICIENT','MODEL_PROVIDER_RATE_LIMITED','MODEL_PROVIDER_UNAVAILABLE','MODEL_TIMEOUT','MODEL_CONNECTION_ERROR','MODEL_TOOL_ROUTING_FAILED','MODEL_TOOL_PROTOCOL_ERROR','MODEL_REQUEST_REJECTED']);
       clearTimeout(task.timer);this.#current=null;
       task.reject(Object.assign(failure(),{reason:allowed.has(value.code)?value.code:'WORKER_FAILED',toolExecuted:task.called}));return;
     }
@@ -130,7 +133,17 @@ export class PythonAgentWorker{
     this.#queued++;
     const queuedAt=performance.now();
     const operation=this.#tail.then(()=>new Promise((resolveTask,reject)=>{
-      try{if(this.#closed)throw failure();recordTiming('worker_queue',performance.now()-queuedAt);this.#start();const id=randomUUID(),sentAtMs=Date.now();this.#current={id,sentAtMs,startedAt:performance.now(),record:AsyncLocalStorage.bind(recordTiming),failTrace:AsyncLocalStorage.bind(recordRequestFailure),begin:AsyncLocalStorage.bind(beginSpan),requestType:payload.type,requestName:payload.name,execute:AsyncLocalStorage.bind(execute),finish:AsyncLocalStorage.bind(finish),resolve:resolveTask,reject,called:false,completed:false,limitMs:this.timeoutMs,stage:payload.name,timer:setTimeout(()=>this.#timeout(),this.timeoutMs)};this.#write({...payload,id,_sentAtMs:sentAtMs,...(payload.type==='weather_video'&&hasActiveTrace()?{_traceVideo:true}:{})});}
+      try{
+        if(this.#closed)throw failure();
+        recordTiming('worker_queue',performance.now()-queuedAt);this.#start();
+        const id=randomUUID(),sentAtMs=Date.now();
+        const limitMs=payload.type==='campus'&&payload.timeout_profile==='morning'?this.toolTimeouts.campusMorning??this.timeoutMs:this.timeoutMs;
+        this.#current={id,sentAtMs,startedAt:performance.now(),record:AsyncLocalStorage.bind(recordTiming),failTrace:AsyncLocalStorage.bind(recordRequestFailure),
+          begin:AsyncLocalStorage.bind(beginSpan),requestType:payload.type,requestName:payload.name,execute:AsyncLocalStorage.bind(execute),
+          finish:AsyncLocalStorage.bind(finish),resolve:resolveTask,reject,called:false,completed:false,limitMs,stage:payload.name,timer:setTimeout(()=>this.#timeout(),limitMs)};
+        const traceFlag=payload.type==='weather_video'?'_traceVideo':payload.type==='campus'?'_traceCampus':null;
+        this.#write({...payload,id,_sentAtMs:sentAtMs,...(traceFlag&&hasActiveTrace()?{[traceFlag]:true}:{})});
+      }
       catch{this.#stop();reject(failure());}
     })).finally(()=>{this.#queued--;this.#scheduleIdle();});
     this.#tail=operation.catch(()=>{});return operation;

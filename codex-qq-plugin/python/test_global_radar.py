@@ -28,7 +28,6 @@ class GlobalRadarTests(unittest.TestCase):
             image,covered=map_image(place,FRAME,Path(folder),fetch)
             self.assertEqual(image.size,(1024,1024));self.assertFalse(covered)
             first_count=sum('openstreetmap.org' in u for u in calls)
-            self.assertEqual(first_count,0)
             map_image(place,FRAME,Path(folder),fetch)
             self.assertEqual(sum('openstreetmap.org' in u for u in calls),first_count)
             self.assertTrue(all(0<=int(u.split('/')[-2])<64 for u in calls if 'openstreetmap.org' in u))

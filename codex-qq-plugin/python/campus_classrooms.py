@@ -5,12 +5,14 @@ import re
 import time
 import hashlib
 import sys
+from contextlib import ExitStack,contextmanager,suppress
 from datetime import date as Date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 from langchain_core.tools import tool
+from timeout_errors import is_timeout
 
 TZ=timezone(timedelta(hours=8))
 PAGE='https://app.buaa.edu.cn/site/classRoomQuery/index'
@@ -20,7 +22,8 @@ NAME=re.compile(r'^[\w\u3400-\u9fff（）()· .-]{1,64}$')
 CODES=frozenset({'OK','CAMPUS_NOT_CONFIGURED','CAMPUS_DISABLED','CAMPUS_CONFIG_UNAVAILABLE','CAMPUS_BUSY',
     'CAMPUS_INVALID_DATE','CAMPUS_AUTH_FAILED','CAMPUS_INTERACTION_REQUIRED','CAMPUS_NETWORK_ERROR',
     'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED',
-    'CAMPUS_NAVIGATION_TIMEOUT','CAMPUS_LOGIN_TIMEOUT','CAMPUS_SEARCH_TIMEOUT','CAMPUS_INTERACTIVE_LOGIN_TIMEOUT','CAMPUS_LOGIN_ACTION_TIMEOUT'})
+    'CAMPUS_NAVIGATION_TIMEOUT','CAMPUS_LOGIN_TIMEOUT','CAMPUS_SEARCH_TIMEOUT','CAMPUS_INTERACTIVE_LOGIN_TIMEOUT','CAMPUS_LOGIN_ACTION_TIMEOUT',
+    'CAMPUS_LOGIN_ACCOUNT_TIMEOUT','CAMPUS_LOGIN_PASSWORD_TIMEOUT','CAMPUS_LOGIN_SUBMIT_TIMEOUT'})
 
 class CampusError(Exception):
     def __init__(self,code):self.code=code;super().__init__(code)
@@ -90,13 +93,68 @@ def login_failure(frame):
         return None
     return None
 
-def browser_collect(credentials,private_root,day,*,interactive=False,session_state=None,on_session=None,timeout_profile='normal'):
-    from playwright.sync_api import sync_playwright
+@contextmanager
+def campus_stage(emit,name,*,timeout_code=None,timeout_ms=None,error_code='CAMPUS_NETWORK_ERROR'):
+    start=time.monotonic()
+    if emit:emit(name,'start',startedAtMs=int(time.time()*1000))
+    try:
+        yield
+    except Exception as error:
+        timed_out=is_timeout(error) or (timeout_code is not None and getattr(error,'code',None)==timeout_code)
+        code=error.code if isinstance(error,CampusError) else timeout_code if timed_out and timeout_code else error_code
+        if emit:emit(name,'error',ms=(time.monotonic()-start)*1000,code=code,
+            **({'timedOut':True,'timeoutMs':timeout_ms} if timed_out and timeout_ms else {}))
+        if isinstance(error,CampusError):raise
+        raise CampusError(code) from None
+    else:
+        if emit:emit(name,'ok',ms=(time.monotonic()-start)*1000)
+
+def _sso_frames(page):
+    for frame in page.frames:
+        url=urlsplit(frame.url)
+        if url.scheme=='https' and url.hostname=='sso.buaa.edu.cn':yield frame
+
+def _await_login(page,initial,credentials,*,interactive,login_seconds,action_ms,on_stage):
+    deadline=time.monotonic()+login_seconds
+    login_timeout='CAMPUS_INTERACTIVE_LOGIN_TIMEOUT' if interactive else 'CAMPUS_LOGIN_TIMEOUT'
+    form=None
+    with campus_stage(on_stage,'campus_login_form',timeout_code=login_timeout,timeout_ms=login_seconds*1000):
+        while not initial and time.monotonic()<deadline and form is None:
+            for frame in _sso_frames(page):
+                account=frame.locator('#unPassword');secret=frame.locator('#pwPassword')
+                if account.count()!=1 or secret.count()!=1 or not account.is_visible():continue
+                if frame.locator('#cptPassword').is_visible():
+                    if not interactive:raise CampusError('CAMPUS_INTERACTION_REQUIRED')
+                    continue
+                form=(frame,account,secret)
+                break
+            if form is None:page.wait_for_timeout(250)
+        if initial:return
+        if form is None:raise CampusError(login_timeout)
+    frame,account,secret=form
+    actions=(('campus_login_fill_account','CAMPUS_LOGIN_ACCOUNT_TIMEOUT',account.fill,(credentials['username'],),{}),
+        ('campus_login_fill_password','CAMPUS_LOGIN_PASSWORD_TIMEOUT',secret.fill,(credentials['password'],),{}),
+        ('campus_login_click','CAMPUS_LOGIN_SUBMIT_TIMEOUT',frame.locator('input[onclick="loginPassword()"]').click,(),{'no_wait_after':True}))
+    for stage,code,action,args,options in actions:
+        # One attempt per action. Waiting on redirects belongs to login_result.
+        if initial:return
+        timeout=min(action_ms,max(1,int((deadline-time.monotonic())*1000)))
+        with campus_stage(on_stage,stage,timeout_code=code,timeout_ms=timeout):
+            action(*args,**options,timeout=timeout)
+    with campus_stage(on_stage,'campus_login_result',timeout_code=login_timeout,timeout_ms=login_seconds*1000):
+        while not initial and time.monotonic()<deadline:
+            if not interactive:
+                for frame in _sso_frames(page):
+                    failure=login_failure(frame)
+                    if failure:raise CampusError(failure)
+            page.wait_for_timeout(250)
+        if not initial:raise CampusError(login_timeout)
+
+def browser_collect(credentials,private_root,day,*,interactive=False,session_state=None,on_session=None,timeout_profile='normal',on_stage=None):
+    from playwright.sync_api import Error as BrowserError,sync_playwright
     if timeout_profile not in {'normal','morning'} or (interactive and timeout_profile!='normal'):
         raise CampusError('CAMPUS_QUERY_FAILED')
-    # A scheduled report has a two-minute head start. Slow sources get more
-    # time, not extra attempts; the existing worker still caps the whole job.
-    navigation_ms,login_seconds,search_ms=(45000,60,45000) if timeout_profile=='morning' else (25000,40,20000)
+    navigation_ms,login_seconds,action_ms,search_ms=(60_000,120,20_000,60_000) if timeout_profile=='morning' else (25_000,40,8_000,20_000)
     initial={}
     def capture(response):
         u=urlsplit(response.url)
@@ -112,67 +170,55 @@ def browser_collect(credentials,private_root,day,*,interactive=False,session_sta
         else:route.abort()
     context=None;browser=None;phase='browser_start'
     try:
-        with sync_playwright() as p:
+        with ExitStack() as stack:
             try:
-                identity=hashlib.sha256((credentials['username']+'\0'+credentials['password']).encode()).hexdigest()[:24]
-                if sys.platform=='win32':
-                    context=p.chromium.launch_persistent_context(str(Path(private_root)/'campus-browser'/identity),
-                        headless=not interactive,channel='msedge',accept_downloads=False,
-                        args=['--disable-save-password-bubble'])
-                else:
-                    browser=p.chromium.launch(headless=not interactive,args=['--disable-save-password-bubble'])
-                    context=browser.new_context(accept_downloads=False,storage_state=session_state)
-            except Exception:raise CampusError('CAMPUS_BROWSER_UNAVAILABLE') from None
-            try:
+                with campus_stage(on_stage,'campus_browser_start',error_code='CAMPUS_BROWSER_UNAVAILABLE'):
+                    try:
+                        p=stack.enter_context(sync_playwright())
+                        if sys.platform=='win32':
+                            identity=hashlib.sha256((credentials['username']+'\0'+credentials['password']).encode()).hexdigest()[:24]
+                            context=p.chromium.launch_persistent_context(str(Path(private_root)/'campus-browser'/identity),
+                                headless=not interactive,channel='msedge',accept_downloads=False,
+                                args=['--disable-save-password-bubble'])
+                        else:
+                            browser=p.chromium.launch(headless=not interactive,args=['--disable-save-password-bubble'])
+                            phase='browser_context'
+                            context=browser.new_context(accept_downloads=False,storage_state=session_state)
+                    except Exception as error:
+                        # Context errors may contain cookie details. Only keep launch diagnostics locally.
+                        with suppress(OSError):
+                            output=Path(private_root)/'campus-output';output.mkdir(parents=True,exist_ok=True)
+                            detail={'phase':phase,'error_type':type(error).__name__,
+                                'launch_error':str(error)[:6000] if phase=='browser_start' and sys.platform!='win32' else None}
+                            (output/'browser-error.json').write_text(json.dumps(detail),encoding='utf8')
+                        raise
                 context.route('**/*',allow_school)
                 page=context.new_page();page.on('response',capture)
                 phase='navigate'
-                page.goto(PAGE,wait_until='domcontentloaded',timeout=navigation_ms)
-                deadline=time.monotonic()+(150 if interactive else login_seconds)
-                submitted=False
-                while not initial and time.monotonic()<deadline:
-                    phase='login_frame'
-                    for frame in page.frames:
-                        u=urlsplit(frame.url)
-                        if u.scheme!='https' or u.hostname!='sso.buaa.edu.cn':continue
-                        account=frame.locator('#unPassword');secret=frame.locator('#pwPassword')
-                        if not submitted and account.count()==1 and secret.count()==1 and account.is_visible():
-                            captcha=frame.locator('#cptPassword')
-                            if captcha.count() and captcha.is_visible():
-                                if not interactive:raise CampusError('CAMPUS_INTERACTION_REQUIRED')
-                                continue
-                            # Values come only from the encrypted local store, never tool arguments.
-                            phase='login_fill'
-                            account.fill(credentials['username'],timeout=3000)
-                            secret.fill(credentials['password'],timeout=3000)
-                            submitted=True
-                            phase='login_submit'
-                            frame.locator('input[onclick="loginPassword()"]').click(timeout=3000)
-                        if submitted and not interactive:
-                            phase='login_result'
-                            failure=login_failure(frame)
-                            if failure:raise CampusError(failure)
-                    page.wait_for_timeout(250)
-                if not initial:raise CampusError('CAMPUS_INTERACTIVE_LOGIN_TIMEOUT' if interactive else 'CAMPUS_LOGIN_TIMEOUT')
-                campuses=[x for x in initial['payload']['d']['xqs'] if x.get('name')=='学院路校区']
-                if len(campuses)!=1 or 'xqid' not in campuses[0]:raise CampusError('CAMPUS_SCHEMA_CHANGED')
-                url=initial['endpoint'].removesuffix('index1')+'search1'
-                phase='classroom_search'
-                response=context.request.get(url,params={'xqid':campuses[0]['xqid'],'floorid':'','date':day},
-                    headers={'Referer':PAGE,'X-Requested-With':'XMLHttpRequest'},timeout=search_ms,max_redirects=0)
-                try:
-                    result=_safe_response(response)
-                    if on_session and result.get('e')==0:on_session(context.storage_state())
-                    return result
-                finally:response.dispose()
+                with campus_stage(on_stage,'campus_navigation',timeout_code='CAMPUS_NAVIGATION_TIMEOUT',timeout_ms=navigation_ms):
+                    page.goto(PAGE,wait_until='domcontentloaded',timeout=navigation_ms)
+                if not initial:
+                    _await_login(page,initial,credentials,interactive=interactive,login_seconds=150 if interactive else login_seconds,
+                        action_ms=action_ms,on_stage=on_stage)
+                with campus_stage(on_stage,'campus_classroom_fetch',timeout_code='CAMPUS_SEARCH_TIMEOUT',timeout_ms=search_ms):
+                    campuses=[x for x in initial['payload']['d']['xqs'] if x.get('name')=='学院路校区']
+                    if len(campuses)!=1 or 'xqid' not in campuses[0]:raise CampusError('CAMPUS_SCHEMA_CHANGED')
+                    url=initial['endpoint'].removesuffix('index1')+'search1'
+                    response=context.request.get(url,params={'xqid':campuses[0]['xqid'],'floorid':'','date':day},
+                        headers={'Referer':PAGE,'X-Requested-With':'XMLHttpRequest'},timeout=search_ms,max_redirects=0)
+                    try:
+                        result=_safe_response(response)
+                        if result.get('e')!=0:raise CampusError('CAMPUS_AUTH_FAILED')
+                        if on_session:on_session(context.storage_state())
+                        return result
+                    finally:response.dispose()
             finally:
-                context.close()
-                if browser:browser.close()
+                with suppress(BrowserError):
+                    if context:context.close()
+                with suppress(BrowserError):
+                    if browser:browser.close()
     except CampusError:raise
     except Exception as error:
-        from timeout_errors import is_timeout
-        if is_timeout(error):
-            raise CampusError('CAMPUS_SEARCH_TIMEOUT' if phase=='classroom_search' else 'CAMPUS_NAVIGATION_TIMEOUT' if phase=='navigate' else 'CAMPUS_LOGIN_ACTION_TIMEOUT' if phase in {'login_fill','login_submit'} else 'CAMPUS_INTERACTIVE_LOGIN_TIMEOUT' if interactive else 'CAMPUS_LOGIN_TIMEOUT') from None
         # Sanitized local diagnostics only; never serialize SDK error text,
         # input values, requests, headers, page content or full URLs.
         network=re.search(r'net::(ERR_[A-Z_]{1,60})',str(error))

@@ -1,0 +1,10 @@
+[Unit]
+Description=Read winter GEFS-Aerosols forecasts before the daily weather report
+
+[Timer]
+OnCalendar=*-11,12,01,02,03-* 07:15:00 Asia/Shanghai
+Persistent=false
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

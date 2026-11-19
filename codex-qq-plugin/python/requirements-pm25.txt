@@ -1,0 +1,8 @@
+# Optional GRIB2 decoder. Install into python/.pm25-runtime.
+eccodes==2.50.1
+eccodeslib==2.50.0.34; sys_platform == 'linux'
+eckitlib==2.5.0.34; sys_platform == 'linux'
+attrs==26.1.0
+cffi==2.1.1
+findlibs==0.1.5
+pycparser==3.12

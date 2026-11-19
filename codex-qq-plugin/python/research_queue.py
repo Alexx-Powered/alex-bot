@@ -266,6 +266,18 @@ class ResearchQueue:
                 db.execute('UPDATE jobs SET status=?,finished_at=?,expires_at=?,error_code=?,metrics=? WHERE id=?',(state,now,now+(SUCCESS_TTL if state=='completed' else NEGATIVE_TTL),code,encoded,job_id))
         if expired:raise ResearchQueueError('RESEARCH_JOB_NOT_RUNNING')
 
+    def note_enrichment(self,job_id,counts):
+        """Persist the small post-commit catalogue/RAG outcome, not raw pages."""
+        if not isinstance(job_id,str) or not re.fullmatch('[0-9a-f]{32}',job_id):raise ResearchQueueError('RESEARCH_INVALID_JOB')
+        if not isinstance(counts,dict) or set(counts)-{'hiking_profiles','rag_updates','rag_update_failed'}:raise ResearchQueueError('RESEARCH_INVALID_METRICS')
+        if any((type(v) is not bool if k=='rag_update_failed' else type(v) is not int or not 0<=v<=3) for k,v in counts.items()):raise ResearchQueueError('RESEARCH_INVALID_METRICS')
+        with self._transaction() as db:
+            row=db.execute("SELECT metrics FROM jobs WHERE id=? AND status='completed'",(job_id,)).fetchone()
+            if not row:return
+            metrics={**json.loads(row[0]),**counts};encoded=json.dumps(metrics,ensure_ascii=False)
+            if len(metrics)>32 or len(encoded.encode('utf8'))>2048:raise ResearchQueueError('RESEARCH_INVALID_METRICS')
+            db.execute('UPDATE jobs SET metrics=? WHERE id=?',(encoded,job_id))
+
     def status(self,topic):
         topic=normalize_topic(topic);now=self.clock()
         try:

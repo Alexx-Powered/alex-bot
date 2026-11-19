@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {renderHikingCard} from './hiking-card-image.mjs';
 import {imageBase64} from './qq-adapter.mjs';
 const SESSION=createHash('sha256').update('alexbot:admin:hiking-check:v1').digest('hex');
-const SAMPLES=Object.freeze({dangling:'党岭',wugong:'武功山',kula:'库拉岗日',haba:'哈巴西坡'});
+const SAMPLES=Object.freeze({dangling:'党岭',wugong:'武功山',kula:'库拉岗日',haba:'哈巴西坡',jiami:'加米峰',meili:'梅里北坡'});
 export class HikingHealthCheck{
   #busy=false;
   constructor({worker,enabled,configStore}){Object.assign(this,{worker,enabled,configStore});}

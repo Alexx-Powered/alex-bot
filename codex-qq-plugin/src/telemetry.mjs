@@ -7,20 +7,30 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {atomicJson} from './storage.mjs';
 import {traceMessage,failureDetail} from './trace-diagnostics.mjs';
+import {MORNING_PART_FEATURES,MORNING_MAX_RETRIES} from './group-features.mjs';
 
 const activeTrace=new AsyncLocalStorage();
 export const hasActiveTrace=()=>Boolean(activeTrace.getStore()&&!activeTrace.getStore().closed);
 const activeSpan=new AsyncLocalStorage();
 const remoteDetails=new WeakMap();
-const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip']);
-const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send']);
+const MORNING_OPERATIONS=new Set(['morning.prepare','morning.dispatch','morning.preview','morning.retry','morning.test']);
+const MORNING_SKIPS=new Set(['MORNING_NOT_DUE','NO_MORNING_GROUPS','DUPLICATE','MORNING_CANCELLED']);
+const MORNING_SUCCESS=new Set(['MORNING_PREPARED','SENT']);
+const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip',...MORNING_OPERATIONS]);
+const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send','qq_group_permission']);
 export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
-for(const name of [...videoWorkerStages,'weather_video','resolve_location','heavy_queue','video_cache_hit','video_read_mp4',
+export const campusWorkerStages=Object.freeze(['campus_browser_start','campus_navigation','campus_login_form','campus_login_fill_account',
+  'campus_login_fill_password','campus_login_click','campus_login_result','campus_classroom_fetch','campus_render']);
+for(const name of [...videoWorkerStages,...campusWorkerStages,'weather_video','resolve_location','heavy_queue','video_cache_hit','video_read_mp4',
   'video_download_slowest','video_decode_slowest','weather_fetch','air_fetch','weather_render','radar_query','qq_media_upload','qq_message_submit',
+  'weather_forecast_primary','weather_metadata_primary','weather_forecast_backup','weather_metadata_backup',
+  'weather_ecmwf_snapshot','weather_ecmwf_backup','weather_summary',
+  'morning_air_cams','morning_air_gefs','morning_air_select',
+  'morning_weather_prepare','morning_campus_prepare','morning_outdoor_index','morning_weather_delivery','morning_campus_delivery','morning_failure_notice',
   'rag_retrieval','rag_lexical','rag_embedding','rag_vector','rag_source_verify','hiking_route','hiking_locate','hiking_fetch','hiking_render'])STAGES.add(name);
 export function setTraceOperation(name,onlyIfUnnamed=false){
   const trace=activeTrace.getStore();
-  if(trace&&!trace.closed&&(!onlyIfUnnamed||!trace.operation||trace.operation==='agent.request')&&OPERATIONS.has(name))trace.operation=name;
+  if(trace&&!trace.closed&&!MORNING_OPERATIONS.has(trace.operation)&&(!onlyIfUnnamed||!trace.operation||trace.operation==='agent.request')&&OPERATIONS.has(name))trace.operation=name;
 }
 export function setTraceMessage(text){
   const trace=activeTrace.getStore();
@@ -109,12 +119,14 @@ export function beginSpan(name,startedAtMs){
     if(status!=='ok')remoteDetails.get(span).failure=detail??diagnostic(trace,name,error,status==='fallback');
   }};
 }
-export async function measureSpan(name,fn){
+export async function measureSpan(name,fn,failureFromResult){
   const span=beginSpan(name);if(!span)return fn();
   const trace=activeTrace.getStore();
   let failure;
   try{
     const result=await span.run(fn);
+    const error=failureFromResult?.(result);
+    if(error)failure=diagnostic(trace,name,error);
     if(name==='agent'&&result?.text&&!result.image&&!result.video&&/^(?:video\.|weather\.)/.test(trace.operation||'')){
       // Weather can legitimately return a partial chart after a source fails.
       // A text-only reply after a failed media stage is the handled failure.
@@ -157,7 +169,7 @@ function safeSavedTrace(value){
 }
 const percentile=(values,p)=>values.length?values.slice().sort((a,b)=>a-b)[Math.min(values.length-1,Math.ceil(values.length*p)-1)]:null;
 function summary(recent){
-  const requests=recent.filter(t=>t.synthetic!==true&&!(t.synthetic===undefined&&t.spans.length>0&&t.spans.every(s=>s.name==='agent')));
+  const requests=recent.filter(t=>!MORNING_OPERATIONS.has(t.operation)&&t.synthetic!==true&&!(t.synthetic===undefined&&t.spans.length>0&&t.spans.every(s=>s.name==='agent')));
   const durations=requests.map(t=>t.durationMs),stages={};
   for(const name of STAGES){const values=requests.flatMap(t=>t.spans.filter(s=>s.name===name).map(s=>s.durationMs));if(values.length)stages[name]={count:values.length,medianMs:percentile(values,.5),p95Ms:percentile(values,.95)};}
   return {count:requests.length,lastMs:durations[0]??null,medianMs:percentile(durations,.5),p95Ms:percentile(durations,.95),stages};
@@ -170,6 +182,26 @@ function destination(config){
   const workspaceId=config.workspaceId??'';
   if(workspaceId!==''&&(typeof workspaceId!=='string'||!UUID.test(workspaceId)))throw Error('LANGSMITH_CONFIG_INVALID');
   return {endpoint,apiKey:config.apiKey,project:config.project,workspaceId};
+}
+function morningOutputs(outcome, failure){
+  if(typeof outcome?.ok!=='boolean')return {};
+  const code=MORNING_SKIPS.has(outcome.code)||MORNING_SUCCESS.has(outcome.code)?outcome.code:failure?.code;
+  const result={ok:outcome.ok,...(code?{code}:{})};
+  for(const key of ['attempted','sent','prepared']){
+    if(Number.isSafeInteger(outcome[key])&&outcome[key]>=0&&outcome[key]<=1000)result[key]=outcome[key];
+  }
+  if(['cams_global','gefs_aerosols'].includes(outcome.pm25Source))result.pm25Source=outcome.pm25Source;
+  if(Array.isArray(outcome.failedParts)){
+    result.failedParts=outcome.failedParts.slice(0,2)
+      .filter(row=>row?.part==='weather'||row?.part==='campus')
+      .map(({part,code})=>({part,code:failureDetail('morning',{code}).code??'UNKNOWN'}));
+  }
+  if(typeof outcome.failureNotice?.ok==='boolean'){
+    const notice=outcome.failureNotice;
+    result.failureNotice={ok:notice.ok,code:notice.ok?'SENT':
+      notice.code==='DUPLICATE'?'DUPLICATE':failureDetail('morning_failure_notice',notice).code??'UNKNOWN'};
+  }
+  return result;
 }
 function runPayload(trace,span,project,orders,request){
   const row=span??trace;
@@ -184,8 +216,9 @@ function runPayload(trace,span,project,orders,request){
   const params=detail.inputs;
   const showMessage=!span||['agent','router_model','chat_model'].includes(span.name)||!Object.keys(params).length;
   const inputs={...(showMessage&&request.message!==undefined?{message:request.message}:{}),...params};
-  if(!Object.keys(inputs).length)Object.assign(inputs,{event:trace.synthetic?'monitoring_test':'qq_event',...contextFields(trace)});
-  const result={id:row.id,trace_id:trace.id,dotted_order:dottedOrder,...span?{parent_run_id:parent}:{},name:span?span.name:'qq.'+(trace.operation??'response'),run_type:span&&['router_model','chat_model'].includes(span.name)?'llm':span?.name==='tool'?'tool':'chain',session_name:project,inputs,outputs:{},start_time:row.startTime,end_time:row.endTime,extra:{metadata}};
+  if(MORNING_OPERATIONS.has(trace.operation))inputs.event=trace.operation;
+  else if(!Object.keys(inputs).length)Object.assign(inputs,{event:trace.synthetic?'monitoring_test':'qq_event',...contextFields(trace)});
+  const result={id:row.id,trace_id:trace.id,dotted_order:dottedOrder,...span?{parent_run_id:parent}:{},name:span?span.name:'qq.'+(trace.operation??'response'),run_type:span&&['router_model','chat_model'].includes(span.name)?'llm':span?.name==='tool'?'tool':'chain',session_name:project,inputs,outputs:span?{}:request.outputs??{},start_time:row.startTime,end_time:row.endTime,extra:{metadata}};
   if(detail.failure)result.error=detail.failure.message;
   if(numeric(metrics.inputTokens,1e12)&&numeric(metrics.outputTokens,1e12))result.usage_metadata={input_tokens:metrics.inputTokens,output_tokens:metrics.outputTokens,total_tokens:metrics.inputTokens+metrics.outputTokens,...numeric(metrics.cachedInputTokens,metrics.inputTokens)?{input_token_details:{cache_read:metrics.cachedInputTokens}}:{}};
   return result;
@@ -217,12 +250,26 @@ export class Telemetry{
   }
   async run(context,fn){
     const start=clockValue(this.#clock);
-    const trace={id:randomUUID(),startTime:new Date(timeValue(this.#now)).toISOString(),...contextFields(context),spans:[],parameters:{},causes:new WeakMap(),now:this.#now,clock:this.#clock,closed:false};
+    const scheduled=MORNING_OPERATIONS.has(context?.operation);
+    const date=scheduled&&typeof context.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(context.date)?context.date:undefined;
+    const parameters=date?{date}:{};
+    if(scheduled&&typeof context.part==='string'&&Object.hasOwn(MORNING_PART_FEATURES,context.part))parameters.part=context.part;
+    if(context?.operation==='morning.retry'){
+      if(Number.isInteger(context.retry)&&context.retry>=1&&context.retry<=MORNING_MAX_RETRIES)parameters.retry=context.retry;
+    }
+    const trace={id:randomUUID(),startTime:new Date(timeValue(this.#now)).toISOString(),...contextFields(context),...(scheduled?{operation:context.operation}:{}),spans:[],parameters,causes:new WeakMap(),now:this.#now,clock:this.#clock,closed:false};
     let status='ok',outcome;
-    try{outcome=await activeTrace.run(trace,fn);return outcome;}catch(error){trace.failure=diagnostic(trace,'qq.response',error);throw error;}
+    try{outcome=await activeTrace.run(trace,fn);return outcome;}catch(error){trace.failure=diagnostic(trace,scheduled?trace.operation:'qq.response',error);throw error;}
     finally{
       trace.closed=true;
-      if(!trace.failure&&outcome?.ok===false&&trace.message&&!['DUPLICATE','IGNORED','PAUSED','GROUP_ACCESS_DENIED','GROUP_DISABLED'].includes(outcome.code)){
+      const pausedReply=!scheduled&&outcome?.ok===false&&outcome.code==='PAUSED';
+      if(scheduled&&outcome?.ok===false&&!MORNING_SKIPS.has(outcome.code)){
+        const detail=failureDetail(trace.operation,outcome);
+        const child=detail.code&&trace.spans.findLast(span=>span.status==='error'&&span.name!=='worker_total'&&remoteDetails.get(span)?.failure?.code===detail.code);
+        trace.failure=child?remoteDetails.get(child).failure:detail;
+      }else if(pausedReply){
+        trace.failure??=failureDetail('qq.response',outcome);
+      }else if(!scheduled&&!trace.failure&&outcome?.ok===false&&trace.message&&!['DUPLICATE','IGNORED','GROUP_ACCESS_DENIED','GROUP_DISABLED'].includes(outcome.code)){
         trace.failure=failureDetail('qq.response',outcome);
       }
       if(trace.failure)status='error';
@@ -232,7 +279,11 @@ export class Telemetry{
       this.#recent.unshift(record);this.#recent=this.#recent.slice(0,MAX_RECENT);
       this.#schedulePersist();
       if(this.#queue.length+this.#inFlight>=MAX_PENDING){this.#remote.dropped++;this.#remote.lastCode='QUEUE_FULL';}
-      else{this.#queue.push({record,detail:{message:trace.message,inputs:trace.parameters,failure:trace.failure}});if(!this.#busy){this.#busy=true;setImmediate(()=>this.#drain());}}
+      else{
+        const outputs=scheduled?morningOutputs(outcome,trace.failure):pausedReply?{ok:false,code:'PAUSED'}:undefined;
+        this.#queue.push({record,detail:{message:trace.message,inputs:trace.parameters,failure:trace.failure,outputs}});
+        if(!this.#busy){this.#busy=true;setImmediate(()=>this.#drain());}
+      }
       }
     }
   }

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { BridgeCore, CORE_LIMITS } from '../src/core.mjs';
 import { WeatherCommands } from '../src/weather-commands.mjs';
 import {parseStatusCommand} from '../src/public-status.mjs';
+import {basicGroupFeatures} from '../src/group-features.mjs';
 
 const OWNER = 'owner-private-openid';
 const GROUP = 'group-openid-001';
@@ -191,11 +192,21 @@ test('group admin commands do nothing and fixed help exposes no private settings
 test('help remains available with model chat disabled and never invokes a business handler',async()=>{
   const f=fixture({handler:async()=>assert.fail('help must not invoke tools or a model')});
   await pairOwner(f);const groupKey=await allowGroup(f);
-  const features={...f.core.groupFeatures(GROUP),chat:false};
-  assert.equal((await f.core.setGroupFeatures({groupKey,features,enabled:true})).code,'GROUP_FEATURES_SAVED');
+  const {wakeWords:[firstWord,...otherWords],wakeWordRevision}=f.core.status();
+  const toggled=await f.core.setGroupWakeWords({groupKey,revision:wakeWordRevision,disabledWakeWords:otherWords.map(word=>word.id)});
+  assert.equal(toggled.code,'GROUP_WAKE_WORDS_SAVED');
+  const features={...basicGroupFeatures(),chat:false};
+  const helpNote='遇到不明确的换算，请在问题里写清原单位和目标单位。这样群友也能看懂这条查询。\n清楚写出单位即可。';
+  assert.equal((await f.core.setGroupFeatures({groupKey,features,enabled:true,helpNote})).code,'GROUP_FEATURES_SAVED');
   assert.equal((await f.core.handleMessage({...group('/help','help-chat-off'),mentioned:true})).code,'SENT');
   assert.equal(f.sent.length,1);assert.equal(f.sent[0].image.mimeType,'image/png');
   assert.equal(f.sent[0].requiredAccess,'chat');assert.equal(f.queries.length,0);
+  const {prepareHelpContent,renderHelpImage}=await import('../src/help-image.mjs');
+  const words=[firstWord.text];
+  assert.equal(prepareHelpContent({features,words}).helpNote,f.core.status().groupHelpNote.defaultWhenChatOff);
+  assert.equal(prepareHelpContent({features,words,helpNote:''}).helpNote,'');
+  assert.equal(prepareHelpContent({features,privateChat:true,helpNote}).helpNote,'');
+  assert.equal(Buffer.compare(f.sent[0].image.buffer,renderHelpImage({features,words,helpNote}).buffer),0);
 });
 
 test('all five leading aliases accept whitespace separators and strip exactly one prefix', async () => {

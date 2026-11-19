@@ -1,6 +1,7 @@
 """Grounded conversational cues, not diagnoses or permanent personality labels."""
 import json
 import re
+from functools import partial
 from typing import Literal
 from langchain_core.messages import HumanMessage,SystemMessage
 from langchain_core.tools import tool
@@ -33,7 +34,7 @@ def extract(texts,config,model_factory=None):
     if not clean:return {'ok':True,'mood':None,'habits':[]}
     if model_factory is None:
         from media_understanding import default_vision
-        model_factory=default_vision
+        model_factory=partial(default_vision,thinking=False)
     prompt=('你只分析同一位成员自己的最近几句文字，输出JSON：mood和habits。mood可为null，或{label,evidence,confidence}；'
             'label仅限开心、烦躁、难过、疲惫、有压力，evidence逐字引用最后一句原文。'
             '允许理解语境和反讽，但不猜健康、疾病、心理诊断、现实身份或未表达的经历；不确定就null。'

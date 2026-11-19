@@ -266,6 +266,42 @@ test('explicit message rejections do not disable unrelated subsequent messages o
   }
 });
 
+test('known QQ service errors leave sending enabled and use the ledger to protect submitted messages',async t=>{
+  for(const [error,expected,state] of [
+    [{code:'QQ_SERVICE_UNAVAILABLE',httpStatus:503,messageAttempted:false},'QQ_SERVICE_UNAVAILABLE','rejected'],
+    [{code:'QQ_SERVICE_UNAVAILABLE',httpStatus:503,messageAttempted:true},'DELIVERY_UNCERTAIN','uncertain'],
+    [{code:'QQ_SEND_TIMEOUT',timedOut:true,messageAttempted:true},'DELIVERY_UNCERTAIN','uncertain'],
+    [{code:'QQ_NOT_CONNECTED',messageAttempted:false},'NOT_CONNECTED','rejected'],
+  ])await t.test(error.code+' '+state,async()=>{
+    let first=true;
+    const f=fixture({send:async()=>{if(first){first=false;throw error;}return {ok:true};}});
+    await pair(f);
+    assert.deepEqual(await f.core.notify({text:'test',idempotencyKey:'failed'}),{ok:false,code:expected,deliveryState:state});
+    assert.equal(f.core.status().paused,false);
+    const restored=new BridgeCore(f.deps);await restored.init();
+    assert.equal(restored.status().paused,false);
+    assert.equal((await restored.notify({text:'repeat',idempotencyKey:'failed'})).code,'DUPLICATE');
+    assert.equal((await restored.handleMessage(message('next','/ping'))).code,'SENT');
+    assert.equal(f.sent.length,2);
+  });
+});
+
+test('a QQ API rate limit cools down the addressed conversation and keeps unrelated replies working',async()=>{
+  const f=fixture({state:{version:1,ownerId:'owner-qq-openid',paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,
+    allowedGroups:[{id:'g1',name:'fixture group'}],grayGroups:[]},send:async request=>{
+    if(request.groupId)throw {code:'QQ_RATE_LIMITED',httpStatus:429,messageAttempted:true};
+    return {ok:true};
+  }});
+  await f.core.init();
+  const group={kind:'group',groupId:'g1',id:'group-1',senderId:'member',text:'大肥鱼 /ping',
+    replyTarget:{scope:'group',targetId:'g1',msgId:'group-1'}};
+  assert.equal((await f.core.handleMessage(group)).code,'RATE_LIMITED');
+  assert.equal(f.core.status().paused,false);
+  assert.equal((await f.core.handleMessage({...group,id:'group-2',replyTarget:{...group.replyTarget,msgId:'group-2'}})).code,'RATE_LIMITED');
+  assert.equal(f.sent.length,1);
+  assert.equal((await f.core.handleMessage(message('private-next','/ping'))).code,'SENT');
+});
+
 test('failed attempts still consume budgets after explicit resume and restart', async () => {
   const f = fixture({ send: async () => { throw { httpStatus: 403 }; } });
   await pair(f);

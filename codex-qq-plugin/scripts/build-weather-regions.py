@@ -1,6 +1,5 @@
 """Build the local video gazetteer from the same verified CTAmap prefectures as the basemap."""
 import hashlib
-import gzip
 import io
 import json
 import math
@@ -41,11 +40,6 @@ def build(source, target):
         xs,ys=zip(*(p for poly in polys for p in poly[0]))
         bounds[code].append([min(xs),min(ys),max(xs),max(ys)])
         polygons[code].extend(polys)
-    reference=json.loads(gzip.decompress(target.with_name('weather-xizang-reference.json.gz').read_bytes()))
-    g=reference['province']
-    polygons['54']=g['coordinates'] if g['type']=='MultiPolygon' else [g['coordinates']]
-    xs,ys=zip(*(point for poly in polygons['54'] for point in poly[0]))
-    bounds['54']=[[min(xs),min(ys),max(xs),max(ys)]]
     assert set(bounds)==set(PROVINCES)
     regions=[]
 
@@ -64,7 +58,7 @@ def build(source, target):
         if code=='15':base.add('内蒙')
         municipal=full.endswith('市')
         suffix='全市' if municipal else '全省' if full.endswith('省') else '全区'
-        add(code,full if municipal or code=='71' else short,[code],base,suffix,base if municipal else ())
+        add(code,full if municipal else short,[code],base,suffix,base if municipal else ())
     for key,(name,members) in GROUPS.items():
         add(key,name,members.split(),{name,name+'地区'},'全区')
     keys=[alias for region in regions for alias in region['aliases']]
@@ -93,7 +87,6 @@ def build(source, target):
                 buffer=io.BytesIO();mask.save(buffer,'PNG',bits=8)
                 archive.writestr(zipfile.ZipInfo(row['id']+'.png'),buffer.getvalue())
     data={'source':'CTAmap / cn-atlas 2023, prefectures.json','sourceSha256':digest,
-          'tibetSource':reference['url'],'tibetArchiveSha256':reference['sha256'],
           'masksSha256':hashlib.sha256(masks.read_bytes()).hexdigest(),
           'classification':'中国气象局《气象地理区划规范》一级地区区划，内蒙古、西藏、新疆单列',
           'reference':'https://news.weather.com.cn/2022/01/3513034.shtml','regions':regions}

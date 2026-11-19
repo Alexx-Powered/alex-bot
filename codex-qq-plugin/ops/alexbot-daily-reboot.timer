@@ -1,0 +1,10 @@
+[Unit]
+Description=Reboot the Alex Bot ECS instance daily at 05:30 China time
+
+[Timer]
+OnCalendar=*-*-* 05:30:00 Asia/Shanghai
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

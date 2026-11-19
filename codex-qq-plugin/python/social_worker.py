@@ -55,7 +55,7 @@ def process(packet,store):
                 return {'ok':False,'code':'ASR_NOT_CONFIGURED'}
             reserved=store.reserve_media(a.get('event',''),a.get('kind'))
             if not reserved['ok']:return reserved
-        media_tool=build_media_tool(a,packet.get('vision',{}),packet.get('asr',{}))
+        media_tool=build_media_tool(a,packet.get('vision',{}),packet.get('asr',{}),question=packet.get('question',''))
         return media_tool.invoke({'kind':a.get('kind')})
     raise ValueError('INVALID_REQUEST')
 

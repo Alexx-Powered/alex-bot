@@ -1,8 +1,8 @@
-"""Recognize complete, unambiguous weather requests without an LLM.
+"""Recognize direct weather requests without an LLM.
 
 This only selects an existing LangChain tool. Location disambiguation, dates,
 permissions and data retrieval remain with that tool and the Node boundary.
-Unknown places, references, negation and compound requests use the normal agent.
+References, negation and compound requests use the normal agent.
 """
 from functools import lru_cache
 import json
@@ -19,6 +19,12 @@ PATTERNS = [
     re.compile(rf'^{PREFIX}(?P<day1>{DAY})?\s*(?P<place>.+?)(?:的)?\s*(?P<day2>{DAY})?\s*(?:的)?(?P<kind>{KIND})\s*{TAIL}$', re.I),
     re.compile(rf'^{PREFIX}(?P<day1>{DAY})?\s*(?P<kind>{KIND})\s*(?P<place>.+?)$', re.I),
 ]
+UNLISTED_PLACE = re.compile(r'[\u3400-\u4dbf\u4e00-\u9fff]{2,16}(?:·[\u3400-\u4dbf\u4e00-\u9fff]{1,16})?')
+NON_PLACE_PHRASE = re.compile(
+    rf'{DAY}|后天|昨[天日晚]|前天|今明|下[周月]|未来|天气|预报|雷达|云图|'
+    r'怎么|什么|哪里|哪儿|那[里边儿]|这[里边儿]|附近|当地|本地|家里|'
+    r'如果|假如|不要|不用|不想|别发|顺便|以及|或者|还有|(?<=..)[和与及](?=..)'
+)
 VIDEO_KIND = r'(?P<dynamic>动态)?(?P<layer>卫星云图|云图|PM2\.?5|降水|温度|气温)(?:预报)?(?P<video>(?:变化)?(?:视频|动画|动图))?'
 VIDEO_TIME = r'(?P<window>(?:未来|近|最近|过去)\s*(?:48|四十八|24|二十四|6|六)\s*(?:个)?小时|未来(?:两|2)天|(?:24|48)\s*(?:h|小时))?'
 VIDEO_PREFIX = r'(?:请\s*)?(?:帮我|给我|我想|想)?\s*(?:看看|看一下|看|查询一下|查询|查一下|发一下|发|来一段)?\s*'
@@ -70,13 +76,17 @@ def quick_weather_route(text):
             continue
         values = match.groupdict()
         place = values['place'].strip()
-        if not 1 <= len(place) <= 40 or _compact(place) not in _known_places():
-            continue
         days = [day for day in [values.get('day1'), values.get('day2')] if day]
         tomorrow = [day.startswith('明') for day in days]
-        if len(set(tomorrow)) > 1:
+        if not 1 <= len(place) <= 40 or len(set(tomorrow)) > 1:
             continue
         kind = values['kind']
+        if _compact(place) not in _known_places():
+            # An explicit day and a short, standalone name are enough to try
+            # the actual geocoder, even when our shipped catalogue lacks it.
+            if not (days and kind.startswith('天气') and UNLISTED_PLACE.fullmatch(place)
+                    and not NON_PLACE_PHRASE.search(place)):
+                continue
         if kind.startswith('天气'):
             return 'weather_image', {'city': place, **({'day': 'tomorrow'} if any(tomorrow) else {})}
         # These tools have no future-day mode. Let the normal agent clarify it.

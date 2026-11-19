@@ -9,6 +9,20 @@ VIDEO_CODES = frozenset({
 })
 
 
+def _model_http_error(error, status):
+    if status in {400, 422}:
+        body = getattr(error, 'body', None)
+        if isinstance(body, dict):
+            details = body.get('error', body)
+            body = details.get('message') if isinstance(details, dict) else details
+        if status == 400 and isinstance(body, str) and 'reasoning_content' in body[:2000].lower():
+            return 'MODEL_TOOL_PROTOCOL_ERROR'
+        return 'MODEL_REQUEST_REJECTED'
+    return {401: 'MODEL_AUTH_ERROR', 403: 'MODEL_AUTH_ERROR', 402: 'MODEL_BALANCE_INSUFFICIENT',
+            429: 'MODEL_PROVIDER_RATE_LIMITED'}.get(
+                status, 'MODEL_PROVIDER_UNAVAILABLE' if status >= 500 else 'HTTP_ERROR')
+
+
 def error_fields(error, *, model=False):
     try:
         return _classify(error, model)
@@ -33,9 +47,7 @@ def _classify(error, model):
             reason = code
         elif isinstance(status, int) and 400 <= status <= 599:
             fields['httpStatus'] = status
-            reason = ({401:'MODEL_AUTH_ERROR', 403:'MODEL_AUTH_ERROR', 402:'MODEL_BALANCE_INSUFFICIENT',
-                       429:'MODEL_PROVIDER_RATE_LIMITED'}.get(status, 'MODEL_PROVIDER_UNAVAILABLE' if status >= 500 else 'HTTP_ERROR')
-                      if model else 'HTTP_ERROR')
+            reason = _model_http_error(error, status) if model else 'HTTP_ERROR'
         elif 'timeout' in name or isinstance(error, TimeoutError):
             reason = 'MODEL_TIMEOUT' if model else 'NETWORK_TIMEOUT'
         elif 'connect' in name or isinstance(error, ConnectionError):

@@ -7,6 +7,7 @@ const token = sessionStorage.getItem('qq-local-token');
 let pendingGroupKey = null;
 let monitoringInitialized=false,monitoringDirty=false,monitoringBusy=false;
 const groupConsole=createGroupConsole({api,action});
+const weatherAlertsConsole=createWeatherAlertsConsole({api,refresh});
 const wakeWordConsole=createWakeWordEditor({container:$('globalWakeWords'),action});
 const consoleTabs=[...document.querySelectorAll('[data-console-target]')];
 function selectConsolePanel(key) {
@@ -32,7 +33,7 @@ selectConsolePanel(sessionStorage.getItem('qq-console-panel')||'groups');
 for (const input of document.querySelectorAll('input[type="checkbox"]')) {input.classList.add('ios-switch');input.role='switch';}
 const descriptions = {
   GROUP_COMMAND_COPIED:'匹配指令已复制，请在目标群 @ 机器人后粘贴。',GROUP_COPY_MANUALLY:'请选中上方匹配指令手动复制。',
-  GROUP_FEATURES_SAVED:'本群功能设置已保存，即刻生效。',GROUP_DIRECTORY_UNAVAILABLE:'无法读取机器人所在群，请确认 OneBot 已连接后刷新。',
+  GROUP_FEATURES_SAVED:'本群设置已保存，即刻生效。',GROUP_HELP_NOTE_INVALID:'请检查帮助页备注的内容与长度。',GROUP_DIRECTORY_UNAVAILABLE:'无法读取机器人所在群，请确认 OneBot 已连接后刷新。',
   GROUP_DIRECTORY_CHANGED:'机器人已不在所选群中，请刷新列表。',GROUP_DISABLED:'这个群已停用。',
   MONITORING_TEST_QUEUED:'已提交监控自检，请查看下方发送状态；不会发送QQ消息。',
   MONITORING_CONFIG_SAVED:'监控设置已加密保存。',MONITORING_CONFIG_INVALID:'请检查项目名、区域、工作区ID和Key；首次启用需要Key。',MONITORING_CONFIG_UNAVAILABLE:'监控配置暂不可用，请检查加密存储。',
@@ -70,6 +71,12 @@ function feedback(data) {
   $('feedback').textContent = descriptions[data?.code] || (success ? '操作完成：' : '操作未完成：') + (data?.code || 'UNKNOWN');
 }
 const stageNames={core_queue:'消息排队',agent:'业务处理',worker_queue:'Python排队',worker_startup:'Python启动',worker_total:'Python总耗时',router_setup:'路由初始化',router_model:'模型路由',chat_setup:'口吻初始化',chat_model:'聊天表达',memory:'记忆',tool:'工具查询',qq_send:'QQ发送'};
+Object.assign(stageNames,{warning_fetch:'获取官方预警',warning_area:'预警地区匹配',warning_render:'预警卡片绘制'});
+Object.assign(stageNames,{morning_weather_prepare:'准备早间天气',morning_campus_prepare:'准备自习简报',
+  morning_outdoor_index:'计算户外指数',morning_weather_delivery:'投递早间天气',morning_campus_delivery:'投递自习简报'});
+Object.assign(stageNames,{weather_forecast_primary:'主预报接口',weather_metadata_primary:'主起报元数据',
+  weather_forecast_backup:'备用预报接口',weather_metadata_backup:'备用起报元数据'});
+const scheduledTraceNames={'morning.prepare':'早报准备','morning.dispatch':'早报投递','morning.preview':'早报预览','morning.retry':'早报重试'};
 Object.assign(stageNames,{weather_video:'天气视频',resolve_location:'地点解析',heavy_queue:'渲染资源排队',video_cache_hit:'视频缓存命中',
   video_prepare_worker:'渲染进程初始化',video_fetch_gdps:'获取 GDPS 云量',video_fetch_ifs:'读取 ECMWF 预报',video_fetch_cams:'读取 CAMS 空气预报',video_fetch_forecast:'查询备用预报接口',video_fetch_satellite:'获取卫星观测',
   video_download_slowest:'最慢一次下载',video_decode_slowest:'最慢一次解码',video_render_frames:'绘图及帧写盘',video_encode_h264:'H.264 编码',
@@ -99,7 +106,9 @@ async function refreshMonitoring({force=false}={}){
     for(const trace of recent){
       const row=document.createElement('tr'),stamp=new Date(trace.at);
       const stages=Array.isArray(trace.stages)?trace.stages.slice(0,64):[];
-      const values=[Number.isFinite(stamp.getTime())?stamp.toLocaleTimeString('zh-CN',{hour12:false}):'—',trace.synthetic===true?'监控自检':trace.scope==='group'?'群聊':trace.scope==='c2c'?'私聊':'请求',duration(trace.totalMs),stages.map(stage=>`${stageNames[stage.name]||'其他'} ${duration(stage.ms)}`).join(' / ')];
+      const scene=Object.hasOwn(scheduledTraceNames,trace.operation)?scheduledTraceNames[trace.operation]:
+        trace.synthetic===true?'监控自检':trace.scope==='group'?'群聊':trace.scope==='c2c'?'私聊':'请求';
+      const values=[Number.isFinite(stamp.getTime())?stamp.toLocaleTimeString('zh-CN',{hour12:false}):'—',scene,duration(trace.totalMs),stages.map(stage=>`${stageNames[stage.name]||'其他'} ${duration(stage.ms)}`).join(' / ')];
       for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}body.append(row);
     }
     table.append(body);container.append(table);
@@ -147,6 +156,7 @@ async function refresh() {
       : core.pendingGroupPairing ? '等待目标群发送绑定命令。' : '尚无待确认群。';
     if (!core.pendingGroupPairing || pendingGroup) $('groupCodeBox').classList.add('hidden');
     groupConsole.update(core,transport,state.groupMorning);
+    weatherAlertsConsole.update(state.weatherAlerts);
     wakeWordConsole.update(core);
     void refreshMonitoring();
   } catch { $('connection').textContent='本地服务不可达'; }

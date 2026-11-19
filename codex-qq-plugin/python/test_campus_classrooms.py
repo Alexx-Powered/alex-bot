@@ -7,7 +7,7 @@ from datetime import datetime,timezone,timedelta
 from pathlib import Path
 from unittest.mock import patch,MagicMock
 from pydantic import ValidationError
-from campus_classrooms import build_query_tool,normalize,CampusError,query_day,SCHEMA,login_failure,browser_collect
+from campus_classrooms import build_query_tool,normalize,CampusError,query_day,SCHEMA,login_failure,browser_collect,_await_login
 from campus_report import observations,render_report
 from campus_worker import process
 
@@ -18,6 +18,13 @@ PAYLOAD={'e':0,'d':{'list':{'三号楼':[{'name':'(三)105','kxsds':'1,6,7,8,9,1
     '主楼':[{'name':'主M101','kxsds':''}],'新主楼':[{'name':'B102','kxsds':'1,14'}]}}}
 
 class CampusTests(unittest.TestCase):
+    def test_login_uses_headless_on_ecs_and_interactive_only_on_windows(self):
+        for platform,expected in [('linux',False),('win32',True)]:
+            seen=[]
+            def collect(*args,**kw):seen.append(kw['interactive']);return copy.deepcopy(PAYLOAD)
+            with patch('campus_worker.sys.platform',platform):
+                result=process({'type':'campus','mode':'login','credentials':CREDS,'args':{}},collector=collect)
+            self.assertTrue(result['data']['ok']);self.assertEqual(seen,[expected])
     def tool(self,collector=None,credentials=CREDS):
         return build_query_tool(credentials,Path('unused-private'),clock=lambda:CLOCK,
             collector=collector or (lambda *_a,**_k:copy.deepcopy(PAYLOAD)))
@@ -143,14 +150,41 @@ class CampusTests(unittest.TestCase):
                     if succeeds:
                         result=browser_collect(CREDS,Path('unused-private'),'2026-10-29',timeout_profile=profile)
                         self.assertEqual(result,PAYLOAD)
-                        self.assertEqual(context.request.get.call_args.kwargs['timeout'],45000)
+                        self.assertEqual(context.request.get.call_args.kwargs['timeout'],60_000)
                         self.assertEqual(context.request.get.call_count,1)
                     else:
                         with self.assertRaises(CampusError) as error:browser_collect(CREDS,Path('unused-private'),'2026-10-29',timeout_profile=profile)
                         self.assertEqual(error.exception.code,'CAMPUS_LOGIN_TIMEOUT')
                         context.request.get.assert_not_called()
-                self.assertEqual(page.goto.call_args.kwargs['timeout'],45000 if succeeds else 25000)
+                self.assertEqual(page.goto.call_args.kwargs['timeout'],60_000 if succeeds else 25_000)
                 context.close.assert_called_once();browser.close.assert_called_once()
+
+    def test_login_action_timeout_reports_only_the_failed_step(self):
+        from playwright.sync_api import TimeoutError as BrowserTimeout
+        for failed_step,expected_stage,expected_code in [
+            (0,'campus_login_fill_account','CAMPUS_LOGIN_ACCOUNT_TIMEOUT'),
+            (1,'campus_login_fill_password','CAMPUS_LOGIN_PASSWORD_TIMEOUT'),
+            (2,'campus_login_click','CAMPUS_LOGIN_SUBMIT_TIMEOUT'),
+        ]:
+            with self.subTest(stage=expected_stage):
+                page=MagicMock();frame=MagicMock(url='https://sso.buaa.edu.cn/login');page.frames=[frame]
+                account,secret,captcha,submit=(MagicMock() for _ in range(4))
+                frame.locator.side_effect={'#unPassword':account,'#pwPassword':secret,'#cptPassword':captcha,
+                    'input[onclick="loginPassword()"]':submit}.__getitem__
+                account.count.return_value=secret.count.return_value=1
+                account.is_visible.return_value=True
+                captcha.is_visible.return_value=False
+                actions=[account.fill,secret.fill,submit.click]
+                actions[failed_step].side_effect=BrowserTimeout('offline-password')
+                traces=[]
+                with self.assertRaises(CampusError) as failure:
+                    _await_login(page,{},CREDS,interactive=False,login_seconds=120,action_ms=20_000,
+                        on_stage=lambda stage,phase,**fields:traces.append((stage,phase,fields)))
+                self.assertEqual(failure.exception.code,expected_code)
+                self.assertEqual(traces[-1][:2],(expected_stage,'error'))
+                self.assertEqual(traces[-1][2]['timeoutMs'],20_000)
+                self.assertNotIn('offline-password',str(traces))
+                self.assertTrue(all(not action.called for action in actions[failed_step+1:]))
 
     def test_no_free_rooms_does_not_invent_recommendations(self):
         data=normalize({'e':0,'d':{'list':{'三号楼':[{'name':'105','kxsds':''}]}}},'2026-10-29',CLOCK)

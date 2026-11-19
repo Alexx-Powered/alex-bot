@@ -83,6 +83,32 @@ test('/识图 selects only the most recent attachment and never treats its URL a
   }finally{service.close();}
 });
 
+test('image questions use the current attachment and share only the same question in flight',async()=>{
+  const seen=[];
+  const memoryWorker={close(){},async run(_p,_rpc,finish){return finish({report:{ok:true,observed:true}});}};
+  const mediaWorker={close(){},async run(p,_rpc,finish){
+    seen.push(p);
+    return finish({report:{ok:true,description:p.question||'通用描述'}});
+  }};
+  const service=new SocialService({configStore:{read:async()=>cfg},agentConfigStore:{read:async()=>({enabled:true,apiKey:'fixture'})},memoryWorker,mediaWorker});
+  const c=context();
+  const media=[{kind:'image',url:'https://gchat.qpic.cn/current'}];
+  const question='这张图右下角的编号是什么？';
+  try{
+    await service.observe({eventKey:key('other'),text:'随手发图',media:[{kind:'image',url:'https://gchat.qpic.cn/old'}]},c);
+    await service.prepare(question,{...c,media,mediaEventKey:key('current')});
+    assert.equal(seen.at(-1).attachment.url,media[0].url);
+    assert.equal(seen.at(-1).question,question);
+    await service.observe({eventKey:key('current'),text:question,media,addressed:true},c);
+    const same=await service.prepare(question,{...c,media,mediaEventKey:key('current')});
+    assert.equal(same.media.description,question);
+    assert.equal(seen.filter(p=>p.question===question).length,1);
+    const followup=await service.prepare('/识图 左上角是什么？',c);
+    assert.equal(followup.media.description,'左上角是什么？');
+    assert.notEqual(seen.at(-1).attachment.event,seen.find(p=>p.question===question).attachment.event);
+  }finally{service.close();}
+});
+
 test('official adapter admits pure-image and pure-voice messages without manufacturing text or sends',async()=>{
   const handlers=new Map(),received=[];let finish;
   const bot={on:(name,fn)=>handlers.set(name,fn),start:()=>new Promise(r=>{finish=r;}),stop:()=>finish?.()};

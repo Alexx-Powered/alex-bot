@@ -7,6 +7,7 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 # Import the worker first so tracing is disabled before any LangChain import.
 import agent_worker as worker
@@ -378,15 +379,81 @@ class WorkerTests(unittest.TestCase):
         for now in ["garbage", "2026-10-28T12:00:00", None]:
             self.assertEqual(self.runner.run(packet(now=now))["kind"], "error")
 
-    def test_default_model_configuration_is_official_endpoint_non_thinking_no_retry(self):
+    def test_default_model_configuration_is_official_endpoint_low_thinking_no_retry(self):
         model = worker.default_model_factory(packet()["config"])
         self.assertEqual(model.api_base, "https://api.deepseek.com")
-        self.assertEqual(model.extra_body, {"thinking": {"type": "disabled"}})
+        self.assertEqual(model.extra_body, {"thinking": {"type": "enabled"}})
+        self.assertEqual(model.reasoning_effort, "low")
         self.assertEqual(model.max_retries, 0)
         self.assertEqual(model.request_timeout, 30)
-        self.assertEqual(model.max_tokens, 768)
-        self.assertEqual(model.temperature, 0.9)
+        self.assertEqual(model.max_tokens, 2048)
+        self.assertEqual(model.temperature, 2)
         self.assertEqual(str(model.root_client.base_url), "https://api.deepseek.com")
+
+    def test_thinking_unknown_tool_recovery_keeps_reasoning_and_uses_auto(self):
+        import httpx
+
+        payloads = []
+
+        def respond(request):
+            payloads.append(json.loads(request.content))
+            first = len(payloads) == 1
+            return httpx.Response(200, json={
+                'id':'fixture', 'created':0, 'object':'chat.completion', 'model':'deepseek-flash',
+                'choices':[{'index':0, 'finish_reason':'tool_calls', 'message':{
+                    'role':'assistant', 'content':'', 'reasoning_content':'fixture reasoning',
+                    'tool_calls':[{'id':f'call_{len(payloads)}','type':'function','function':{
+                        'name':'unknown_tool' if first else 'weather_image',
+                        'arguments':'{}' if first else '{"city":"广州"}',
+                    }}],
+                }}],
+            })
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client, patch.object(worker,'get_model_http_client',return_value=client):
+            runner = worker.build_runner(rpc_callback=self.runner.rpc_callback)
+            result = runner.run(packet(text='羊城今天出门会不会淋雨，给我看看图'))
+        self.assertEqual(result['kind'],'tool',result)
+        self.assertEqual(len(self.calls),1)
+        self.assertEqual(len(payloads),2)
+        for payload in payloads:
+            self.assertEqual(payload['tool_choice'],'auto')
+            self.assertEqual(payload['reasoning_effort'],'low')
+            self.assertEqual(payload['thinking'],{'type':'enabled'})
+            self.assertEqual(payload['temperature'],2)
+        prior = next(m for m in payloads[1]['messages'] if m['role']=='assistant')
+        self.assertEqual(prior['reasoning_content'],'fixture reasoning')
+
+    def test_thinking_free_text_retries_once_through_a_validated_tool(self):
+        import httpx
+
+        payloads = []
+
+        def respond(request):
+            payloads.append(json.loads(request.content))
+            if len(payloads) == 1:
+                message={'role':'assistant','content':'unchecked draft','reasoning_content':'fixture reasoning'}
+                finish='stop'
+            else:
+                message={'role':'assistant','content':'','tool_calls':[{
+                    'id':'call_weather','type':'function','function':{
+                        'name':'weather_image','arguments':'{"city":"广州"}',
+                    },
+                }]}
+                finish='tool_calls'
+            return httpx.Response(200,json={
+                'id':'fixture','created':0,'object':'chat.completion','model':'deepseek-flash',
+                'choices':[{'index':0,'finish_reason':finish,'message':message}],
+            })
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client, patch.object(worker,'get_model_http_client',return_value=client):
+            runner=worker.build_runner(rpc_callback=self.runner.rpc_callback)
+            result=runner.run(packet(text='羊城今天出门会不会淋雨，给我看看图'))
+        self.assertEqual(result['kind'],'tool',result)
+        self.assertEqual(len(self.calls),1)
+        self.assertEqual(len(payloads),2)
+        self.assertEqual(payloads[1]['thinking'],{'type':'disabled'})
+        self.assertEqual(payloads[1]['tool_choice'],'required')
+        self.assertEqual(payloads[1]['messages'],payloads[0]['messages'])
 
     def test_living_tool_then_model_explanation_gets_verified_facts_with_no_second_tool(self):
         self.model.responses.extend([call('living_cost_budget',{'balance':'0.6','unit':'HU$'}),AIMessage(content='按一天50元算，这点不够撑到发薪，还差530元。')])

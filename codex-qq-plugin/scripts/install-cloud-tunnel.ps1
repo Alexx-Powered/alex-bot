@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $qqRoot = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path -LiteralPath (Join-Path $qqRoot '.private\cloud-mode.json'))) { throw 'Cloud mode is not activated.' }
 $qqUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$qqAction = New-ScheduledTaskAction -Execute (Get-Command pythonw.exe -ErrorAction Stop).Source -Argument ('-I "' + (Join-Path $PSScriptRoot 'windows-launcher.py') + '" tunnel') -WorkingDirectory $qqRoot
+$qqAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -File "' + (Join-Path $PSScriptRoot 'run-cloud-tunnel.ps1') + '"') -WorkingDirectory $qqRoot
 $qqTrigger = New-ScheduledTaskTrigger -AtLogOn -User $qqUser
 $qqPrincipal = New-ScheduledTaskPrincipal -UserId $qqUser -LogonType Interactive -RunLevel Limited
 $qqSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)

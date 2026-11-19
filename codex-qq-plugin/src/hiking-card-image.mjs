@@ -19,6 +19,7 @@ export function validateHikingCard(v){
     for(const d of p.days){
       if(!/^\d{4}-\d\d-\d\d$/.test(d.date)||!Array.isArray(d.route)||!d.route.length||d.route.length>8||d.route.some(n=>!safe(n)||n.length>40))throw Error('HIKING_CARD_INVALID');
       if(!d.stats||Object.values(d.stats).some(n=>n!==null&&(!Number.isFinite(n)||Math.abs(n)>50000)))throw Error('HIKING_CARD_INVALID');
+      if(d.weather_reference!==undefined&&(!safe(d.weather_reference)||d.weather_reference.length>40||!d.route.includes(d.weather_reference)))throw Error('HIKING_CARD_INVALID');
       if(d.coverage!==undefined&&(!d.coverage||Array.isArray(d.coverage)||Object.keys(d.coverage).length!==7||Object.entries(d.coverage).some(([k,n])=>!['min','max','cloud','precip','rain','snow','gust'].includes(k)||!Number.isInteger(n)||n<0||n>24)))throw Error('HIKING_CARD_INVALID');
       if(d.series&&(!Array.isArray(d.series)||d.series.length!==24||d.series.some(r=>!Array.isArray(r)||r.length!==7||!Number.isSafeInteger(r[6])||r[6]<0||r[6]>128||r.slice(0,6).some(n=>n!==null&&(!Number.isFinite(n)||Math.abs(n)>5000)))))throw Error('HIKING_CARD_INVALID');
     }
@@ -52,7 +53,8 @@ async function draw(v){
     if(current)lines.push(current);return lines;
   }
   const routeLines=v.days.map(d=>wrapped(d.route.join(' → '),CW-28,17));
-  const routeH=Math.max(148,92+Math.max(0,...routeLines.map(a=>a.length))*24);
+  const referenceLines=v.days.map(d=>d.weather_reference?wrapped('天气参考：'+d.weather_reference,CW-28,17):[]);
+  const routeH=Math.max(148,92+Math.max(0,...routeLines.map((a,i)=>a.length+referenceLines[i].length))*24);
   const start=292+routeH+16,split=(W-72)/2,rx=44+split;
   const altLines=v.alternate?.days.map(d=>wrapped(d.route.join(' → '),split-44,18))||[];
   const altHeads=v.alternate?.days.map((d,i)=>wrapped(`D${i+1}  ${d.date.slice(5).replace('-','/')} · ${d.sleep?'住 '+d.sleep.name:'离山 / 返程'}`,split-44,20))||[];
@@ -61,10 +63,10 @@ async function draw(v){
   const bottomH=Math.max(330,190+nightNames.reduce((sum,l)=>sum+52+l.length*24,0),170+altHeight),bottomY=start+888;
   const partialDays=[...v.days,...(v.alternate?.days||[])].some(d=>Object.keys(d.stats).some(key=>partial(d,key)));
   const footerLines=[partialDays?'* 仅统计有数据时段；缺测时段未计入，雨雪为已获取时段累计。':'',v.climate,v.season,v.notice,
-    v.missing?.length?'缺少可靠坐标：'+v.missing.join('、')+'；对应时段留空。':'',
+    v.missing?.length?'待定位：'+v.missing.join('、')+'；不推算其营地夜温。':'',
     v.error?'预报暂缺：'+({'HIKING_FORECAST_TIMEOUT':'数据源超时','FORECAST_OUTSIDE_HORIZON':'日期超出当前可用预报范围','HIKING_COORDINATES_MISSING':'沿途坐标待核'}[v.error]||'上游数据未能获取')+'。':'',
     v.reviewed===false?'行程为自动提取的来源参考，尚未人工核验。':'',
-    '沿途 / 营地区域预报；08—18时按参考进度切换地点，虚线表示切换。非导航或营地实测。',
+    v.days.some(d=>d.weather_reference)?'标注“天气参考”的日期使用该点全天预报，不代表未知路段或营地；已定位的沿途切换用虚线。':'沿途 / 营地区域预报；08—18时按参考进度切换地点，虚线表示切换。非导航或营地实测。',
     'ECMWF / Open-Meteo · '+(v.retrieved?'获取 '+v.retrieved.slice(0,16).replace('T',' ')+' 北京时间':'未取得本次预报')+' · 阴影为 20:00—08:00',
     '路书及住宿：'+[...(v.sources||[]),...(v.alternate?.sources||[])].filter((s,i,a)=>a.findIndex(x=>x.url===s.url)===i).map(s=>s.title+'（'+s.date+'）').join('；')
   ].filter(Boolean).flatMap(s=>wrapped(s,W-100,17));
@@ -95,7 +97,7 @@ async function draw(v){
   const detail=low!==null?`露营夜间最低约 ${number(low)}°C；睡袋建议见下方。`:tents.length?'营地夜间预报不完整，暂不推算全程睡袋温标。':innOnly?'住店方案已列出，出发前确认房态与接驳。':'住宿方式待核；不把营地名称当作已确认的床位。';
   text(detail,52,247,20,'#d9e8e3',450,W-104);
   rect(28,292,W-56,routeH,'#e8efeb',22);
-  v.days.forEach((d,i)=>{const x=left+i*CW;if(i)line(x-18,309,x-18,292+routeH-16,'#cad9d0');text(`D${i+1}  ${d.date.slice(5).replace('-','/')}`,x,324,22,P.teal,650,CW-20);lines(routeLines[i],x,359,17,P.muted,24,CW-28);text((d.distance?'约 '+number(d.distance)+' km · ':'')+'阵风 '+dayUnit(d,'gust',' m/s'),x,292+routeH-18,17,P.muted,500,CW-20);});
+  v.days.forEach((d,i)=>{const x=left+i*CW;if(i)line(x-18,309,x-18,292+routeH-16,'#cad9d0');text(`D${i+1}  ${d.date.slice(5).replace('-','/')}`,x,324,22,P.teal,650,CW-20);lines(routeLines[i],x,359,17,P.muted,24,CW-28);lines(referenceLines[i],x,359+routeLines[i].length*24,17,P.teal,24,CW-28);text((d.distance?'约 '+number(d.distance)+' km · ':'')+'阵风 '+dayUnit(d,'gust',' m/s'),x,292+routeH-18,17,P.muted,500,CW-20);});
   function card(y,h,title,index,subtitle){rect(28,y,W-56,h,P.white,24,P.border);text(index,50,y+42,16,P.teal,600,32);text(title,88,y+44,25,P.ink,650,410);text(subtitle,W-52,y+42,16,P.muted,400,W/2,'right');}
   const tx=i=>left+i*(right-left)/(24*N);
   function frame(y,h,ticks,lo,hi){const bot=y+h,toY=v=>bot-(v-lo)/(hi-lo)*h;
@@ -105,7 +107,7 @@ async function draw(v){
     text('24',right,bot+25,14,P.muted,400,36,'right');return {top:y,bot,toY};}
   const samples=v.days.flatMap(d=>d.series||Array.from({length:24},()=>[null,null,null,null,null,null,'']));
   function plot(field,f,color){c.save();c.beginPath();c.rect(left,f.top-2,right-left,f.bot-f.top+4);c.clip();for(let i=1;i<samples.length;i++){const a=samples[i-1],b=samples[i];if(a[field]===null||b[field]===null)continue;const changed=a[6]!==b[6];line(tx(i-1),f.toY(a[field]),tx(i),f.toY(b[field]),color||temperatureColor((a[field]+b[field])/2),changed?1.7:3.3,changed?[2,4]:[]);}c.restore();}
-  card(start,288,'温度','01','°C · 当日沿途范围');
+  card(start,288,'温度','01','°C · 当日预报范围');
   v.days.forEach((d,i)=>text(dayTemperature(d),left+i*CW+CW/2,start+83,27,d.stats.min===null?P.muted:temperatureTextColor(d.stats.min),600,CW-28,'center'));
   const ts=samples.map(r=>r[0]).filter(Number.isFinite),lo=Math.floor((Math.min(...ts,0)-2)/5)*5,hi=Math.ceil((Math.max(...ts,5)+2)/5)*5;
   plot(0,frame(start+107,137,Array.from({length:5},(_,i)=>lo+(hi-lo)*i/4),lo,hi));
@@ -119,7 +121,7 @@ async function draw(v){
   rect(28,bottomY,split,bottomH,P.white,24,P.border);rect(rx,bottomY,split,bottomH,P.white,24,P.border);
   text(tents.length?'露营 · 营地与睡袋':'过夜 · 沿线住宿',50,bottomY+45,25,P.ink,650,split-44);
   let nightY=bottomY+85;
-  v.nights.forEach((n,i)=>{lines(nightNames[i],50,nightY,20,P.ink,24,split-44);nightY+=nightNames[i].length*24;text(n.kind==='tent'?`夜间 ${unit(n.low,'°C')} · 舒适温标 ${n.comfort===null?'待补齐':'≤ '+number(n.comfort)+'°C'}`:`${n.kind==='inn'?'住店':'方式待核'} · 夜间 ${unit(n.low,'°C')}`,50,nightY+5,18,P.teal,550,split-44);nightY+=52;});
+  v.nights.forEach((n,i)=>{lines(nightNames[i],50,nightY,20,P.ink,24,split-44);nightY+=nightNames[i].length*24;text(n.kind==='tent'?`露营 · 夜间 ${unit(n.low,'°C')} · 舒适温标 ${n.comfort===null?'待补齐':'≤ '+number(n.comfort)+'°C'}`:`${n.kind==='inn'?'住店':'方式待核'} · 夜间 ${unit(n.low,'°C')}`,50,nightY+5,18,P.teal,550,split-44);nightY+=52;});
   const footer=bottomY+bottomH-102;
   if(tents.length){text('全程舒适温标：'+(tents.every(n=>n.comfort!==null)?'≤ '+number(Math.min(...tents.map(n=>n.comfort)))+'°C':'营地夜温待补齐'),50,footer,22,P.teal,650,split-44);lines(wrapped('按营地夜间最低温选择 Comfort 舒适温标。',split-44,17),50,footer+32,17,P.muted,25,split-44);}
   else lines(wrapped(innOnly?'住店方案无需露营睡袋；床品、供暖及接驳需另确认。':'营地住宿方式未明确，暂不给睡袋温标；请补齐营地与住宿信息。',split-44,19),50,footer,19,P.muted,28,split-44);

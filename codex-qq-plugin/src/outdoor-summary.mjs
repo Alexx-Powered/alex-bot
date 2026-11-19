@@ -35,7 +35,7 @@ export function validOutdoorIndex(value,date,city) {
 }
 
 /** Public forecast samples only. No model keys, network, paths, commands or recipients in the protocol. */
-export async function summarizeOutdoor({date,city,weather,air},{onTimeout=()=>{}}={}) {
+export async function summarizeOutdoor({date,city,weather,air},{scheduledMorning=false,onTimeout=()=>{}}={}) {
   const missing=()=>unavailableOutdoorIndex(date,city);
   if (weather?.city?.id!==city||weather.date!==date||weather.timezone!=='Asia/Shanghai'||
       air?.city?.id!==city||air.timezone!=='Asia/Shanghai'||
@@ -61,7 +61,8 @@ export async function summarizeOutdoor({date,city,weather,air},{onTimeout=()=>{}
     });
     let output='',done=false;
     const finish=result=>{if(done)return;done=true;clearTimeout(timer);resolveResult(result);};
-    const timer=setTimeout(()=>{onTimeout();child.kill();finish(missing());},10000);
+    const timeoutMs=scheduledMorning?30_000:10_000;
+    const timer=setTimeout(()=>{onTimeout(timeoutMs);child.kill();finish(missing());},timeoutMs);
     child.stdout.on('data',chunk=>{output+=chunk;if(output.length>16384){child.kill();finish(missing());}});
     child.stderr.resume();child.on('error',()=>finish(missing()));child.stdin.on('error',()=>finish(missing()));
     child.on('close',()=>{

@@ -27,6 +27,7 @@ import xml.etree.ElementTree as ET
 USER_AGENT = 'AlexBotResearch/1.0 (bounded public knowledge retrieval)'
 PAGE_MAX_BYTES = 128 * 1024
 SEARCH_MAX_BYTES = 256 * 1024
+IMAGE_MAX_BYTES = 512 * 1024
 DEFAULT_SOURCE_DOMAINS = frozenset({
     'sohu.com', 'ifeng.com', 'xinhuanet.com', 'people.com.cn', 'news.cn',
     'thepaper.cn', 'gmw.cn', 'ycwb.com',
@@ -165,7 +166,7 @@ def _deadline(timeout):
 
 def _read(url, *, timeout, max_bytes, headers=None, method='GET', payload=None):
     deadline = _deadline(timeout)
-    if max_bytes not in {PAGE_MAX_BYTES, SEARCH_MAX_BYTES}:
+    if max_bytes not in {PAGE_MAX_BYTES, SEARCH_MAX_BYTES} and not (method=='GET' and max_bytes==IMAGE_MAX_BYTES):
         raise ResearchTransportError('INVALID_RESPONSE_LIMIT')
     if method not in {'GET', 'POST'} or (method == 'GET' and payload is not None):
         raise ResearchTransportError('HTTP_METHOD_DENIED')

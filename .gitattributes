@@ -8,3 +8,10 @@
 *.txt text eol=lf
 *.png binary
 *.ico binary
+
+# Preserve the exact reviewed map asset hashes when exporting releases.
+codex-qq-plugin/data/weather-video-regions.json -text
+codex-qq-plugin/data/weather-locations.json -text
+codex-qq-plugin/python/weather_map.py -text
+codex-qq-plugin/python/global_radar.py -text
+codex-qq-plugin/src/locations.mjs -text

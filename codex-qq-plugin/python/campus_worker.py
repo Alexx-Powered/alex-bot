@@ -5,11 +5,11 @@ import json
 import logging
 import sys
 from pathlib import Path
-from campus_classrooms import build_query_tool,envelope,CampusError,browser_collect
+from campus_classrooms import build_query_tool,envelope,campus_stage,browser_collect
 
 LIMIT=262144
 
-def process(packet,*,collector=None):
+def process(packet,*,collector=None,on_stage=None):
     private=Path.cwd()/'.private'
     session={}
     profile=packet.get('timeout_profile','normal')
@@ -18,10 +18,10 @@ def process(packet,*,collector=None):
     if collector is None:
         def collector(credentials,private_root,day,*,interactive=False):
             options={'timeout_profile':profile} if profile!='normal' else {}
+            if on_stage:options['on_stage']=on_stage
             if sys.platform!='win32':
                 options.update(session_state=packet.get('session_state'),on_session=lambda state:session.update(state=state))
             return browser_collect(credentials,private_root,day,interactive=interactive,**options)
-    options={} if collector is None else {'collector':collector}
     if packet.get('type')=='campus' and packet.get('mode')=='recognize':
         from campus_intent import recover_classroom_request
         return {'kind':'campus',**recover_classroom_request.invoke({**packet['args'],'now':packet['now']})}
@@ -38,24 +38,25 @@ def process(packet,*,collector=None):
         return {'kind':'campus','recommendation':report,'artifact_id':None}
     if packet.get('type')!='campus' or packet.get('mode') not in {'query','report','login'} or not isinstance(packet.get('args'),dict):
         return {'kind':'campus','data':envelope(code='CAMPUS_QUERY_FAILED'),'artifact_id':None}
-    data=build_query_tool(packet.get('credentials'),private,interactive=packet['mode']=='login',**options).invoke(packet['args'])
+    # Only the local Windows console can present an interactive login window.
+    # ECS has no display; its login check uses the same bounded headless flow.
+    data=build_query_tool(packet.get('credentials'),private,interactive=packet['mode']=='login' and sys.platform=='win32',collector=collector).invoke(packet['args'])
     artifact=None
     if data['ok'] and packet['mode']=='report':
         try:
-            from campus_regions import resolve_regions
-            selected,_=resolve_regions(data,packet.get('building') or '三号楼',packet.get('regions'),packet.get('request_text'))
-            if selected==['三号楼']:
-                from campus_report import render_report
-                artifact=render_report(data,private)
-            else:
-                from campus_report import render_region_day
-                artifact=render_region_day(data,private,selected)
+            with campus_stage(on_stage,'campus_render',error_code='CAMPUS_RENDER_FAILED'):
+                from campus_regions import resolve_regions
+                from campus_report import render_report,render_region_day
+                selected,_=resolve_regions(data,packet.get('building') or '三号楼',packet.get('regions'),packet.get('request_text'))
+                artifact=render_report(data,private) if selected==['三号楼'] else render_region_day(data,private,selected)
         except Exception:return {'kind':'campus','data':data,'artifact_id':None,'render_error':True}
     return {'kind':'campus','data':data,'artifact_id':artifact,**({'session_state':session['state']} if 'state' in session else {})}
 
 def main():
     logging.disable(logging.CRITICAL)
     incoming,outgoing=sys.stdin.buffer,sys.stdout.buffer
+    def write(payload):
+        outgoing.write((json.dumps(payload,ensure_ascii=False,separators=(',',':'))+'\n').encode());outgoing.flush()
     while True:
         raw=incoming.readline(LIMIT+1)
         if not raw:return
@@ -64,7 +65,10 @@ def main():
             if len(raw)>LIMIT:raise ValueError()
             packet=json.loads(raw)
             if not isinstance(packet,dict):packet={};raise ValueError()
-            with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):result=process(packet)
+            def emit(stage,phase,**fields):
+                write({'type':'campus_stage','id':packet.get('id'),'stage':stage,'phase':phase,**fields})
+            with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+                result=process(packet,on_stage=emit if packet.get('_traceCampus') is True else None)
         except Exception:result={'kind':'campus','data':envelope(code='CAMPUS_QUERY_FAILED'),'artifact_id':None}
         result.update(type='result',id=packet.get('id'))
         encoded=(json.dumps(result,ensure_ascii=False,separators=(',',':'))+'\n').encode()

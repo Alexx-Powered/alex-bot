@@ -4,11 +4,17 @@ import {APP_ROOT} from './runtime-paths.mjs';
 import {PythonAgentWorker} from './python-agent.mjs';
 import {copyIncomingMedia} from './incoming-media.mjs';
 import {featureEnabled} from './group-features.mjs';
+import {checkChatInput,sanitizeContextText} from './chat-safety.mjs';
 
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const key=v=>typeof v==='string'&&/^[a-f0-9]{64}$/u.test(v);
 const control=/^\/记忆\s*(查看|关闭|开启|清空)$/u;
 const identify=/^\/识图(?:\s|$)/u;
+function imageQuestion(text) {
+  const question = text.replace(identify, '').trim();
+  if (question === '[图片]' || question.startsWith('/') || !checkChatInput(question, {media:true}).ok) return '';
+  return sanitizeContextText(question, {maxChars:320});
+}
 function memoryControl(text){
   const raw=text.trim();
   const natural=/^(?:清空|删除)(?:我(?:的)?|这里的)?(?:全部|所有)?(?:记忆|记录)[。！!]?$/u.test(raw)?'清空':/^(?:别再记我|不要再记录我|不要记录我的消息|关闭我的记忆)[。！!]?$/u.test(raw)?'关闭':/^(?:你(?:还)?记得我什么|看看我的记忆)[?？]?$/u.test(raw)?'查看':null;
@@ -34,8 +40,9 @@ export class SocialService{
   async observe(data,c){
     if(!this.#valid(c)||this.#pending>=32)return;
     // Capture the latest attachment in receipt order, before any asynchronous work.
-    const attachments=copyIncomingMedia(data.media).filter(a=>featureEnabled(c,a.kind==='audio'?'voice':'images'));
-    const captured=attachments.map((a,i)=>({...a,namespace:c.sessionKey,event:hash(data.eventKey+':'+i),at:Date.now(),epoch:this.#epochs.get(c.sessionKey)||0}));
+    const captured=copyIncomingMedia(data.media)
+      .map((a,i)=>({...a,namespace:c.sessionKey,event:hash(data.eventKey+':'+i),at:Date.now(),epoch:this.#epochs.get(c.sessionKey)||0}))
+      .filter(a=>featureEnabled(c,a.kind==='audio'?'voice':'images'));
     const image=captured.filter(a=>a.kind==='image').at(-1);
     if(image){this.#latest.set(c.scopeKey,image);while(this.#latest.size>64)this.#latest.delete(this.#latest.keys().next().value);}
     this.#pending++;
@@ -48,10 +55,11 @@ export class SocialService{
         if(saved.observed)this.#collectInsights(data,c);
       }
       // Background work never generates a QQ send, even for memes.
+      const question = data.addressed && image ? imageQuestion(data.text) : '';
       for(const a of captured){
         if(a.kind==='image'&&!config.autoMemes&&!((c.scope==='c2c'||c.access==='white')&&config.autoWhiteImages))continue;
         if(this.#jobs.size>=12)break;
-        this.#understand(a,c,config,false).catch(()=>{});
+        this.#understand(a,c,config,false,a===image?question:'').catch(()=>{});
       }
     }catch{}finally{this.#pending--;}
   }
@@ -70,12 +78,18 @@ export class SocialService{
       await this.memory.run({type:'social_insight_save',namespace:c.sessionKey,scope:c.scopeKey,event:hash(data.eventKey+':insight'),insights},async()=>{throw Error('INSIGHT_RPC_DENIED');},r=>r.report);
     })().catch(()=>{}).finally(()=>{this.#insightsPending--;});
   }
-  async #understand(a,c,config,force){
-    if (!featureEnabled(c,a.kind==='audio'?'voice':'images')) return {ok:false,code:'MEDIA_CANCELLED'};
-    if((a.epoch||0)!==(this.#epochs.get(a.namespace)||0))return {ok:false,code:'MEDIA_CANCELLED'};
-    if(!this.#valid(c)||Date.now()-a.at>30*60_000)return {ok:false,code:'MEDIA_EXPIRED'};
-    if(this.#results.has(a.event))return this.#results.get(a.event);
-    if(this.#jobs.has(a.event))return this.#jobs.get(a.event);
+  async #understand(a,c,config,force,question=''){
+    const feature = a.kind === 'audio' ? 'voice' : 'images';
+    const requesterEpoch = this.#epochs.get(c.sessionKey) || 0;
+    const permittedNow = () => this.#valid(c) && featureEnabled(c,feature) &&
+      (a.epoch||0)===(this.#epochs.get(a.namespace)||0) && requesterEpoch===(this.#epochs.get(c.sessionKey)||0);
+    if (!permittedNow()) return {ok:false,code:'MEDIA_CANCELLED'};
+    if(Date.now()-a.at>30*60_000)return {ok:false,code:'MEDIA_EXPIRED'};
+    // A generic description cannot answer a later question about the same image.
+    // Question-specific results belong to the asking member, including cache hits.
+    const jobKey = question ? hash(JSON.stringify([a.event,c.sessionKey,question])) : a.event;
+    if(this.#results.has(jobKey))return this.#results.get(jobKey);
+    if(this.#jobs.has(jobKey))return this.#jobs.get(jobKey);
     if(this.#jobs.size>=12)return {ok:false,code:'MEDIA_BUSY'};
     const work=(async()=>{
       const ownerState=await this.#run(this.#args('recall',{...c,sessionKey:a.namespace}));
@@ -83,17 +97,18 @@ export class SocialService{
       if(ownerState.disabled)return {ok:false,code:'MEDIA_CANCELLED'};
       const agent=await this.agentConfigStore.read();
       if(a.kind==='image'&&(!agent.enabled||!agent.apiKey))return {ok:false,code:'VISION_NOT_CONFIGURED'};
-      const report=await this.media.run({type:'media',attachment:a,vision:{apiKey:agent.apiKey},
+      if(!permittedNow())return {ok:false,code:'MEDIA_CANCELLED'};
+      const report=await this.media.run({type:'media',attachment:{...a,event:jobKey},...(question?{question}:{}),vision:{apiKey:agent.apiKey},
         asr:{enabled:config.asrEnabled,apiKey:config.apiKey}},async()=>{throw Error('MEDIA_RPC_DENIED');},v=>v.report);
       const latestOwner=await this.#run(this.#args('recall',{...c,sessionKey:a.namespace}));
       const activeConfig=await this.configStore.read();
-      if(!this.#valid(c)||!latestOwner?.ok||latestOwner.disabled||!activeConfig.enabled||(a.epoch||0)!==(this.#epochs.get(a.namespace)||0))return {ok:false,code:'MEDIA_CANCELLED'};
+      if(!permittedNow()||!latestOwner?.ok||latestOwner.disabled||!activeConfig.enabled)return {ok:false,code:'MEDIA_CANCELLED'};
       if(report.ok&&a.kind==='audio'&&!String(report.transcript||'').trim())return {ok:false,code:'AUDIO_EMPTY'};
-      const result={...report,event:a.event,namespace:a.namespace,at:a.at,kind:a.kind};
-      this.#results.set(a.event,result);while(this.#results.size>128)this.#results.delete(this.#results.keys().next().value);
+      const result={...report,event:a.event,namespace:a.namespace,at:a.at,kind:a.kind,...(question?{requester:c.sessionKey}:{})};
+      this.#results.set(jobKey,result);while(this.#results.size>128)this.#results.delete(this.#results.keys().next().value);
       const white=c.scope==='c2c'||c.access==='white';
       const permitted=a.kind==='audio'||force||white&&config.autoWhiteImages||config.autoMemes&&report.is_meme===true;
-      if(report.ok&&permitted&&featureEnabled(c,'memory')){
+      if(report.ok&&permitted&&!question&&featureEnabled(c,'memory')){
         const text=a.kind==='audio'?report.transcript:[report.description,report.visible_text].filter(Boolean).join(' / ');
         if(text){
           const owner={...c,sessionKey:a.namespace};
@@ -103,7 +118,7 @@ export class SocialService{
       }
       return result;
     })();
-    this.#jobs.set(a.event,work);try{return await work;}finally{this.#jobs.delete(a.event);}
+    this.#jobs.set(jobKey,work);try{return await work;}finally{this.#jobs.delete(jobKey);}
   }
   #manage(name,c){
     const cacheKey=name!=='查看'&&key(c.eventKey)?c.sessionKey+':'+c.eventKey:null;
@@ -115,7 +130,8 @@ export class SocialService{
       if(action!=='recall'){
         this.#batches.delete(c.sessionKey);
         this.#epochs.set(c.sessionKey,(this.#epochs.get(c.sessionKey)||0)+1);
-        if(this.#latest.get(c.scopeKey)?.namespace===c.sessionKey)this.#latest.delete(c.scopeKey);for(const [k,v] of this.#results)if(v.namespace===c.sessionKey)this.#results.delete(k);
+        if(this.#latest.get(c.scopeKey)?.namespace===c.sessionKey)this.#latest.delete(c.scopeKey);
+        for(const [k,v] of this.#results)if(v.namespace===c.sessionKey||v.requester===c.sessionKey)this.#results.delete(k);
         return {reply:action==='off'?'好，在这个对话里不再记录你，之前的记录也清掉了':action==='on'?'好，之后会记住你在这里说过的偏好~':'这里关于你的记忆已经清空了',reset:true};
       }
       const preferences=r.preferences||[];
@@ -153,20 +169,22 @@ export class SocialService{
         else current.push({kind:'audio',url:'',transcript});
       } else if (!audio && !current.length) return {reply:'这条语音没能转成文字，请再说一次或发文字。'};
     }
-    const reference=identify.test(text)||((c.scope==='c2c'||c.access==='white')&&/这张图|刚才.{0,8}图|图里|看.{0,8}(?:图片|照片)/u.test(text));
-    let selected=reference?this.#latest.get(c.scopeKey):null;
-    if(!selected&&current.length){
-      selected=current.at(-1);
-      // Match the observer's current attachment where possible.
-      const latest=this.#latest.get(c.scopeKey);
-      selected=latest&&latest.url===selected.url?latest:{...selected,namespace:c.sessionKey,event:key(c.mediaEventKey)?hash(c.mediaEventKey+':'+(current.length-1)):hash(c.sessionKey+selected.url+(selected.transcript||'')),at:Date.now(),epoch:this.#epochs.get(c.sessionKey)||0};
-    }
-    if(!selected)return identify.test(text)?{reply:'还没收到图片，先发一张，再发 /识图 就行~'}:{social};
     const force=identify.test(text);
-    const result=await this.#understand(selected,c,config,force);
+    const reference=force||((c.scope==='c2c'||c.access==='white')&&/这张图|刚才.{0,8}图|图里|看.{0,8}(?:图片|照片)/u.test(text));
+    const latest=this.#latest.get(c.scopeKey);
+    let selected=reference?latest:null;
+    let attachment=current.at(-1);
+    if(reference)attachment=current.findLast(a=>a.kind==='image')??(selected||force?null:attachment);
+    if(attachment){
+      const event=key(c.mediaEventKey)?hash(c.mediaEventKey+':'+current.indexOf(attachment)):hash(c.sessionKey+attachment.url+(attachment.transcript||''));
+      selected=latest?.event===event?latest:{...attachment,namespace:c.sessionKey,event,at:Date.now(),epoch:this.#epochs.get(c.sessionKey)||0};
+    }
+    if(!selected)return force?{reply:'还没收到图片，先发一张，再发 /识图 就行~'}:{social};
+    const question=selected.kind==='image'?imageQuestion(text):'';
+    const result=await this.#understand(selected,c,config,force,question);
     if(!result.ok)return {social,...(force||current.length?{reply:result.code==='SOCIAL_TIMEOUT'?(({download:'媒体下载超时（10秒时限）',vision:'图片识别模型响应超时（20秒时限）',asr:'语音识别模型响应超时（20秒时限）'}[result.timeout_stage]||'媒体处理超时')+'，请稍后重试'):result.code==='AUDIO_EMPTY'?'这条语音里没听清内容，再说一遍吧~':result.code==='ASR_NOT_CONFIGURED'?'这条语音没有平台转写，语音识别还没配置好':result.code==='MEDIA_EXPIRED'?'刚才那张图已过期，再发一次吧~':'这次没看清或听清，再发一次试试~'}:{})};
     if(c.scope==='group'&&c.access==='gray'&&!force&&selected.kind==='image'&&!result.is_meme)return {social};
-    if(force&&featureEnabled(c,'memory')){
+    if(force&&!question&&featureEnabled(c,'memory')){
       const summary=[result.description,result.visible_text].filter(Boolean).join(' / ');
       await this.#run(this.#args('media',{...c,sessionKey:result.namespace},{event:result.event,kind:result.is_meme?'meme':'image',text:summary.slice(0,600)}));
     }

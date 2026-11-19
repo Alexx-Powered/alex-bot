@@ -16,7 +16,8 @@ const semantics='接口标空闲则为空闲，其余课节为有课；保留接
 const codes=['OK','CAMPUS_NOT_CONFIGURED','CAMPUS_DISABLED','CAMPUS_CONFIG_UNAVAILABLE','CAMPUS_BUSY',
   'CAMPUS_INVALID_DATE','CAMPUS_AUTH_FAILED','CAMPUS_INTERACTION_REQUIRED','CAMPUS_NETWORK_ERROR',
   'CAMPUS_SCHEMA_CHANGED','CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED','CAMPUS_OWNER_ONLY',
-  'CAMPUS_NAVIGATION_TIMEOUT','CAMPUS_LOGIN_TIMEOUT','CAMPUS_SEARCH_TIMEOUT','CAMPUS_WORKER_TIMEOUT','CAMPUS_INTERACTIVE_LOGIN_TIMEOUT','CAMPUS_LOGIN_ACTION_TIMEOUT'];
+  'CAMPUS_NAVIGATION_TIMEOUT','CAMPUS_LOGIN_TIMEOUT','CAMPUS_SEARCH_TIMEOUT','CAMPUS_WORKER_TIMEOUT','CAMPUS_INTERACTIVE_LOGIN_TIMEOUT','CAMPUS_LOGIN_ACTION_TIMEOUT',
+  'CAMPUS_LOGIN_ACCOUNT_TIMEOUT','CAMPUS_LOGIN_PASSWORD_TIMEOUT','CAMPUS_LOGIN_SUBMIT_TIMEOUT'];
 export const campusArgs=z.object({date:z.string().regex(/^(?:\d{4}-\d{2}-\d{2})?$/).default('')}).strict();
 const regionList=z.array(z.string().min(1).max(32).regex(/^[\p{L}\p{N}_（）()· .-]+$/u)).max(12);
 export const recommendationArgs=campusArgs.extend({session:z.enum(['now','morning','afternoon','evening']).default('now'),
@@ -57,7 +58,8 @@ export class CampusService{
   #pendingQueries=new Set();#last=null;#cache=new Map();#cacheLoaded=false;
   constructor({home,configStore,worker,now=()=>Date.now()}){
     Object.assign(this,{home,configStore,now});
-    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','campus_worker.py'),timeoutMs:210000,maxLineBytes:262144,idleMs:90_000});
+    this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python','campus_worker.py'),timeoutMs:210_000,
+      toolTimeouts:{campusMorning:300_000},maxLineBytes:262144,idleMs:90_000});
   }
   async #loadCache(){
     if(this.#cacheLoaded)return;

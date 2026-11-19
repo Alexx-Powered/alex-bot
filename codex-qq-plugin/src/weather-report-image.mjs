@@ -242,6 +242,10 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   if (!validOutdoorIndex(analysis, model.date, model.cities[0])) throw new Error('WEATHER_REPORT_ANALYSIS_MISMATCH');
   const outdoorGlyph = await loadOutdoorGlyph(analysis);
   const s = model.weatherSeries[0], air = model.airSeries, today = s.temperatureC.slice(0, 24);
+  const weather = inputs.weather[0];
+  const visualCrossing = weather?.source?.model==='ecmwf_2'&&weather.source.provider==='Visual Crossing';
+  const airSource = inputs.air?.source?.model==='gefs_aerosols'?'NOAA GEFS-Aerosols':'CAMS / ECMWF';
+  const archiveTime = Date.parse(weather?.archiveFetchedAt);
   const firstDay=model.dayLabels[0]==='今天'?'今日':model.dayLabels[0];
   const condition=weatherReportCondition(inputs.weather[0],model.date);
   const [low, high] = limits(today), todayRain = total(s.precipitationMm.slice(0, 24)), tomorrowRain = total(s.precipitationMm.slice(24));
@@ -289,7 +293,7 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   // The advice helper paints the plate around a transparent opening.
   dailyAdvice(c, analysis, firstDay);
 
-  card(c, 435, 308, '01', '温度趋势', 'ECMWF IFS / Open-Meteo');
+  card(c, 435, 308, '01', '温度趋势', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS / Open-Meteo');
   text(c, `${firstDay}最低`, 36, 497, 10, '#7b8983'); text(c, `${firstDay}最高`, 128, 497, 10, '#7b8983');
   text(c, `${number(low)}°C`, 36, 523, 20, low === null ? S.muted : temperatureTextColor(low), 650, { mono: true });
   text(c, `${number(high)}°C`, 128, 523, 20, high === null ? S.muted : temperatureTextColor(high), 650, { mono: true });
@@ -300,7 +304,7 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   dates(c, model, 707);
   text(c, `${model.dayLabels[0]} ${range(today, '°C')}  /  ${model.dayLabels[1]} ${range(s.temperatureC.slice(24), '°C')}${s.temperatureC.includes(null) ? ' · 有数据缺失' : ''}`, 36, 729, 10, S.muted, 400, { maxWidth: 368 });
 
-  card(c, 759, 311, '02', '空气质量', 'CAMS / ECMWF', '#9b4155');
+  card(c, 759, 311, '02', '空气质量', airSource, '#9b4155');
   text(c, `PM2.5 · ${firstDay}峰值`, 36, 830, 12, S.muted);
   text(c, `${number(todayPeak)} μg/m³`, 404, 830, 20, pm25Band(todayPeak)?.lineColor || S.muted, 650, { mono: true, align: 'right' });
   airLegend(c, 847); text(c, 'PM2.5 μg/m³', 36, 891, 9.5, S.muted);
@@ -310,7 +314,7 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   dates(c, model, 1036);
   text(c, `48 小时浓度 ${range(air.values, ' μg/m³')} · 浓度色阶，非综合 AQI${air.values.includes(null) ? ' · 有缺失' : ''}`, 36, 1056, 9.6, S.muted, 400, { maxWidth: 368 });
 
-  card(c, 1086, 311, '03', '降水与云量', 'ECMWF IFS');
+  card(c, 1086, 311, '03', '降水与云量', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS');
   rect(c, 36, 1138, 368, 211, '#ffffff', 14, S.border);
   rect(c, 51, 1156, 15, 3, S.cloud, 1); text(c, '云量', 74, 1162, 11, '#6b6b6b');
   rect(c, 155, 1152, 6, 10, S.rain, 2); text(c, '降水概率', 169, 1162, 11, '#356f9f');
@@ -326,10 +330,16 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
 
   if (analysis) exercise(c, analysis, s.name, 1410);
   c.strokeStyle = S.border; c.lineWidth = 1; c.beginPath(); c.moveTo(20, footer); c.lineTo(420, footer); c.stroke();
-  text(c, '温度 / 降水 / 云量：ECMWF IFS · PM2.5：CAMS / ECMWF', 20, footer + 19, 9, '#7b8983');
+  text(c, visualCrossing?`天气 ECMWF / Visual Crossing Weather · PM2.5 ${airSource}`:
+    `温度 / 降水 / 云量：ECMWF IFS · PM2.5：${airSource}`, 20, footer + 19, 9, '#7b8983');
   const fetched = Date.parse(s.fetchedAt), airFetched = Date.parse(air.fetchedAt);
   text(c, `数据获取：${s.name} ${Number.isFinite(fetched) ? localTime(fetched).slice(5).replace('T', ' ') : '未获取'} · 空气 ${Number.isFinite(airFetched) ? localTime(airFetched).slice(11) : '未获取'}`, 20, footer + 39, 9, '#7b8983');
-  text(c, inputs.places?.some(p=>/^(osm-|landmark-)/.test(p.id)) ? '代表坐标 · 地名 © OpenStreetMap contributors / Wikimedia' : '模型预报，非实测 · 北京时间 · open-meteo.com', 20, footer + 58, 9, '#7b8983', {maxWidth:400});
+  if(visualCrossing){
+    const archived=Number.isFinite(archiveTime)?' · 凌晨预报存于昨晚 '+localTime(archiveTime).slice(11):'';
+    text(c, '降水概率 ECMWF ENS / Open-Meteo'+archived, 20, footer + 58, 9, '#7b8983');
+  }else{
+    text(c, inputs.places?.some(p=>/^(osm-|landmark-)/.test(p.id)) ? '代表坐标 · 地名 © OpenStreetMap contributors / Wikimedia' : '模型预报，非实测 · 北京时间 · open-meteo.com', 20, footer + 58, 9, '#7b8983', {maxWidth:400});
+  }
   if (analysis) text(c, '户外指数为自定义评分 · 采用上午、下午中较高分', 20, footer + 76, 9, '#7b8983');
   }
   // Draw into bounded pixel tiles; never allocate a full-height canvas or its

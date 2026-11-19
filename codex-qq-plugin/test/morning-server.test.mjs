@@ -2,6 +2,51 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createBridgeServer} from '../src/server.mjs';
 import {beijingDay} from '../src/weather-commands.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+
+test('scheduled weather test sends one image to the paired owner and retains the idempotency key',async t=>{
+  const home=await fs.mkdtemp(path.join(os.tmpdir(),'qq-morning-owner-test-'));
+  t.after(()=>fs.rm(home,{recursive:true,force:true,maxRetries:8,retryDelay:100}));
+  const sent=[],image={buffer:Buffer.alloc(16,1),mimeType:'image/png'};
+  const store={token:'a'.repeat(64),integrationToken:'b'.repeat(64),init:async()=>{},readCredentials:async()=>null,
+    loadState:async()=>null,saveState:async()=>{}};
+  const app=await createBridgeServer({home,port:0,store,campusService:{run:()=>assert.fail('weather test does not query campus'),close(){}},
+    morningReport:{create:async options=>{
+      assert.deepEqual(options,{scheduledMorning:true});
+      return {date:beijingDay(),image,pm25Source:'gefs_aerosols'};
+    }},adapterFactory:()=>({status:()=>({state:'connected'}),disconnect:async()=>{},
+      send:async message=>{sent.push(message);return {ok:true};}})});
+  try{
+    const pair=await app.core.startPairing();
+    await app.core.handleMessage({kind:'c2c',id:'pair',senderId:'owner',text:'/pair '+pair.pairingCode});
+    await app.core.confirmPairing();
+    const port=await app.listen();
+    const input={mode:'test',scheduledMorning:true,idempotencyKey:'winter-test'};
+    const request=body=>fetch('http://127.0.0.1:'+port+'/api/weather/briefing',{method:'POST',
+      headers:{Authorization:'Bearer '+store.integrationToken,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    assert.equal((await request({...input,mode:'daily'})).status,400);
+    assert.equal((await request({...input,groupId:'other'})).status,400);
+    assert.equal((await request({...input,idempotencyKey:''})).status,400);
+    const delivered=await (await request(input)).json();
+    assert.equal(delivered.code,'SENT');
+    assert.equal(delivered.pm25Source,'gefs_aerosols');
+    const repeated=await (await request(input)).json();
+    assert.equal(repeated.code,'DUPLICATE');
+    assert.equal(repeated.deliveryState,'sent');
+    assert.equal(sent.length,1);
+    assert.equal(sent[0].ownerId,'owner');
+    assert.equal(sent[0].groupId,undefined);
+    assert.equal(sent[0].text,'');
+    assert.equal(sent[0].image,image);
+    for(let i=0;i<100;i++){
+      const status=await app.monitoring.status();
+      if(status.local.lastCode==='SAVED'&&status.langsmith.pending===0)break;
+      await new Promise(resolve=>setTimeout(resolve,5));
+    }
+  }finally{await app.close();}
+});
 
 test('enhanced daily sends weather and campus only to whitelist groups with daily dedupe',async()=>{
   const sent=[],date=beijingDay();let enabled=false,enhancedCalls=0,legacyCalls=0;

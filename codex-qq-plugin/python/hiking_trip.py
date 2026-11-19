@@ -1,8 +1,9 @@
 """Route-derived weather, bounded point lookup and a presentation-only payload.
 
 No model-supplied coordinates, source URLs, arbitrary paths or recipients. Exact
-hourly progress is illustrative; missing route points remain gaps, never filled
-with the village weather. Precipitation uses the following interval endpoint.
+hourly progress is illustrative. Incompletely located days use an explicitly
+named route-point forecast, never an invented camp night or interpolated data.
+Precipitation uses the following interval endpoint.
 """
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -43,7 +44,7 @@ def locate(name,anchor=None,*,fetcher=public_json):
     for row in value.get('features',[])[:8]:
         prop=row.get('properties',{});coord=row.get('geometry',{}).get('coordinates',[])
         from outdoor_places import TAGS
-        permitted={**TAGS,'tourism':TAGS['tourism']|{'camp_site','alpine_hut','hotel','guest_house'}}
+        permitted={**TAGS,'mountain_pass':{'yes'},'tourism':TAGS['tourism']|{'camp_site','alpine_hut','hotel','guest_house'}}
         if prop.get('osm_value') not in permitted.get(prop.get('osm_key'),set()):continue
         names={str(prop.get(k,'')) for k in ('name','name:zh','name:en')}
         if name not in names or len(coord)!=2 or any(type(x) not in (int,float) or not math.isfinite(x) for x in coord):continue
@@ -63,40 +64,40 @@ def resolve_points(topic,profiles,store=None,*,locator=locate):
     for name in names:
         if name not in points and store:
             try:
-                hit=store.point(name,topic)
+                hit=store.point(name,topic+'|geo-v2')
                 if hit:points[name]=hit
             except Exception:pass
     anchor=next(iter(points.values()),None)
     if not anchor:
         try:anchor=locator(topic)
         except Exception:pass
-    attempted=set()
-    if not anchor:
-        # Route names such as 长穿毕 are not point places. A unique, exact
-        # source-named walking start can anchor the same bounded point lookup.
-        for name in names[:2]:
-            attempted.add(name)
-            try:anchor=locator(name)
-            except Exception:anchor=None
-            if anchor:
-                points[name]=anchor
-                if store:store.point(name,topic,anchor)
-                break
-    # Names such as 天堂湖/龙山村 are not disambiguated by first-result ranking.
-    if anchor:
-        missing=[n for n in names if n not in points and n not in attempted][:6-len(attempted)]
+    # Prioritize overnight sites, then walking sites. If the route name is not
+    # mapped, require agreement between multiple distinct source-named points;
+    # a unique global homonym (e.g. 亚贡村 in another prefecture) is not an anchor.
+    sleep_names=[d['sleep']['name'] for p in profiles for d in p['days'] if d['sleep']]
+    missing=[n for n in dict.fromkeys([*sleep_names,*names]) if n not in points][:6]
+    if missing:
         pool=ThreadPoolExecutor(max_workers=2)
         jobs={pool.submit(locator,n,anchor):n for n in missing}
+        found={}
         try:
             done,_=wait(jobs,timeout=10)
             for job in done:
                 try:
                     hit=job.result()
-                    if hit:
-                        points[jobs[job]]=hit
-                        if store:store.point(jobs[job],topic,hit)
+                    if hit and (not anchor or distance(hit,anchor)<=150):found[jobs[job]]=hit
                 except Exception:pass
         finally:pool.shutdown(wait=False,cancel_futures=True)
+        if not anchor:
+            clusters={tuple(sorted(n for n,p in found.items() if distance(p,center)<=50)) for center in found.values()}
+            clusters=[c for c in clusters if len({found[n]['source'] for n in c})>=2 and all(distance(found[a],found[b])<=75 for a in c for b in c)]
+            clusters.sort(key=lambda c:(-len(c),c))
+            # Equal-sized disjoint clusters have no reliable geographic winner.
+            selected=clusters[0] if clusters and not any(len(c)==len(clusters[0]) and set(c)!=set(clusters[0]) for c in clusters[1:]) else ()
+            found={n:found[n] for n in selected}
+        for name,hit in found.items():
+            points[name]=hit
+            if store:store.point(name,topic+'|geo-v2',hit)
     # Bounded HTTP request and memory, even for long, densely described routes.
     return dict([(name,points[name]) for name in names if name in points][:24])
 
@@ -153,8 +154,17 @@ def plan_weather(profile,start,weather,*,rows=True):
     for index,day in enumerate(profile['days']):
         stamp=start+timedelta(days=index);route=day['route'];series=[]
         previous=profile['days'][index-1]['sleep'] if index else None
+        required=set(route+[s['name'] for s in (previous,day['sleep']) if s])
+        # This is a full-day reference at ONE located walking point, not a
+        # synthetic fill of unknown trail/camp observations. Night lows below
+        # continue to query only the exact camp, with all 13 hours required.
+        reference=None
+        if not required.issubset(weather):
+            available=list(dict.fromkeys(n for n in route if n in weather))
+            if available:reference=available[len(available)//2]
         for hour in range(24):
             name=(previous['name'] if previous else route[0]) if hour<8 else (day['sleep']['name'] if day['sleep'] else route[-1]) if hour>=18 else route[min(len(route)-1,int((hour-8)*len(route)/10))]
+            if reference:name=reference
             at=datetime.combine(stamp,datetime.min.time())+timedelta(hours=hour)
             instant=weather.get(name,{}).get(at.isoformat(timespec='minutes'),{})
             interval=weather.get(name,{}).get((at+timedelta(hours=1)).isoformat(timespec='minutes'),{})
@@ -163,7 +173,8 @@ def plan_weather(profile,start,weather,*,rows=True):
             liquid=complete([interval.get('rain'),interval.get('showers')],sum)
             series.append([instant.get('temperature_2m'),instant.get('cloud_cover'),interval.get('precipitation'),liquid,interval.get('snowfall'),instant.get('wind_gusts_10m'),sites[name]])
         stats,coverage=day_statistics(series)
-        days.append({'date':stamp.isoformat(),'route':route,'sleep':day['sleep'],'distance':day['distance_km'],'stats':stats,'coverage':coverage,**({'series':series} if rows else {})})
+        days.append({'date':stamp.isoformat(),'route':route,'sleep':day['sleep'],'distance':day['distance_km'],'stats':stats,'coverage':coverage,
+                     **({'weather_reference':reference} if reference else {}),**({'series':series} if rows else {})})
         if day['sleep']:
             name=day['sleep']['name'];begin=datetime.combine(stamp,datetime.min.time())+timedelta(hours=20)
             temperatures=[weather.get(name,{}).get((begin+timedelta(hours=h)).isoformat(timespec='minutes'),{}).get('temperature_2m') for h in range(13)]
@@ -176,6 +187,14 @@ def catalog():return seed_profiles()
 
 def inn_plan(profile):
     return all(d['sleep'] and d['sleep']['kind']=='inn' for d in profile['days'][:-1]) and (profile['days'][-1]['sleep'] is None or profile['days'][-1]['sleep']['kind']=='inn')
+
+def room_variant(profile):
+    """Keep documented beds as a separate option, never erase camping."""
+    if inn_plan(profile) or not profile['days'][:-1]:return None
+    if any(not d['sleep'] or ('inn' not in d['sleep'].get('options',[]) and d['sleep']['kind']!='inn') for d in profile['days'][:-1]):return None
+    if profile['days'][-1]['sleep'] and 'inn' not in profile['days'][-1]['sleep'].get('options',[profile['days'][-1]['sleep']['kind']]):return None
+    return {**profile,'variant':profile['variant'][:32]+' · 住店参考',
+            'days':[{**d,'sleep':{**d['sleep'],'kind':'inn'} if d['sleep'] else None} for d in profile['days']]}
 
 def make_trip(destination,start_date=None,route_variant=None,overnight='auto',*,queue=None,source='',fetcher=public_json,locator=locate,now=None):
     tick=time.monotonic();now=now or datetime.now(TZ);topic=clean_name(destination,24)
@@ -198,6 +217,7 @@ def make_trip(destination,start_date=None,route_variant=None,overnight='auto',*,
           'research':research.get('status','disabled'),'timings':{}}
     if not profiles:
         return {**base,'status':'pending','message':'尚无可核对的逐日行程与住宿资料。'+('已安排后台补查，下次询问会复用结果。' if base['research'] in {'queued','running'} else '补充资料暂不足，未猜测天数或营地。')}
+    profiles += [alternative for p in list(profiles) if (alternative:=room_variant(p)) is not None]
     if route_variant:
         chosen=[p for p in profiles if route_variant==p['variant']]
         if not chosen:return {**base,'status':'pending','message':'可用走法：'+'、'.join(p['variant'] for p in profiles[:4])+'。请指定其中一种。'}

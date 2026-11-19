@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getWeatherBrief, ForecastDataError, HOUR_MS, localTime } from '../src/weather.mjs';
+import {failureDetail} from '../src/trace-diagnostics.mjs';
 
 test('only internal scheduled weather uses the bounded longer HTTP timeout',async t=>{
   const timeouts=[],original=AbortSignal.timeout.bind(AbortSignal);
   t.mock.method(AbortSignal,'timeout',ms=>{timeouts.push(ms);return original(ms);});
   await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(),fetchTimeoutMs:45000});
-  assert.deepEqual(timeouts,[15000,15000]);timeouts.length=0;
+  assert.deepEqual(timeouts,[8000,8000]);timeouts.length=0;
   await getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(),scheduledMorning:true,fetchTimeoutMs:42000});
   assert.deepEqual(timeouts,[42000,42000]);
   await assert.rejects(getWeatherBrief({now:NOW,fetchImpl:fixtureFetch(),scheduledMorning:true,fetchTimeoutMs:45001}),{code:'FORECAST_TIMEOUT_INVALID'});
@@ -36,6 +37,50 @@ function fixtureFetch(data = weatherFixture(), { meta = metadata(), date = NOW, 
   };
 }
 
+test('the scheduled backup keeps the IFS model, exact forecast window, and metadata checks',async()=>{
+  const data=weatherFixture('2026-10-28',72),calls=[];
+  const profile={now:NOW,days:2,scheduledMorning:true,backupSource:true};
+  const result=await getWeatherBrief({...profile,fetchImpl:fixtureFetch(data,{calls})});
+  assert.equal(result.hourly.length,48);
+  assert.equal(result.hourly.at(-1).periodEnd,'2026-10-30T00:00:00+08:00');
+  assert.equal(result.source.model,'ecmwf_ifs');
+  assert.deepEqual(calls.map(({url})=>new URL(url).hostname),['previous-runs-api.open-meteo.com','s3.us-west-2.amazonaws.com']);
+  assert.equal(new URL(result.source.url).searchParams.get('models'),'ecmwf_ifs');
+  assert.equal(calls[1].url,'https://s3.us-west-2.amazonaws.com/openmeteo/data/ecmwf_ifs/static/meta.json');
+  await assert.rejects(getWeatherBrief({...profile,fetchImpl:fixtureFetch(data,{meta:{
+    ...metadata(),last_run_initialisation_time:Math.floor((NOW-25*HOUR_MS)/1000),
+  }})}),{code:'FORECAST_MODEL_STALE'});
+  const ordinary=await getWeatherBrief({now:NOW,backupSource:true,fetchImpl:fixtureFetch()});
+  assert.equal(new URL(ordinary.source.url).hostname,'previous-runs-api.open-meteo.com');
+});
+
+test('ordinary weather tries the live IFS endpoint on an alternate endpoint connection failure',async()=>{
+  const requests=[];
+  const fetchImpl=fixtureFetch(undefined,{calls:requests});
+  const report=await getWeatherBrief({now:NOW,fetchImpl:async(url,options)=>{
+    if(new URL(url).hostname==='previous-runs-api.open-meteo.com'){
+      requests.push({url,options});
+      throw new TypeError('fetch failed',{cause:{code:'UND_ERR_CONNECT_TIMEOUT'}});
+    }
+    return fetchImpl(url,options);
+  }});
+  assert.equal(report.hourly.length,24);
+  assert.deepEqual(requests.filter(({url})=>url.includes('/v1/')).map(({url})=>new URL(url).hostname),
+    ['previous-runs-api.open-meteo.com','api.open-meteo.com']);
+});
+
+test('forecast connection failures retain the safe underlying cause',async()=>{
+  const cause=Object.assign(Error('fixture private upstream detail'),{code:'UND_ERR_CONNECT_TIMEOUT'});
+  await assert.rejects(getWeatherBrief({now:NOW,scheduledMorning:true,
+    fetchImpl:async()=>{throw new TypeError('fixture private transport',{cause});}}),error=>{
+    assert.equal(error.code,'FORECAST_SOURCE_UNAVAILABLE');
+    const diagnostic=failureDetail('weather_forecast_primary',error);
+    assert.match(diagnostic.message,/FORECAST_SOURCE_UNAVAILABLE.*UND_ERR_CONNECT_TIMEOUT/);
+    assert.doesNotMatch(diagnostic.message,/fixture private/);
+    return true;
+  });
+});
+
 test('Beijing weather requests only the fixed ECMWF model and returns 24 labelled forecast intervals', async () => {
   const calls = [];
   const result = await getWeatherBrief({ city: 'beijing', day: 'today', now: NOW, fetchImpl: fixtureFetch(undefined, { calls }) });
@@ -52,8 +97,9 @@ test('Beijing weather requests only the fixed ECMWF model and returns 24 labelle
   assert.equal(result.modelRunAt, null, 'provider metadata is not an exact response-run binding');
   assert.ok(result.warnings.includes('MODEL_RUN_NOT_BOUND_TO_RESPONSE'));
   assert.equal(calls.length, 2);
+  assert.ok(calls.some(call => call.url === 'https://s3.us-west-2.amazonaws.com/openmeteo/data/ecmwf_ifs/static/meta.json'));
   const request = new URL(calls.find((c) => c.url.includes('/v1/')).url);
-  assert.equal(request.hostname, 'api.open-meteo.com');
+  assert.equal(request.hostname, 'previous-runs-api.open-meteo.com');
   assert.equal(request.searchParams.get('models'), 'ecmwf_ifs');
   assert.equal(request.searchParams.get('start_date'), '2026-10-28');
   assert.equal(request.searchParams.get('end_date'), '2026-10-29');
@@ -265,11 +311,15 @@ test('unsupported arguments make no request, and network failures expose only fi
     assert.ok(error instanceof ForecastDataError); assert.equal(error.code, 'FORECAST_SOURCE_UNAVAILABLE');
     assert.doesNotMatch(error.message, /private/); return true;
   });
-  assert.equal(count, 2, 'one request per source, no automatic retry');
+  assert.equal(count, 4, 'one forecast and metadata request per endpoint');
 });
 
 test('HTTP failure, oversize data, and non-JSON responses produce fixed errors', async () => {
   await assert.rejects(getWeatherBrief({ now: NOW, fetchImpl: fixtureFetch(undefined, { status: 429 }) }), { code: 'FORECAST_SOURCE_RATE_LIMITED' });
+  const good=fixtureFetch(),metadata404=(url,options)=>url.includes('/static/meta.json')?
+    new Response(null,{status:404}):good(url,options);
+  await assert.rejects(getWeatherBrief({now:NOW,fetchImpl:metadata404}),
+    {code:'FORECAST_SOURCE_HTTP_ERROR',httpStatus:404});
   const invalid = async () => new Response('not JSON', { headers: { 'content-type': 'text/html', date: new Date(NOW).toUTCString() } });
   await assert.rejects(getWeatherBrief({ now: NOW, fetchImpl: invalid }), { code: 'FORECAST_RESPONSE_INVALID' });
   const oversize = async () => new Response('x'.repeat(600_000), { headers: { 'content-type': 'application/json', date: new Date(NOW).toUTCString() } });

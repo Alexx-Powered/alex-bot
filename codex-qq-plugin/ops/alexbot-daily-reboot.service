@@ -1,0 +1,6 @@
+[Unit]
+Description=Reboot the Alex Bot ECS instance
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --no-block reboot

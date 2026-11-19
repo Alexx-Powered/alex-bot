@@ -5,14 +5,14 @@ from contextlib import nullcontext
 from datetime import datetime,timezone,timedelta
 from urllib.parse import urlencode
 from typing import Literal
-from functools import lru_cache
+from functools import lru_cache, partial
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from langchain_core.tools import tool
 from PIL import Image,ImageDraw,ImageFont
 from render_fonts import font_path
 from weather_map import overlay as map_overlay
 from weather_regions import REGIONS,regional_area
-from native_forecast import native_forecast, domain_for, DOMAINS
+from native_forecast import native_forecast, domain_for, DOMAINS, valid_update_time
 from video_download import pooled_downloads, request
 from video_trace import stage, sample
 
@@ -51,6 +51,17 @@ def area(lat,lon,cloud=False):
     world=8192 if cloud else 32768;size=256 if cloud else 512
     cx,cy=xy(lat,lon,world)
     return {'world':world,'size':size,'left':cx-size/2,'top':cy-size/2}
+
+def latest_source_availability(layer, view, now, fetch):
+    host = ENDPOINTS[layer].split('/v1/', 1)[0]
+    domain = domain_for(layer, view)
+    try:
+        metadata = json.loads(fetch(f'{host}/data/{domain}/static/meta.json', 16_384))
+    except (VideoFailure, ValueError, TypeError):
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    return valid_update_time(metadata.get('last_run_availability_time'), metadata.get('last_run_initialisation_time'), now)
 
 def forecast_frames(layer,lat,lon,now,fetch=request,*,viewport=None,hours=24):
     a=viewport if viewport is not None else area(lat,lon)
@@ -252,7 +263,22 @@ def static_overlay(layer, name, area, times):
     credit='Natural Earth · geoBoundaries · CTAmap'
     if image.info.get('registered_boundary_ink'):
         credit+=' · 界线参考自然资源部监制《中国地图》'
-    put(24,699,source+'  |  '+credit+(' · 西藏自治区自然资源厅' if tibet else ''),11,ink='#d1dedf')
+    footer=source+'  |  '+credit+(' · 西藏自治区自然资源厅' if tibet else '')
+    freshness=''
+    if layer=='cloud':
+        freshness='最新观测 '+stamp(times[-1])
+    elif (updated_at:=area.get('forecast_updated_at')) is not None:
+        label='最近可用' if area.get('forecast_detail')=='sampled' else '更新于'
+        freshness=f'{label} {stamp(updated_at)}'
+    footer_size=round(11*ratio)
+    footer_font=ImageFont.truetype(font_path(),footer_size)
+    if freshness:
+        footer+='  |  '+freshness
+        width=size-2*round(24*ratio)
+        while draw.textlength(footer,font=footer_font)>width:
+            footer_size-=1
+            footer_font=ImageFont.truetype(font_path(),footer_size)
+    draw.text((round(24*ratio),round(699*ratio)),footer,font=footer_font,fill='#d1dedf')
     return image
 
 
@@ -345,13 +371,17 @@ def prepare_video(args,spool,now=None,fetch=None):
             try:
                 with stage('video_fetch_cams' if layer=='pm25' else 'video_fetch_ifs',fallback_on=VideoFailure):
                     cache_dir=spool.directory.parent if isinstance(spool,FrameFiles) else None
-                    frames,source=native_forecast(layer,region,times,now,started+25,cache_dir)
+                    frames,source,updated_at=native_forecast(layer,region,times,now,started+25,cache_dir)
             except VideoFailure:
                 # The whole forecast comes from the same model through its point API.
-                with stage('video_fetch_forecast'):region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times))
+                with stage('video_fetch_forecast'), ThreadPoolExecutor(max_workers=1) as pool:
+                    metadata_fetch=fetch if fetch is not None else partial(request,timeout=2)
+                    availability=pool.submit(latest_source_availability,layer,region,now,metadata_fetch)
+                    region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times))
+                    updated_at=availability.result()
                 source=DOMAINS[domain_for(layer,region)]+' · Open-Meteo'
                 detail='sampled'
-            region={**region,'forecast_source':source,'forecast_detail':detail}
+            region={**region,'forecast_source':source,'forecast_detail':detail,'forecast_updated_at':updated_at}
     try:
         with stage('video_render_frames'):count=render_sequence(spool,layer,name,region,times,frames,started+165)
         metadata={'ok':True,'format_version':2,'layer':layer,'start':times[0],'end':times[-1],
