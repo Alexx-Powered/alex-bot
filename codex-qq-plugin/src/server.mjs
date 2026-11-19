@@ -145,6 +145,11 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       if(req.method==='GET'&&pathname==='/api/weather-alerts/status')return json(res,200,await weatherAlerts.status());
       if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status(),transportDiagnostics:adapter.diagnostics?.()});
       if (req.method === 'GET' && pathname === '/api/social/status') return json(res,200,{ok:true,config:await socialConfigStore.status()});
+      const groupLogRoute = /^\/api\/group\/([a-f0-9]{64})\/delivery-log$/.exec(pathname);
+      if (req.method === 'GET' && groupLogRoute) {
+        const log = core.groupDeliveryLog(groupLogRoute[1]);
+        return json(res, log.ok ? 200 : 404, log);
+      }
       if (req.method === 'GET' && pathname === '/api/group/directory') {
         if (!core.status().paired) return json(res,409,{ok:false,code:'NOT_PAIRED'});
         try {

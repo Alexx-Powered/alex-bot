@@ -15,7 +15,7 @@ const activeSpan=new AsyncLocalStorage();
 const remoteDetails=new WeakMap();
 const MORNING_OPERATIONS=new Set(['morning.prepare','morning.dispatch','morning.preview','morning.retry','morning.test']);
 const MORNING_SKIPS=new Set(['MORNING_NOT_DUE','NO_MORNING_GROUPS','DUPLICATE','MORNING_CANCELLED']);
-const MORNING_SUCCESS=new Set(['MORNING_PREPARED','SENT']);
+const MORNING_SUCCESS=new Set(['MORNING_PREPARED','SENT','MORNING_GROUP_FAILURES']);
 const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip',...MORNING_OPERATIONS]);
 const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send','qq_group_permission']);
 export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
@@ -187,7 +187,7 @@ function morningOutputs(outcome, failure){
   if(typeof outcome?.ok!=='boolean')return {};
   const code=MORNING_SKIPS.has(outcome.code)||MORNING_SUCCESS.has(outcome.code)?outcome.code:failure?.code;
   const result={ok:outcome.ok,...(code?{code}:{})};
-  for(const key of ['attempted','sent','prepared']){
+  for(const key of ['attempted','sent','prepared','groupFailures','skipped']){
     if(Number.isSafeInteger(outcome[key])&&outcome[key]>=0&&outcome[key]<=1000)result[key]=outcome[key];
   }
   if(['cams_global','gefs_aerosols'].includes(outcome.pm25Source))result.pm25Source=outcome.pm25Source;

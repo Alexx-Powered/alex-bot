@@ -8,7 +8,7 @@ const image={buffer:Buffer.alloc(16),mimeType:'image/png'};
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 async function fixture(count=1,{send,save,weather,campusReport,deadlineSignal,sleep,limits,
-  features=()=>({...basicGroupFeatures(),morningWeather:true,morningCampus:true}),oneBotMode='normal'}={}) {
+  features=()=>({...basicGroupFeatures(),morningWeather:true,morningCampus:true}),oneBotMode=null}={}) {
   let now=new Date('2026-11-02T23:30:00Z'),saved={
     version:1,ownerId:'owner',paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,
     allowedGroups:Array.from({length:count},(_,i)=>({id:'g'+i,name:'群'+i,features:features(i)})),grayGroups:[],
@@ -61,7 +61,7 @@ test('closing the daily switch while generating prevents all group sends',async(
 });
 
 test('uncertain sends pause and stop the remaining daily images',async()=>{
-  const f=await fixture(1,{send:()=>({})});
+  const f=await fixture(1,{send:()=>{throw Error('unknown delivery');}});
   assert.equal((await f.service.run()).code,'DELIVERY_UNCERTAIN');
   assert.equal(f.sent.length,1);assert.equal(f.core.status().paused,true);
   assert.equal((await f.service.run()).code,'PAUSED');assert.equal(f.sent.length,1);
@@ -74,12 +74,16 @@ test('an official group permission denial only skips that group and preserves bo
     return {ok:true};
   }});
   const result=await f.service.run();
-  assert.equal(result.code,'QQ_TARGET_PERMISSION_DENIED');
+  assert.equal(result.code,'MORNING_GROUP_FAILURES');assert.equal(result.groupFailures,1);assert.equal(result.skipped,1);
   assert.equal(result.attempted,3);assert.equal(result.sent,2);
   assert.deepEqual(f.sent.filter(r=>r.groupId).map(r=>[r.groupId,r.requiredFeature]),[
     ['g0','morningWeather'],['g1','morningWeather'],['g1','morningCampus'],
   ]);
-  assert.deepEqual(result.failureNotice,{ok:true,code:'SENT'});
+  assert.equal(result.failureNotice,undefined);assert.ok(f.sent.every(r=>r.groupId));
+  const [first,second]=f.core.status().allowedGroups;
+  const [entry]=f.core.groupDeliveryLog(first.groupKey).entries;
+  assert.equal(entry.feature,'morningWeather');assert.equal(entry.bizCode,40034105);
+  assert.equal(entry.code,'QQ_TARGET_PERMISSION_DENIED');assert.deepEqual(f.core.groupDeliveryLog(second.groupKey).entries,[]);
   assert.equal(warning.mock.callCount(),1);
   const line=warning.mock.calls[0].arguments[0];
   assert.match(line,/"groupName":"群0"/);assert.match(line,/"bizCode":40034105/);
@@ -89,10 +93,46 @@ test('an official group permission denial only skips that group and preserves bo
   assert.equal(f.sent.length,beforeRepeat);
   const reloaded=f.makeCore();await reloaded.init();
   assert.equal(reloaded.status().paused,false);
+  assert.deepEqual(reloaded.groupDeliveryLog(first.groupKey).entries,[entry]);
   assert.ok(f.saved().deliveries.some(row=>row.state==='rejected'&&row.code==='PERMISSION_DENIED'));
   const reply=await reloaded.handleMessage({kind:'c2c',senderId:'owner',id:'ping',text:'/ping',
     replyTarget:{scope:'c2c',targetId:'owner',msgId:'ping'}});
   assert.equal(reply.code,'SENT');
+});
+
+test('a request-scoped group failure preserves independent subscriptions and never messages the owner',async()=>{
+  const f=await fixture(3,{limits:{minuteAttempts:12},
+    features:i=>({...basicGroupFeatures(),morningWeather:i!==2,morningCampus:i!==1}),
+    send:req=>{
+      if(req.groupId==='g0' && req.requiredFeature==='morningWeather'){
+        throw Object.assign(Error('private upstream body'),{code:'QQ_SERVICE_UNAVAILABLE',phase:'upload',httpStatus:503,messageAttempted:false});
+      }
+      return {ok:true};
+    }});
+  const result=await f.service.run();
+  assert.deepEqual(result,{ok:true,code:'MORNING_GROUP_FAILURES',attempted:4,sent:3,groupFailures:1,skipped:0});
+  assert.deepEqual(f.sent.map(r=>[r.groupId,r.requiredFeature]),[
+    ['g0','morningWeather'],['g1','morningWeather'],['g0','morningCampus'],['g2','morningCampus']]);
+  const [a,b]=f.core.status().allowedGroups;
+  assert.equal(f.core.groupDeliveryLog(a.groupKey).entries[0].httpStatus,503);
+  assert.equal(f.core.groupDeliveryLog(a.groupKey).entries[0].phase,'upload');
+  assert.deepEqual(f.core.groupDeliveryLog(b.groupKey).entries,[]);
+  assert.equal(JSON.stringify(f.saved()).includes('private upstream body'),false);
+  assert.equal((await f.service.run()).code,'DUPLICATE');
+});
+
+test('older morning receipts are matched to the originating group without guessing a platform code',async()=>{
+  const f=await fixture(2,{limits:{minuteAttempts:10}, send:req=>{
+    if(req.groupId==='g0')throw Object.assign(Error(),{code:'QQ_SERVICE_UNAVAILABLE',messageAttempted:false});
+    return {ok:true};
+  }});
+  await f.service.run();
+  for(const row of f.saved().deliveries){delete row.groupKey;delete row.feature;delete row.failureCode;}
+  const core=f.makeCore();await core.init();
+  const [a,b]=core.status().allowedGroups;
+  assert.deepEqual(core.groupDeliveryLog(a.groupKey).entries.map(e=>e.feature),['morningCampus','morningWeather']);
+  assert.equal(core.groupDeliveryLog(a.groupKey).entries[0].bizCode,undefined);
+  assert.deepEqual(core.groupDeliveryLog(b.groupKey).entries,[]);
 });
 
 test('multiple groups wait for an unconsumed quota window without resending any image',async()=>{

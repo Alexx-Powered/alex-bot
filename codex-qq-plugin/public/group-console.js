@@ -93,6 +93,48 @@ window.createGroupConsole = ({api,action}) => {
     }
     get('groupCount').textContent=String(groups.length);
   }
+  function deliveryLog(group) {
+    const panel=document.createElement('details');
+    const summary=document.createElement('summary');
+    summary.textContent='群聊日志';
+    const list=document.createElement('ul');
+    const status=document.createElement('p');
+    status.className='help';status.setAttribute('role','status');
+    const refresh=document.createElement('button');
+    refresh.type='button';refresh.textContent='刷新日志';refresh.className='subtle';
+    const time=new Intl.DateTimeFormat('zh-CN',{dateStyle:'short',timeStyle:'medium',timeZone:'Asia/Shanghai'});
+    const reasons={
+      QQ_TARGET_PERMISSION_DENIED:'该群发送权限被拒，请核对 QQ 群权限及机器人成员状态',
+      PERMISSION_DENIED:'QQ 拒绝发送权限', QQ_SERVICE_UNAVAILABLE:'QQ 服务暂时不可用',
+      RATE_LIMITED:'QQ 限流', DELIVERY_UNCERTAIN:'提交结果未确认', PLATFORM_REJECTED:'平台拒绝或未能提交',
+    };
+    async function load() {
+      if(refresh.disabled)return;
+      refresh.disabled=true;status.textContent='正在读取本群日志…';
+      try {
+        const data=await api('group/'+group.groupKey+'/delivery-log');
+        if(!data.ok || !Array.isArray(data.entries))throw Error();
+        list.replaceChildren();
+        for(const entry of data.entries) {
+          const item=document.createElement('li');
+          const feature=catalog.find(f=>f.key===entry.feature)?.label || '群消息';
+          const stage=entry.phase==='upload'?'上传':entry.phase==='send'?'提交':'';
+          const fields=[time.format(entry.at),feature,stage,reasons[entry.code] || entry.code];
+          if(entry.state==='uncertain' && entry.code!=='DELIVERY_UNCERTAIN')fields.push('回执未确认');
+          if(entry.bizCode)fields.push('QQ '+entry.bizCode);
+          if(entry.httpStatus)fields.push('HTTP '+entry.httpStatus);
+          item.textContent=fields.filter(Boolean).join(' · ');list.append(item);
+        }
+        status.textContent=data.entries.length?'最近 '+data.entries.length+' 条发送失败或回执未确认记录（北京时间）':'暂无本群发送失败记录';
+      } catch {
+        status.textContent='本群日志读取失败，可以刷新重试。';
+      } finally {refresh.disabled=false;}
+    }
+    refresh.onclick=load;panel.ontoggle=()=>{if(panel.open)void load();};
+    panel.append(summary,status,list,refresh);
+    return panel;
+  }
+
   function renderEditor() {
     get('groupList').replaceChildren();
     wakeEditor=null;
@@ -159,7 +201,7 @@ window.createGroupConsole = ({api,action}) => {
       if(!['ArrowLeft','ArrowRight'].includes(event.key))return;
       event.preventDefault();choose(groupPanel==='features'?'wake':'features');(groupPanel==='features'?featureTab:wakeTab).focus();
     };
-    navigation.append(featureTab,wakeTab);get('groupList').append(header,navigation,form,wakeSection);choose(groupPanel);
+    navigation.append(featureTab,wakeTab);get('groupList').append(header,deliveryLog(group),navigation,form,wakeSection);choose(groupPanel);
     wakeEditor=window.createWakeWordEditor({container:wakeSection,action,groupKey:group.groupKey});
     wakeEditor.update(lastCore,group);
   }

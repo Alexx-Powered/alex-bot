@@ -78,6 +78,12 @@ test('official SDK join appears in the console with every feature disabled and n
     const groupId='OFFICIAL_NEW';
     await Promise.all([join('GROUP_ADD_ROBOT',groupId,String(ts)),join('GROUP_ADD_ROBOT',groupId)]);
     const status=await request('status');
+    const logPath='group/'+key(groupId)+'/delivery-log';
+    assert.deepEqual(await request(logPath),{ok:true,code:'OK',entries:[]});
+    const headers={Authorization:'Bearer '+store.integrationToken};
+    assert.equal((await fetch('http://127.0.0.1:'+port+'/api/'+logPath,{headers})).status,403);
+    assert.equal((await fetch('http://127.0.0.1:'+port+'/api/group/'+key('absent')+'/delivery-log',
+      {headers:{Authorization:'Bearer '+store.token}})).status,404);
     assert.equal(status.core.groupCount,2);
     const group=status.core.allowedGroups.find(g=>g.groupKey===key(groupId));
     assert.match(group.name,/^新加入群 · [a-f0-9]{8}$/);

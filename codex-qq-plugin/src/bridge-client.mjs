@@ -10,7 +10,7 @@ const MAX_RESPONSE_BYTES = 64 * 1024;
 const validCityQuery = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 60 && /^[\p{Script=Han}\p{Script=Latin}\d ·（）()，,.'-]+$/u.test(value) && !['__proto__','constructor','toString'].includes(value);
 const WEATHER_ERROR_CODES = new Set(['LOCATION_AMBIGUOUS', 'LOCATION_NOT_FOUND', 'LOCATION_INPUT_INVALID', 'LOCATION_SOURCE_UNAVAILABLE', 'DAILY_CITY_RESTRICTED']);
 const CODES = new Set([
-  'MORNING_NOT_DUE','NO_MORNING_GROUPS','MORNING_REPORT_INVALID','MORNING_REPORT_FAILED',
+  'MORNING_GROUP_FAILURES','MORNING_NOT_DUE','NO_MORNING_GROUPS','MORNING_REPORT_INVALID','MORNING_REPORT_FAILED',
   'MORNING_PREPARED','MORNING_DATA_INCOMPLETE','MORNING_CANCELLED','CAMPUS_REPORT_FAILED',
   'MORNING_WINDOW_ENDED','MORNING_RETRIES_EXHAUSTED','GROUP_MORNING_UNAVAILABLE','CAMPUS_IMAGE_MISSING',
   'OK', 'SENT', 'DUPLICATE', 'NOT_CONFIGURED', 'NOT_CONNECTED', 'NOT_PAIRED',
@@ -101,7 +101,7 @@ export function projectNotify(body) {
 function projectGroupMorning(body) {
   const result=projectNotify(body);
   result.code=failureDetail('morning',{code:body.code}).code??result.code;
-  for(const key of ['attempted','sent','prepared']){
+  for(const key of ['attempted','sent','prepared','groupFailures','skipped']){
     if(Number.isSafeInteger(body[key])&&body[key]>=0)result[key]=body[key];
   }
   if(Array.isArray(body.failedParts)){

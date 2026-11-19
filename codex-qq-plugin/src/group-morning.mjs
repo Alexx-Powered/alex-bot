@@ -197,7 +197,7 @@ export class GroupMorningService {
     const plan=this.#start(clock);
     const deliveryFailures=[];
     const remaining=new Set(Object.keys(plan.jobs));
-    let attempted=0,sent=0;
+    let attempted=0,sent=0,groupFailures=0,skipped=0;
     // A ready weather image can leave at 07:30 while campus is still collecting,
     // and vice versa. Generation and sending are single-flight per day/entry.
     while(remaining.size) {
@@ -206,22 +206,27 @@ export class GroupMorningService {
       if(job.state!=='ready')continue;
       const delivery=await measureSpan('morning_'+part+'_delivery',()=>this.#deliverPart(plan,part),result=>result.ok?null:result);
       attempted+=delivery.attempted;sent+=delivery.sent;
+      groupFailures+=delivery.groupFailures;skipped+=delivery.skipped;
       if(!delivery.ok){
         deliveryFailures.push({part,code:delivery.code,attempt:job.attempt,
           detail:failureDetail('morning_'+part+'_delivery',delivery).message});
-        if(delivery.code!=='QQ_TARGET_PERMISSION_DENIED')break;
+        break;
       }
     }
     const failures=Object.entries(plan.jobs)
       .filter(([part,job])=>job.state==='failed'&&this.core.hasMorningPreparationTarget(plan.date,plan.targets,part))
       .map(([part,{code,attempt,detail,lastFailure}])=>({part,code,attempt,detail,lastFailure}));
-    failures.unshift(...deliveryFailures);
+    const counts = {attempted, sent, ...(groupFailures || skipped ? {groupFailures, skipped} : {})};
     if(failures.length){
       const notice=await measureSpan('morning_failure_notice',()=>this.#notifyFailure(plan,failures),
         result=>result.ok||result.code==='DUPLICATE'?null:result);
-      return {ok:false,code:failures[0].code,attempted,sent,failedParts:failures.map(({part,code})=>({part,code})),
+      const failedParts=[...deliveryFailures,...failures].map(({part,code})=>({part,code}));
+      return {ok:false,code:failedParts[0].code,...counts,failedParts,
         failureNotice:{ok:notice.ok,code:notice.code}};
     }
+    if(deliveryFailures.length)return {ok:false,code:deliveryFailures[0].code,...counts,
+      failedParts:deliveryFailures.map(({part,code})=>({part,code}))};
+    if(groupFailures||skipped)return {ok:true,code:'MORNING_GROUP_FAILURES',...counts};
     if(!sent&&!attempted)return {ok:false,code:'MORNING_CANCELLED',attempted,sent};
     return {ok:true,code:'SENT',attempted,sent};
   }
@@ -245,14 +250,15 @@ export class GroupMorningService {
   }
 
   async #deliverPart(plan,part) {
-    let attempted=0,sent=0,denied=false;
+    let attempted=0,sent=0,groupFailures=0,skipped=0;
+    const outcome = (ok,code) => ({ok,code,attempted,sent,groupFailures,skipped});
     for(const target of plan.targets) {
       await this.core.waitForPendingOperations();
       while (this.core.pendingMorningParts(plan.date,[target])[part]) {
-        if(plan.permissionDenied.has(target.groupKey)){denied=true;break;}
+        if(plan.permissionDenied.has(target.groupKey)){skipped++;break;}
         const current=groupMorningClock(this.now()),unavailable=this.ready();
-        if (!current.inWindow||current.date!==plan.date) return {ok:false,code:'MORNING_WINDOW_ENDED',attempted,sent};
-        if (unavailable) return {ok:false,code:unavailable,attempted,sent};
+        if (!current.inWindow||current.date!==plan.date) return outcome(false,'MORNING_WINDOW_ENDED');
+        if (unavailable) return outcome(false,unavailable);
         const result=await this.core.notifyImageAllAllowed({
           image:plan.jobs[part].image,idempotencyKey:'group-morning-'+plan.date+'-'+part,
           groupsOnly:true,requiredFeature:MORNING_PART_FEATURES[part],groupTargets:[target],
@@ -264,16 +270,16 @@ export class GroupMorningService {
           await this.sleep(1000);
           continue;
         }
-        if(result.code==='QQ_TARGET_PERMISSION_DENIED'){
-          plan.permissionDenied.add(target.groupKey);
-          denied=true;
+        if(result.groupFailure){
+          if(result.code==='QQ_TARGET_PERMISSION_DENIED') plan.permissionDenied.add(target.groupKey);
+          if(result.attempted)groupFailures++;else skipped++;
           break;
         }
-        if (!result.ok&&result.code!=='DUPLICATE') return {ok:false,
-          code:result.code==='REQUEST_EXPIRED'?'MORNING_WINDOW_ENDED':result.code,attempted,sent};
+        if (!result.ok&&result.code!=='DUPLICATE') return outcome(false,
+          result.code==='REQUEST_EXPIRED'?'MORNING_WINDOW_ENDED':result.code);
         break;
       }
     }
-    return denied?{ok:false,code:'QQ_TARGET_PERMISSION_DENIED',attempted,sent}:{ok:true,attempted,sent};
+    return outcome(true,'OK');
   }
 }

@@ -1,3 +1,4 @@
+import {groupReceiptFields, groupFailureHistory, morningDeliveryKey, isGroupDeliveryError} from './group-delivery-log.mjs';
 import {validVideo} from './video-media.mjs';
 import {copyIncomingMedia} from './incoming-media.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -122,7 +123,7 @@ function restoreState(raw) {
         !Number.isSafeInteger(entry.at) || entry.at < 0 ||
         !knownDeliveryCodes.has(entry.code)) throw new Error('STATE_INVALID');
     if (entry.receiptHash !== undefined && !isHash(entry.receiptHash)) throw Error('STATE_INVALID');
-    return { key: entry.key, state: entry.state, at: entry.at, code: entry.code, ...(entry.receiptHash ? {receiptHash:entry.receiptHash} : {}) };
+    return { key: entry.key, state: entry.state, at: entry.at, code: entry.code, ...groupReceiptFields(entry), ...(entry.receiptHash ? {receiptHash:entry.receiptHash} : {}) };
   });
   const incoming = raw.incoming.map((key) => {
     if (!isHash(key)) throw new Error('STATE_INVALID');
@@ -586,6 +587,13 @@ export class BridgeCore {
       pendingGroup: this.#groupCandidate && now < this.#groupCandidate.expiresAt
         ? { ...describeGroup(this.#groupCandidate), ...(this.#groupCandidate.access==='gray'?{access:'gray'}:{}), expiresAt: this.#groupCandidate.expiresAt } : null,
     };
+  }
+
+  groupDeliveryLog(groupKey) {
+    if (!validGroupKey(groupKey)) return result(false, 'INVALID_INPUT');
+    const registered = [...this.#state.allowedGroups, ...this.#state.grayGroups].some(g => groupKeyFor(g.id) === groupKey);
+    if (!registered) return result(false, 'GROUP_NOT_FOUND');
+    return result(true, 'OK', {entries: groupFailureHistory(this.#state.deliveries, groupKey)});
   }
 
   async startPairing() {
@@ -1182,8 +1190,7 @@ export class BridgeCore {
   pendingMorningParts(date,groupTargets) {
     return Object.fromEntries(['weather','campus'].map(part=>{
       const groups=this.#broadcastGroups(MORNING_PART_FEATURES[part],groupTargets);
-      const operation=hash('broadcast:group-morning-'+date+'-'+part);
-      const count=groups.filter(g=>!this.#state.deliveries.some(d=>d.key===hash('outgoing:broadcast:'+operation+':'+groupKeyFor(g.id)))).length;
+      const count=groups.filter(g=>!this.#state.deliveries.some(d=>d.key===morningDeliveryKey(date,part,groupKeyFor(g.id)))).length;
       return [part,count];
     }));
   }
@@ -1221,11 +1228,10 @@ export class BridgeCore {
   hasMorningPreparationTarget(date,groupTargets,part) {
     if(!['weather','campus'].includes(part))return false;
     const feature=MORNING_PART_FEATURES[part];
-    const operation=hash('broadcast:group-morning-'+date+'-'+part);
     return [...this.#state.allowedGroups,...this.#state.grayGroups].some(g=>g.enabled!==false&&
       (g.features??defaultGroupFeatures(this.#state.allowedGroups.some(a=>a.id===g.id)?'white':'gray'))[feature]===true&&
       groupTargets.some(t=>t.groupKey===groupKeyFor(g.id)&&t.morningRevisions?.[feature]===(this.#morningRevisions.get(g.id)?.[feature]||0))&&
-      !this.#state.deliveries.some(d=>d.key===hash('outgoing:broadcast:'+operation+':'+groupKeyFor(g.id))));
+      !this.#state.deliveries.some(d=>d.key===morningDeliveryKey(date,part,groupKeyFor(g.id))));
   }
 
   async #notifyAllAllowed({text,image,idempotencyKey,groupsOnly=false,requiredFeature,groupTargets,deliveryDeadline}) {
@@ -1256,7 +1262,7 @@ export class BridgeCore {
       if (this.#state.paused || this.#pauseRequested) return blocked('PAUSED');
       const budgetCode = this.#budgetCode(this.#time(), { count: needed });
       if (budgetCode) return blocked(budgetCode);
-      const results = []; let attempted = 0, sent = 0, stoppedCode = null, targetDenial = null;
+      const results = []; let attempted = 0, sent = 0, stoppedCode = null, groupFailureCode = null;
       for (const target of targets) {
         if (target.existing) { results.push(duplicate(target)); continue; }
         if(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline){
@@ -1273,11 +1279,12 @@ export class BridgeCore {
         if (delivery.code === 'SENT') sent++;
         results.push({ destination: target.destination, ok: delivery.ok, code: delivery.code,
           ...(delivery.deliveryState ? { deliveryState: delivery.deliveryState } : {}) });
-        if(delivery.code==='QQ_TARGET_PERMISSION_DENIED') targetDenial=delivery.code;
+        if(target.groupId && !this.#oneBotMode && this.sendingEnabled() && isGroupDeliveryError(delivery.code)) groupFailureCode ??= delivery.code;
         else if (!delivery.ok && delivery.code !== 'DUPLICATE') stoppedCode = delivery.code;
       }
-      const failure=stoppedCode??targetDenial;
-      return result(failure===null, failure??'SENT', { results, attempted, sent });
+      const failure=stoppedCode??groupFailureCode;
+      return result(failure===null, failure??'SENT', { results, attempted, sent,
+        ...(groupFailureCode && !stoppedCode ? {groupFailure:true} : {}) });
     });
   }
 
@@ -1322,12 +1329,13 @@ export class BridgeCore {
     next.attempts = next.attempts.filter((entry) => entry.at >= now - 48 * 60 * 60_000);
     const caller = this.#caller.getStore();
     next.attempts.push({ at: now, day, ...(this.#oneBotMode ? {target:hash(target),...(caller ? {caller:hash(caller)} : {})} : {}) });
-    next.deliveries.push({ key, state: 'inFlight', at: now, code: 'SENDING' });
+    next.deliveries.push({ key, state: 'inFlight', at: now, code: 'SENDING',
+      ...(groupId ? groupReceiptFields({groupKey:groupKeyFor(groupId),feature:input.requiredFeature}) : {}) });
     next.lastDeliveryCode = 'SENDING';
     // Persist the budget and key BEFORE any network call. A crash here favors
     // suppressing an uncertain notification over sending it twice.
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
-    let failure = null, receiptHash, rejectedBizCode;
+    let failure = null, receiptHash, rejectedBizCode, groupDiagnostics;
     try {
       const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.weatherAlertPermit?{weatherAlertPermit:input.weatherAlertPermit}:{}), ...(input?.deliveryDeadline!==undefined?{deliveryDeadline:input.deliveryDeadline}:{}), ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
       if (response?.ok === false) throw response;
@@ -1338,9 +1346,12 @@ export class BridgeCore {
     } catch (error) {
       failure = classifyError(error,!this.#oneBotMode);
       rejectedBizCode = error?.bizCode;
+      if (groupId) groupDiagnostics = groupReceiptFields({groupKey:groupKeyFor(groupId),failureCode:failure.code,
+        phase:error?.phase, bizCode:error?.bizCode, httpStatus:error?.httpStatus});
     }
     const finished = structuredClone(this.#state);
     const record = finished.deliveries.find((entry) => entry.key === key);
+    if (groupDiagnostics) Object.assign(record, groupDiagnostics);
     if (receiptHash) record.receiptHash = receiptHash;
     record.state = failure ? (failure.uncertain ? 'uncertain' : 'rejected') : 'sent';
     record.code = failure?.persistedCode ?? failure?.code ?? 'SENT';
