@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch,MagicMock
 from pydantic import ValidationError
 from campus_classrooms import build_query_tool,normalize,CampusError,query_day,SCHEMA,login_failure,browser_collect,_await_login
+import campus_planner as plan
 from campus_report import observations,render_report
 from campus_worker import process
 
@@ -99,7 +100,6 @@ class CampusTests(unittest.TestCase):
             file=Path(temp)/'campus-output'/(artifact+'.png')
             with Image.open(file) as image:
                 self.assertEqual(image.width,1800);self.assertLessEqual(image.height,16000)
-            import plan
             result=plan.analyze(observations(data))
             self.assertNotIn('204',result['rooms'])
             top=result['sessions']['下午']['recommendations'][0]
@@ -188,10 +188,6 @@ class CampusTests(unittest.TestCase):
 
     def test_no_free_rooms_does_not_invent_recommendations(self):
         data=normalize({'e':0,'d':{'list':{'三号楼':[{'name':'105','kxsds':''}]}}},'2026-10-29',CLOCK)
-        import sys
-        from campus_report import SCRIPTS
-        if str(SCRIPTS) not in sys.path:sys.path.insert(0,str(SCRIPTS))
-        import plan
         result=plan.analyze(observations(data))
         self.assertEqual(data['rooms'][0]['free_periods'],[])
         self.assertTrue(all(not s['recommendations'] for s in result['sessions'].values()))

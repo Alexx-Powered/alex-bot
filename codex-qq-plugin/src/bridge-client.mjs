@@ -15,8 +15,7 @@ const CODES = new Set([
   'MORNING_WINDOW_ENDED','MORNING_RETRIES_EXHAUSTED','GROUP_MORNING_UNAVAILABLE','CAMPUS_IMAGE_MISSING',
   'OK', 'SENT', 'DUPLICATE', 'NOT_CONFIGURED', 'NOT_CONNECTED', 'NOT_PAIRED',
   'OWNER_NOT_PAIRED', 'PAUSED', 'RATE_LIMITED', 'DAILY_LIMIT', 'DAILY_LIMIT_REACHED',
-  'RECEIVE_ONLY','PILOT_GROUP_LIMIT','PILOT_BROADCAST_DISABLED','REQUEST_EXPIRED','RATE_LIMIT_TARGET','RATE_LIMIT_CALLER',
-  'ONEBOT_ACCOUNT_MISMATCH','ONEBOT_HEARTBEAT_LOST','ONEBOT_DISCONNECTED','ONEBOT_OFFLINE','ONEBOT_HANDSHAKE_FAILED','ONEBOT_DELIVERY_UNKNOWN',
+  'REQUEST_EXPIRED',
   'MINUTE_LIMIT', 'INVALID_TEXT', 'INVALID_IDEMPOTENCY_KEY', 'INVALID_INPUT',
   'IDEMPOTENCY_CONFLICT', 'DELIVERY_UNKNOWN', 'SEND_FAILED', 'NETWORK_ERROR',
   'TIMEOUT', 'FORBIDDEN', 'REJECTED', 'CONTENT_REJECTED', 'RECIPIENT_REJECTED',
@@ -59,10 +58,6 @@ export function projectStatus(body) {
   if (transport && typeof transport === 'object') {
     result.transport = {};
     if (STATES.has(transport.state)) result.transport.state = transport.state;
-    if (transport.protocol === 'onebot11') {
-      result.transport.protocol = transport.protocol;
-      if (['receive-only','limited','normal'].includes(transport.mode)) result.transport.mode = transport.mode;
-    }
     if (safeCode(transport.code) !== undefined) result.transport.code = safeCode(transport.code);
   }
   const core = body.core;

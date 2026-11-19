@@ -6,8 +6,6 @@ import hashlib
 import json
 import re
 
-PRIVATE_START = '<!-- public-readme:private:start -->'
-PRIVATE_END = '<!-- public-readme:private:end -->'
 ASSETS = (
     'codex-qq-plugin/public/logo.png',
     'docs/images/weather.webp',
@@ -29,31 +27,8 @@ ASSETS = (
 MANIFEST = '.public-readme-sync.json'
 
 
-def public_text(source):
-    lines = []
-    private = False
-    sections = 0
-    for line in source.splitlines():
-        if line.strip() == PRIVATE_START:
-            if private:
-                raise ValueError('nested private section')
-            private = True
-            sections += 1
-        elif line.strip() == PRIVATE_END:
-            if not private:
-                raise ValueError('unmatched private section end')
-            private = False
-        elif 'public-readme:private:' in line:
-            raise ValueError('private markers must occupy a complete line')
-        elif not private:
-            lines.append(line)
-    if private or sections < 3:
-        raise ValueError('missing or unclosed private sections')
-    return re.sub(r'\n{3,}', '\n\n', '\n'.join(lines)).strip() + '\n'
-
-
 def validate_text(text, name, allowed):
-    forbidden = [r'-----BEGIN .*PRIVATE KEY-----', r'\b(?:sk-|lsv2_pt_)[A-Za-z0-9_-]{24,}',
+    forbidden = [r'public-readme:private:', r'-----BEGIN .*PRIVATE KEY-----', r'\b(?:sk-|lsv2_pt_)[A-Za-z0-9_-]{24,}',
                  r'\bAKIA[A-Z0-9]{16}\b', r'(?i)(?:access_token|api_key|token)=[A-Za-z0-9_-]{20,}',
                  r'(?i)[A-Z]:[\\/](?:Users|Projects)\b', r'/var/lib/alexbot', r'/opt/alex-bot',
                  r'HANDOVER\.md', r'生活费', r'living_cost_budget',
@@ -82,7 +57,7 @@ def build_files(root):
         if path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file():
             raise ValueError('invalid export input: ' + name)
         return path.read_bytes()
-    files = {'README.md': public_text(read('README.md').decode('utf-8-sig')).encode('utf-8')}
+    files = {'README.md': read('README.md')}
     files.update((name, read(name)) for name in ASSETS)
     allowed = set(files)
     for name, data in files.items():

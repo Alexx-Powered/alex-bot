@@ -22,10 +22,6 @@
 
 将天气摘要、空气质量和适合户外活动的时段放在一起，下方继续展示逐小时曲线。户外指数使用项目自定义规则。
 
-<!-- public-readme:private:start -->
-详细规则见[评分规则](codex-qq-plugin/docs/outdoor-index.md)。
-<!-- public-readme:private:end -->
-
 <img src="docs/images/weather-summary.webp" width="640" alt="广州天气摘要：温度范围、降水、风、湿度与户外指数">
 
 <details>
@@ -160,54 +156,5 @@
 | 固定换算 | `1马里换公里` |
 
 各群可用功能以当次 `/help` 为准。图片和视频查询成功后直接发成品，无需附加文字。
-
-## 实现与运行
-
-**Node.js** 负责 QQ 官方 SDK、授权、唤醒词、消息队列、发送与控制台；**Python LangChain** 负责受限工具和自然语言路由。固定指令、自然语言和定时任务复用业务实现。图片与视频按队列处理，数据下载使用受限并发与缓存。
-
-响应监控可查看排队、数据获取、解码、绘图、H.264 编码和 QQ 投递耗时；徒步另列路线读取、沿途定位、天气获取与卡片绘制。启用 LangSmith 后，trace 包含触发消息原文、工具参数和错误信息。
-
-<!-- public-readme:private:start -->
-详见[监控说明](codex-qq-plugin/docs/latency-monitoring-20261029.md)。
-<!-- public-readme:private:end -->
-
-正式实例运行在 ECS，通过 SSH 隧道访问本机控制台。当前仅使用 **QQ 官方 Bot**；OneBot 已退役。部署会保留运行状态，执行备份、回归、地图资产校验与进程核验。
-
-<!-- public-readme:private:start -->
-### 开发准备
-
-需要 Node.js 22+、Python 3.10+。Windows 开发环境：
-
-```powershell
-cd codex-qq-plugin
-npm ci
-.\scripts\install-python-agent.ps1
-```
-
-Linux 部署、中文字体和浏览器依赖见[运行与部署](codex-qq-plugin/ops/README.md)。已有 ECS 实例使用隧道连接，避免以同一组凭据重复启动机器人。
-
-### 测试
-
-```powershell
-# 在 codex-qq-plugin 目录执行，离线回归不发送真实 QQ 消息。
-$env:QQ_PYTHON = (Resolve-Path '.venv/Scripts/python.exe').Path
-node --test test/*.test.mjs
-.\.venv\Scripts\python.exe -m unittest discover -s python -p 'test_*.py'
-```
-
-## 项目入口
-
-| 目录 / 文档 | 内容 |
-| --- | --- |
-| [主服务指南](codex-qq-plugin/README.md) | 配置、群管理、工具、测试与 MCP |
-| [动态视频](codex-qq-plugin/docs/weather-video.md) | 数据、缓存、渲染与资源策略 |
-| [运行与部署](codex-qq-plugin/ops/README.md) | ECS、备份与回滚 |
-| [开发交接](HANDOVER.md) | 发布记录、当前版本与验证结果 |
-| [架构与功能](QQ-Bot-架构与功能.html) | 可在浏览器打开的交互式工程说明 |
-| [workbuddy-study-qq](workbuddy-study-qq/README.md) | 校园截图分析与自习简报组件 |
-| [buaa-classrooms](buaa-classrooms/README.md) | 校园采集原型 |
-
-第三方数据、字体和标志的来源分别保留在 `codex-qq-plugin/data/*NOTICE*` 与 `public/` 对应素材目录。地图使用项目已确认的资产与核对流程；未附带的个人凭据、运行状态和本机素材不进入仓库。
-<!-- public-readme:private:end -->
 
 [展示图与素材来源](docs/public-assets.md)

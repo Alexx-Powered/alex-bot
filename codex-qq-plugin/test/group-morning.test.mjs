@@ -8,14 +8,14 @@ const image={buffer:Buffer.alloc(16),mimeType:'image/png'};
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 async function fixture(count=1,{send,save,weather,campusReport,deadlineSignal,sleep,limits,
-  features=()=>({...basicGroupFeatures(),morningWeather:true,morningCampus:true}),oneBotMode=null}={}) {
+  features=()=>({...basicGroupFeatures(),morningWeather:true,morningCampus:true})}={}) {
   let now=new Date('2026-11-02T23:30:00Z'),saved={
     version:1,ownerId:'owner',paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,
     allowedGroups:Array.from({length:count},(_,i)=>({id:'g'+i,name:'群'+i,features:features(i)})),grayGroups:[],
   };
   const sent=[];let generated=0,campus=0,waits=0;
   function makeCore() {
-    return new BridgeCore({oneBotMode,limits,now:()=>now.getTime(),loadState:async()=>saved,saveState:async v=>{if(save)await save(v);saved=structuredClone(v);},
+    return new BridgeCore({limits,now:()=>now.getTime(),loadState:async()=>saved,saveState:async v=>{if(save)await save(v);saved=structuredClone(v);},
       send:async request=>{sent.push(request);return send?send(request):{ok:true,receiptHash:'a'.repeat(64)};}});
   }
   const core=makeCore();await core.init();
@@ -69,7 +69,7 @@ test('uncertain sends pause and stop the remaining daily images',async()=>{
 
 test('an official group permission denial only skips that group and preserves both reports for other groups and private replies',async t=>{
   const warning=t.mock.method(console,'warn',()=>{});
-  const f=await fixture(2,{oneBotMode:null,limits:{minuteAttempts:10},send:request=>{
+  const f=await fixture(2,{limits:{minuteAttempts:10},send:request=>{
     if(request.groupId==='g0')throw Object.assign(Error('opaque permission response'),{code:'QQ_TARGET_PERMISSION_DENIED',bizCode:40034105});
     return {ok:true};
   }});

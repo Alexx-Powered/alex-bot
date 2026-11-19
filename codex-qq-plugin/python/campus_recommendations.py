@@ -1,12 +1,10 @@
 """Bounded cached-classroom recommendations. No network, credentials or model."""
-import importlib
 import re
-import sys
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 from langchain.tools import tool
 from pydantic import BaseModel, ConfigDict, Field
-from campus_report import SCRIPTS, observations
+import campus_planner as plan
 from campus_classrooms import CampusError
 from campus_regions import resolve_regions,room_region,REGIONS
 
@@ -53,9 +51,6 @@ def recommend(snapshot, args, now, request_text=None):
     result['fetched_at'] = fetched.isoformat()
     if current - fetched > timedelta(hours=24) or fetched - current > timedelta(minutes=5):
         return fail('CAMPUS_CACHE_EXPIRED', '教室缓存已过期，请先重新发送“查空教室”。')
-    if str(SCRIPTS) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS))
-    plan = importlib.import_module('plan')
     unknown=[r for r in selected if r not in REGIONS]
     if unknown:return fail('CAMPUS_BUILDING_NOT_FOUND','不支持的区域：'+'、'.join(unknown)+'。请选择学院路已定义区域。')
     present={room_region(row['building'],row['room']) for row in snapshot['rooms']}

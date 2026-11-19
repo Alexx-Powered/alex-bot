@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import {createCanvas} from '@napi-rs/canvas';
 import { createBridgeServer } from '../src/server.mjs';
 
 function memoryStore() {
@@ -11,27 +10,13 @@ function memoryStore() {
     async saveState(s){this.state=structuredClone(s)} };
 }
 
-test('study image endpoint authenticates, limits images, stays owner-only and deduplicates',async()=>{
-  const f=await fixture();
-  const input={idempotencyKey:'study:'+'b'.repeat(64),pngBase64:createCanvas(1080,600).toBuffer('image/png').toString('base64')};
-  try{
-    assert.equal((await fetch(f.url+'/api/study-briefing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).status,401);
-    await f.request('/api/config',{appId:'123456789',appSecret:'dummy-secret-not-real'});
-    await f.request('/api/connect',{});
-    const pair=await(await f.request('/api/pair/start',{})).json();
-    await f.receive({kind:'c2c',id:'c1',senderId:'owner',text:'/pair '+pair.pairingCode,replyTarget:{scope:'c2c',targetId:'owner',msgId:'c1'}});
-    await f.request('/api/pair/confirm',{});
-    assert.equal((await(await f.request('/api/study-briefing',{...input,groupId:'other'})).json()).ok,false);
-    assert.equal((await(await f.request('/api/study-briefing',{...input,pngBase64:Buffer.from('not png').toString('base64')})).json()).ok,false);
-    assert.equal(f.sent.length,0);
-    assert.equal((await(await f.request('/api/study-briefing',input)).json()).code,'SENT');
-    assert.equal(f.sent.length,1);assert.equal(f.sent[0].ownerId,'owner');assert.equal(f.sent[0].groupId,undefined);assert.ok(f.sent[0].image.buffer.length);
-    await f.request('/api/study-briefing',input);assert.equal(f.sent.length,1);
-    await f.request('/api/pause',{paused:true});
-    assert.equal((await(await f.request('/api/study-briefing',{...input,idempotencyKey:'study:'+'c'.repeat(64)})).json()).code,'PAUSED');
-    assert.equal(f.sent.length,1);
-  }finally{await f.app.close()}
+test('an incompatible account domain cannot open official state', async () => {
+  const store = memoryStore();
+  store.state = {identityDomain:'other-account'};
+  await assert.rejects(createBridgeServer({port:0, store}), /STATE_LOAD_FAILED/);
+  assert.deepEqual(store.state, {identityDomain:'other-account'});
 });
+
 async function fixture(weatherCommands) {
   const store=memoryStore(), sent=[];
   let receive,reportStatus;

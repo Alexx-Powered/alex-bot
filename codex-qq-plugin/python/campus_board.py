@@ -1,16 +1,14 @@
 """Two-column classroom board. All observed rooms and five real plans per session."""
 from datetime import date
-from pathlib import Path
 import re
-import os
 from PIL import Image, ImageDraw, ImageFont
-import plan
+import campus_planner as plan
+from render_fonts import font_path
 
-def render_board(result, reviewed, demo, *, _reference_extra=0):
-    font=Path(os.environ.get('QQ_FONT_REGULAR') or ('C:/Windows/Fonts/msyh.ttc' if os.name=='nt' else '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'))
-    if not font.exists():raise ValueError('CHINESE_FONT_MISSING')
-    fonts={n:ImageFont.truetype(str(font),n) for n in (21,23,25,27,30,34,42,62,150)}
-    bold_path=os.environ.get('QQ_FONT_BOLD') or ('C:/Windows/Fonts/msyhbd.ttc' if os.name=='nt' else '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc')
+def render_board(result, demo, *, _reference_extra=0):
+    font = font_path()
+    fonts = {n: ImageFont.truetype(font, n) for n in (21,23,25,27,30,34,42,62,150)}
+    bold_path = font_path(bold=True)
     bold={n:ImageFont.truetype(bold_path,n) for n in fonts}
     bg='#f6f3ed';ink='#302d29';muted='#71685e'
     im=Image.new('RGB',(1800,16000),bg);d=ImageDraw.Draw(im)
@@ -43,7 +41,6 @@ def render_board(result, reviewed, demo, *, _reference_extra=0):
     unknown=sum(s.count('?') for s in result['rooms'].values())
     y=text(f"{len(result['rooms'])} 间纳入规划    /    {unknown} 节待确认    /    优先小教室",60,y,size=25)
     if demo:y=text('模拟预览',60,y,size=23,color='#a15e32')
-    if not reviewed:y=text('待核对预览 · 尚未发送',60,y,size=23,color='#a15e32')
     y+=30;top=y
     # Left column: every included room, all 14 periods, never a recommendation-only subset.
     lx=40;lw=682;ly=top
@@ -153,7 +150,7 @@ def render_board(result, reviewed, demo, *, _reference_extra=0):
         ry+=10;card_finish(rx,ct,rw,ry);ry+=25
     # Only the six gaps between the seven time-reference rows grow.
     if not _reference_extra and ry-25>ly:
-        return render_board(result,reviewed,demo,_reference_extra=ry-25-ly)
+        return render_board(result,demo,_reference_extra=ry-25-ly)
     bottom=max(ly,ry)+20
     d.line((60,bottom,1740,bottom),fill='#dfd6cb',width=2)
     bottom=text('绿色为空闲 · 白色为有课 · 深橙色优先',60,bottom+21,width=1680,size=25)

@@ -35,7 +35,7 @@ def stage(archive, expected_commit):
             root = Path(scratch) / release
             for name, checksum in source.items():
                 path = PurePosixPath(name)
-                if path.parts[0] not in {'codex-qq-plugin', 'workbuddy-study-qq'} or '..' in path.parts or str(path) != name:
+                if path.parts[:1] != ('codex-qq-plugin',) or '..' in path.parts or str(path) != name:
                     raise ValueError('INVALID_SOURCE_PATH')
                 dest = root / path
                 dest.parent.mkdir(parents=True, exist_ok=True)

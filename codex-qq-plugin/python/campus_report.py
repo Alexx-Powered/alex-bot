@@ -1,14 +1,13 @@
-"""Use the optimized Building 3 planner/layout directly, never run a skill."""
-import importlib
+"""Render Building 3 and regional classroom reports from campus observations."""
 import json
-import sys
 import uuid
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
+import campus_planner as planner
+from campus_board import render_board
 from render_fonts import font_path
 from campus_classrooms import CampusError,SCHEMA
 
-SCRIPTS=Path(__file__).resolve().parents[2]/'workbuddy-study-qq/skills/building3-study-planner-v2-1/scripts'
 
 def observations(data):
     if data.get('schema_version')!=SCHEMA or data.get('ok') is not True:raise CampusError('CAMPUS_RENDER_FAILED')
@@ -22,12 +21,8 @@ def observations(data):
     return {'building':'三号楼','date':data['date'],'rows':rows}
 
 def render_report(data,private_root,*,demo=False):
-    if str(SCRIPTS) not in sys.path:sys.path.insert(0,str(SCRIPTS))
-    planner=importlib.import_module('plan')
-    layout=importlib.import_module('briefing_layout')
     result=planner.analyze(observations(data))
-    board=layout.render_board(result,reviewed=True,demo=demo)
-    # Preserve the optimized board and add a source strip; no OCR/skill execution.
+    board=render_board(result,demo=demo)
     strip=Image.new('RGB',(1800,110),'#f6f3ed');draw=ImageDraw.Draw(strip)
     font=ImageFont.truetype(font_path(),23)
     draw.text((60,12),'数据：北航学院路空教室接口  /  获取时间：'+data['fetched_at'][:19].replace('T',' '),font=font,fill='#71685e')
@@ -48,8 +43,6 @@ def day_rows(data,regions):
     for row in data['rooms']:
         region=room_region(row['building'],row['room'])
         if region=='三号楼':
-            if str(SCRIPTS) not in sys.path:sys.path.insert(0,str(SCRIPTS))
-            planner=importlib.import_module('plan')
             if planner.normalize_room(row['room']) in planner.EXCLUDED:continue
         if region in regions:records.append({**row,'region':region})
     return sorted(records,key=lambda row:(regions.index(row['region']),row['room']))

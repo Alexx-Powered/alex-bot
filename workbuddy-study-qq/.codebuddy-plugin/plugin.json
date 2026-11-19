@@ -1,8 +1,0 @@
-{
-  "name": "building3-study-qq",
-  "version": "2.3.1",
-  "description": "三号楼自习规划：保留完整教室分析，固定 Python 生成简报图，通过亚历克斯 QQ Bot 发给本人。",
-  "skills": [
-    "./skills"
-  ]
-}

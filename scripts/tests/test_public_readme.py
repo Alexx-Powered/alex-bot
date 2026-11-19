@@ -32,11 +32,9 @@ class PublicReadmeTests(unittest.TestCase):
             self.assertNotIn(private, text)
         self.assertEqual(set(json.loads(files[module.MANIFEST])['files']), set(files)-{module.MANIFEST})
 
-    def test_marker_mistakes_fail_closed(self):
-        for text in [module.PRIVATE_START, module.PRIVATE_END, module.PRIVATE_START+'\n'+module.PRIVATE_START,
-                     'x '+module.PRIVATE_START, 'README with markers removed']:
-            with self.subTest(text=text), self.assertRaises(ValueError):
-                module.public_text(text)
+    def test_internal_section_is_rejected_in_the_published_readme(self):
+        with self.assertRaises(ValueError):
+            module.validate_text('<!-- public-readme:private:start -->', 'README.md', {'README.md'})
 
     def test_unexported_files_and_unsafe_links_fail(self):
         for href in ['HANDOVER.md', 'codex-qq-plugin/src/server.mjs', '../secrets.txt',

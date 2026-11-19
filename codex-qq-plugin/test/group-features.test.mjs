@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {BridgeCore} from '../src/core.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
-import {createBridgeServer} from '../src/server.mjs';
 import {basicGroupFeatures,defaultGroupFeatures} from '../src/group-features.mjs';
 import {PythonAgentWorker} from '../src/python-agent.mjs';
 import {ConversionToolbox} from '../src/conversion-tools.mjs';
@@ -78,26 +77,6 @@ test('disabled deterministic conversion never crosses into Python; an enabled co
   assert.match((await agent.handle('1马里换公里',context)).text,/未开放/);assert.equal(calls,0);
   context.features.conversion=true;
   assert.equal((await agent.handle('1马里换公里',context)).text,'1 马里 = 3.08 km');assert.equal(calls,1);
-});
-
-test('the admin console can bind only a current gateway group and integration tokens cannot manage it',async t=>{
-  let saved=null,rows=[{id:groupId,name:'同名群 <安全文字>',number:'200001'}];
-  const store={token:'a'.repeat(64),integrationToken:'b'.repeat(64),init:async()=>{},readCredentials:async()=>null,loadState:async()=>saved,saveState:async v=>{saved=structuredClone(v);}};
-  const app=await createBridgeServer({port:0,store,oneBotProfile:{selfId:'100001',token:'c'.repeat(64),mode:'normal'},
-    adapterFactory:()=>({status:()=>({state:'connected',protocol:'onebot11',mode:'normal'}),listGroups:async()=>rows,disconnect:async()=>{}})});
-  t.after(()=>app.close());
-  const pair=await app.core.startPairing();await app.core.handleMessage({kind:'c2c',id:'pair',senderId:ownerId,text:'/pair '+pair.pairingCode});await app.core.confirmPairing();
-  const port=await app.listen();
-  const request=(route,body,token=store.token)=>fetch('http://127.0.0.1:'+port+'/api/'+route,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
-  assert.equal((await request('group/directory',undefined,store.integrationToken)).status,403);
-  const directory=await(await request('group/directory')).json();assert.equal(directory.groups[0].groupKey,groupKey);
-  assert.equal(app.core.status().groupCount,0);
-  rows=[];assert.equal((await(await request('group/bind',{groupKey,features:basicGroupFeatures()})).json()).code,'GROUP_DIRECTORY_CHANGED');
-  rows=[{id:groupId,name:'同名群 <安全文字>',number:'200001'}];
-  assert.equal((await(await request('group/bind',{groupKey,features:basicGroupFeatures()})).json()).code,'GROUP_ALLOWED');
-  assert.equal(app.core.status().allowedGroups[0].features.balance,false);
-  assert.equal((await request('group/features',{groupKey,features:basicGroupFeatures(),enabled:false},store.integrationToken)).status,403);
-  assert.equal((await(await request('group/features',{groupKey,features:basicGroupFeatures(),enabled:false})).json()).code,'GROUP_FEATURES_SAVED');
 });
 
 test('image understanding works independently when group model chat is disabled',async()=>{

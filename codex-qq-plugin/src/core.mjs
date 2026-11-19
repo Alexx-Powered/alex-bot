@@ -179,34 +179,34 @@ function restoreState(raw) {
 
 // Only return fixed categories. Upstream error text, URLs, message bodies and
 // credentials must never reach status(), persisted state or API responses.
-function classifyError(error, official) {
+function classifyError(error) {
   // Preserve the existing settled-ledger vocabulary so an older release can
   // still read the latest state during rollback. The API keeps the exact cause.
   if(error?.code==='QQ_REQUEST_EXPIRED'&&error?.messageAttempted===false)return {code:'REQUEST_EXPIRED',persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false};
   if(error?.timedOut===true){
     if(error.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false,timeoutText:'图片上传到QQ超时（120秒时限），图片消息尚未提交，请稍后重试'};
-    return {code:'DELIVERY_UNCERTAIN',pause:!official||error.code!=='QQ_SEND_TIMEOUT',uncertain:true};
+    return {code:'DELIVERY_UNCERTAIN',pause:error.code!=='QQ_SEND_TIMEOUT',uncertain:true};
   }
   if(error?.code==='QQ_SEND_CANCELLED'&&error?.messageAttempted===false)return {code:'PLATFORM_REJECTED',pause:false,uncertain:false};
-  if(official&&error?.code==='QQ_TARGET_PERMISSION_DENIED'){
+  if(error?.code==='QQ_TARGET_PERMISSION_DENIED'){
     return {code:error.code,persistedCode:'PERMISSION_DENIED',pause:false,uncertain:false};
   }
-  if(official&&error?.code==='QQ_NOT_CONNECTED'&&error.messageAttempted===false){
+  if(error?.code==='QQ_NOT_CONNECTED'&&error.messageAttempted===false){
     return {code:'NOT_CONNECTED',persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false};
   }
-  if(official&&error?.code==='QQ_SERVICE_UNAVAILABLE'){
+  if(error?.code==='QQ_SERVICE_UNAVAILABLE'){
     return error.messageAttempted===false?
       {code:error.code,persistedCode:'PLATFORM_REJECTED',pause:false,uncertain:false}:
       {code:'DELIVERY_UNCERTAIN',pause:false,uncertain:true};
   }
-  if(official&&error?.messageAttempted===false&&['QQ_UPLOAD_FAILED','QQ_UPLOAD_RESPONSE_INVALID','QQ_CONNECTION_CHANGED'].includes(error.code)){
+  if(error?.messageAttempted===false&&['QQ_UPLOAD_FAILED','QQ_UPLOAD_RESPONSE_INVALID','QQ_CONNECTION_CHANGED'].includes(error.code)){
     return {code:'PLATFORM_REJECTED',pause:false,uncertain:false};
   }
   const status = Number(error?.httpStatus ?? error?.status ?? error?.statusCode);
   const category = `${error?.code ?? ''} ${error?.kind ?? ''}`.toLowerCase().slice(0, 256);
   const bizCode = error?.bizCode;
   if (status === 429 || /rate.?limit|too.?many|\b429\b/.test(category)) {
-    return { code: 'RATE_LIMITED', pause: !official||error?.code!=='QQ_RATE_LIMITED', uncertain: false };
+    return { code: 'RATE_LIMITED', pause: error?.code!=='QQ_RATE_LIMITED', uncertain: false };
   }
   if (status === 401 || status === 403 || /permission|forbidden|unauthori|auth.?fail/.test(category)) {
     return { code: 'PERMISSION_DENIED', pause: true, uncertain: false };
@@ -257,10 +257,8 @@ export class BridgeCore {
   #groupRevisions = new Map();
   #morningRevisions = new Map();
   #qqRateLimitUntil = new Map();
-  #caller = new AsyncLocalStorage();
-  #oneBotMode;
 
-  constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, observeMessage = null, limits = {}, oneBotMode = null }) {
+  constructor({ loadState, saveState, send, now = Date.now, commandHandler = null, observeMessage = null, limits = {} }) {
     if (![loadState, saveState, send, now].every((fn) => typeof fn === 'function')) {
       throw new TypeError('INVALID_CORE_DEPENDENCIES');
     }
@@ -270,11 +268,7 @@ export class BridgeCore {
     this.#now = now;
     this.#commandHandler = commandHandler;
     this.observeMessage = observeMessage;
-    if (oneBotMode !== null && !['receive-only','limited','normal'].includes(oneBotMode)) throw Error('ONEBOT_MODE_INVALID');
-    this.#oneBotMode = oneBotMode;
-    const configured = sendingLimits(limits);
-    this.#limits = oneBotMode ? sendingLimits({dailyAttempts:Math.min(100,configured.dailyAttempts),
-      minuteAttempts:Math.min(6,configured.minuteAttempts),reservedNotifications:Math.min(99,Math.max(10,configured.reservedNotifications),Math.min(100,configured.dailyAttempts)-1)}) : configured;
+    this.#limits = sendingLimits(limits);
   }
 
   #time() {
@@ -284,27 +278,12 @@ export class BridgeCore {
   }
 
   #budgetCode(now, { reply = false, count = 1, target } = {}) {
-    if (this.#oneBotMode === 'receive-only') return 'RECEIVE_ONLY';
     if (this.#qqRateLimitUntil.get(target)>now) return 'RATE_LIMITED';
     const dayAttempts = this.#state.attempts.filter(entry => entry.day === hkDay(now)).length;
     if (reply && dayAttempts + count > this.#limits.dailyAttempts - this.#limits.reservedNotifications) return 'RATE_LIMIT_REPLY_DAY';
     if (dayAttempts + count > this.#limits.dailyAttempts) return 'RATE_LIMIT_DAY';
     if (this.#state.attempts.filter(entry => entry.at > now - 60_000).length + count > this.#limits.minuteAttempts) return 'RATE_LIMIT_MINUTE';
-    if (this.#oneBotMode) {
-      const recent = this.#state.attempts.filter(entry => entry.at > now - 60_000);
-      if (target && recent.filter(entry => entry.target === hash(target)).length + count > 3) return 'RATE_LIMIT_TARGET';
-      const caller = this.#caller.getStore();
-      if (caller && recent.filter(entry => entry.caller === hash(caller)).length + count > 2) return 'RATE_LIMIT_CALLER';
-    }
     return null;
-  }
-
-  admitsOneBotEvent({kind,groupId,senderId,text}) {
-    if (!this.#ready) return false;
-    if (kind === 'c2c' && this.#pairing && !this.#state.ownerId) return /^\/pair [a-f0-9]{32}$/.test(text);
-    if (kind === 'group' && this.#groupPairing && this.#state.ownerId === senderId && /^\/group-bind [a-f0-9]{32}$/.test(text)) return true;
-    if (this.#oneBotMode === 'receive-only') return false;
-    return kind === 'c2c' ? senderId === this.#state.ownerId : this.groupEnabled(groupId);
   }
 
   #enqueue(work, measureQueue = true) {
@@ -632,7 +611,6 @@ export class BridgeCore {
       if (this.#state.paused) return result(false, 'PAUSED');
       const normalizedName = typeof name === 'string' ? name.trim() : name;
       if (!validGroupName(normalizedName)||!['white','gray'].includes(access)) return result(false, 'INVALID_INPUT');
-      if (this.#oneBotMode && this.#oneBotMode !== 'normal' && this.#state.allowedGroups.length + this.#state.grayGroups.length >= 1) return result(false,'PILOT_GROUP_LIMIT');
       if ((access==='white'?this.#state.allowedGroups:this.#state.grayGroups).length >= (access==='gray'?CORE_LIMITS.grayGroups:CORE_LIMITS.allowedGroups)) return result(false, 'GROUP_LIMIT_REACHED');
       const expiresAt = this.#time() + CORE_LIMITS.pairingTtlMs;
       const code = randomBytes(16).toString('hex');
@@ -670,30 +648,14 @@ export class BridgeCore {
       // submits an explicit mask, initially the basic three features.
       next[key].push({ id: this.#groupCandidate.id, name: this.#groupCandidate.name,
         ...(features===undefined?{}:{enabled:true,features:normalizeGroupFeatures(features)}) });
-      if (!this.#oneBotMode && next.removedOfficialGroups) next.removedOfficialGroups=next.removedOfficialGroups.filter(entry=>entry.key!==groupKey);
+      if (next.removedOfficialGroups) next.removedOfficialGroups=next.removedOfficialGroups.filter(entry=>entry.key!==groupKey);
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       this.#clearGroupPairing();
       return result(true, access==='gray'?'GRAY_GROUP_ALLOWED':'GROUP_ALLOWED', { status: this.status() });
     });
   }
 
-  async addDiscoveredGroup({id,name,features=basicGroupFeatures()}={}) {
-    return this.#enqueue(async()=>{
-      if (this.#oneBotMode!=='normal') return result(false,'GROUP_DIRECTORY_UNAVAILABLE');
-      if (!this.#ready || !this.#state.ownerId) return result(false,'NOT_PAIRED');
-      if (!this.sendingEnabled()) return result(false,'PAUSED');
-      if (!validGroupId(id) || !validGroupName(name) || !validGroupFeatures(features)) return result(false,'INVALID_INPUT');
-      if ([...this.#state.allowedGroups,...this.#state.grayGroups].some(g=>g.id===id)) return result(false,'GROUP_ALREADY_ALLOWED');
-      if (this.#state.allowedGroups.length>=CORE_LIMITS.allowedGroups) return result(false,'GROUP_LIMIT_REACHED');
-      const next=structuredClone(this.#state);
-      next.allowedGroups.push({id,name,features:normalizeGroupFeatures(features),enabled:true});
-      try {await this.#persist(next);} catch {return this.#storageFailed();}
-      return result(true,'GROUP_ALLOWED',{status:this.status()});
-    });
-  }
-
   async recordOfficialGroupJoin({groupId, joinedAt, messageId, isCurrent} = {}) {
-    if (this.#oneBotMode) return result(false, 'GROUP_JOIN_UNSUPPORTED');
     if (!validGroupId(groupId) || !Number.isSafeInteger(joinedAt) || typeof isCurrent !== 'function' ||
         (messageId !== undefined && !validId(messageId))) {
       return result(false, 'INVALID_INPUT');
@@ -825,7 +787,7 @@ export class BridgeCore {
       next.allowedGroups = next.allowedGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       next.grayGroups = next.grayGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       if (next.groupHelpNotes) delete next.groupHelpNotes[groupKey];
-      if (!this.#oneBotMode) next.removedOfficialGroups=[...(next.removedOfficialGroups??[]).filter(entry=>entry.key!==groupKey),
+      next.removedOfficialGroups=[...(next.removedOfficialGroups??[]).filter(entry=>entry.key!==groupKey),
         {key:groupKey,at:this.#time()}].slice(-CORE_LIMITS.historySize);
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
       for (const id of this.#groupContexts.keys()) if (groupKeyFor(id) === groupKey) this.#groupContexts.delete(id);
@@ -951,13 +913,11 @@ export class BridgeCore {
     }
     // Only the official adapter supplies the verified passive-reply deadline.
     // Pairing traffic retains its own small admission bound.
-    const official = !this.#oneBotMode && Number.isSafeInteger(replyExpiresAt) &&
+    const official = Number.isSafeInteger(replyExpiresAt) &&
       (message.kind === 'group' ? Boolean(groupContext) : this.#state.ownerId === message.senderId && message.text.trim() !== '/pause');
     if (!official && countedIncoming && this.#pendingIncoming >= MAX_PENDING_INCOMING) return result(false, 'BUSY');
     if (!official && countedIncoming) this.#pendingIncoming++;
-    const receivedAt = this.#time();
-    const work = () => this.#caller.run(message.senderId, async () => {
-      if (this.#oneBotMode && countedIncoming && this.#time() - receivedAt >= 60_000) return result(false,'REQUEST_EXPIRED');
+    const work = async () => {
       if (!this.#ready) return result(false, 'NOT_READY');
       if (message?.kind === 'group') return this.#handleGroupMessage(message, groupContext);
       if (!message || message.kind !== 'c2c') return result(false, 'SCOPE_DENIED');
@@ -1025,7 +985,7 @@ export class BridgeCore {
         if (response) return this.#notify({ text: response.text, image: response.image, video:response.video, ...(response.richMedia===true?{richMedia:true}:{}), idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       return result(true, 'IGNORED');
-    });
+    };
     if (official) return this.#queueOfficial({expiresAt:replyExpiresAt, epoch:this.#pauseEpoch,
       groupId:message.groupId, revision:this.#groupRevisions.get(message.groupId)}, work);
     try { return await this.#enqueue(work); } finally { if (countedIncoming) this.#pendingIncoming--; }
@@ -1239,7 +1199,6 @@ export class BridgeCore {
       const empty = code => result(false, code, { results: [], attempted: 0, sent: 0 });
       if(!validDeliveryDeadline(deliveryDeadline))return empty('INVALID_INPUT');
       if(deliveryDeadline!==undefined&&this.#time()>=deliveryDeadline)return empty('REQUEST_EXPIRED');
-      if (this.#oneBotMode && this.#oneBotMode !== 'normal') return empty(this.#oneBotMode === 'receive-only' ? 'RECEIVE_ONLY' : 'PILOT_BROADCAST_DISABLED');
       if (!this.#ready) return empty('NOT_READY');
       if (!this.#state.ownerId) return empty('NOT_PAIRED');
       if (typeof text !== 'string' || (!text.trim() && image === undefined) || text.length > CORE_LIMITS.textLength || !validId(idempotencyKey)) return empty('INVALID_INPUT');
@@ -1279,7 +1238,7 @@ export class BridgeCore {
         if (delivery.code === 'SENT') sent++;
         results.push({ destination: target.destination, ok: delivery.ok, code: delivery.code,
           ...(delivery.deliveryState ? { deliveryState: delivery.deliveryState } : {}) });
-        if(target.groupId && !this.#oneBotMode && this.sendingEnabled() && isGroupDeliveryError(delivery.code)) groupFailureCode ??= delivery.code;
+        if(target.groupId && this.sendingEnabled() && isGroupDeliveryError(delivery.code)) groupFailureCode ??= delivery.code;
         else if (!delivery.ok && delivery.code !== 'DUPLICATE') stoppedCode = delivery.code;
       }
       const failure=stoppedCode??groupFailureCode;
@@ -1327,24 +1286,19 @@ export class BridgeCore {
       next.deliveries.splice(index, 1);
     }
     next.attempts = next.attempts.filter((entry) => entry.at >= now - 48 * 60 * 60_000);
-    const caller = this.#caller.getStore();
-    next.attempts.push({ at: now, day, ...(this.#oneBotMode ? {target:hash(target),...(caller ? {caller:hash(caller)} : {})} : {}) });
+    next.attempts.push({ at: now, day });
     next.deliveries.push({ key, state: 'inFlight', at: now, code: 'SENDING',
       ...(groupId ? groupReceiptFields({groupKey:groupKeyFor(groupId),feature:input.requiredFeature}) : {}) });
     next.lastDeliveryCode = 'SENDING';
     // Persist the budget and key BEFORE any network call. A crash here favors
     // suppressing an uncertain notification over sending it twice.
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
-    let failure = null, receiptHash, rejectedBizCode, groupDiagnostics;
+    let failure = null, rejectedBizCode, groupDiagnostics;
     try {
       const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.weatherAlertPermit?{weatherAlertPermit:input.weatherAlertPermit}:{}), ...(input?.deliveryDeadline!==undefined?{deliveryDeadline:input.deliveryDeadline}:{}), ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
       if (response?.ok === false) throw response;
-      if (this.#oneBotMode) {
-        if (response?.ok !== true || !/^[a-f0-9]{64}$/.test(response.receiptHash ?? '')) throw Error('ONEBOT_DELIVERY_UNKNOWN');
-        receiptHash = response.receiptHash;
-      }
     } catch (error) {
-      failure = classifyError(error,!this.#oneBotMode);
+      failure = classifyError(error);
       rejectedBizCode = error?.bizCode;
       if (groupId) groupDiagnostics = groupReceiptFields({groupKey:groupKeyFor(groupId),failureCode:failure.code,
         phase:error?.phase, bizCode:error?.bizCode, httpStatus:error?.httpStatus});
@@ -1352,7 +1306,6 @@ export class BridgeCore {
     const finished = structuredClone(this.#state);
     const record = finished.deliveries.find((entry) => entry.key === key);
     if (groupDiagnostics) Object.assign(record, groupDiagnostics);
-    if (receiptHash) record.receiptHash = receiptHash;
     record.state = failure ? (failure.uncertain ? 'uncertain' : 'rejected') : 'sent';
     record.code = failure?.persistedCode ?? failure?.code ?? 'SENT';
     finished.lastDeliveryCode = record.code;

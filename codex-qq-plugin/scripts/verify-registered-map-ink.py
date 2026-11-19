@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1]
+EVIDENCE = APP / 'docs/map-registration-source-pixels-20261104.json.gz'
 
 
 def grid_value(line, pixel):
@@ -34,8 +35,9 @@ def coordinate(lines, along, observed):
                for position, value in nearby)
 
 
-def verify(originals=None):
-    source = APP / 'docs/map-registration-source-pixels-20261104.json.gz'
+def verify(originals=None, source=EVIDENCE):
+    if not source.is_file():
+        raise SystemExit('Supply the local registration record with --evidence PATH.')
     receipt = json.loads(gzip.decompress(source.read_bytes()))
     data = json.loads((APP / 'data/weather-regional-ink-review.json').read_bytes())
     if data['state'] != 'internal-review':
@@ -76,4 +78,6 @@ def verify(originals=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--originals', type=Path)
-    verify(parser.parse_args().originals)
+    parser.add_argument('--evidence', type=Path, default=EVIDENCE)
+    args = parser.parse_args()
+    verify(args.originals, args.evidence)

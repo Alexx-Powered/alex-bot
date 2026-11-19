@@ -33,8 +33,8 @@ selectConsolePanel(sessionStorage.getItem('qq-console-panel')||'groups');
 for (const input of document.querySelectorAll('input[type="checkbox"]')) {input.classList.add('ios-switch');input.role='switch';}
 const descriptions = {
   GROUP_COMMAND_COPIED:'匹配指令已复制，请在目标群 @ 机器人后粘贴。',GROUP_COPY_MANUALLY:'请选中上方匹配指令手动复制。',
-  GROUP_FEATURES_SAVED:'本群设置已保存，即刻生效。',GROUP_HELP_NOTE_INVALID:'请检查帮助页备注的内容与长度。',GROUP_DIRECTORY_UNAVAILABLE:'无法读取机器人所在群，请确认 OneBot 已连接后刷新。',
-  GROUP_DIRECTORY_CHANGED:'机器人已不在所选群中，请刷新列表。',GROUP_DISABLED:'这个群已停用。',
+  GROUP_FEATURES_SAVED:'本群设置已保存，即刻生效。',GROUP_HELP_NOTE_INVALID:'请检查帮助页备注的内容与长度。',
+  GROUP_DISABLED:'这个群已停用。',
   MONITORING_TEST_QUEUED:'已提交监控自检，请查看下方发送状态；不会发送QQ消息。',
   MONITORING_CONFIG_SAVED:'监控设置已加密保存。',MONITORING_CONFIG_INVALID:'请检查项目名、区域、工作区ID和Key；首次启用需要Key。',MONITORING_CONFIG_UNAVAILABLE:'监控配置暂不可用，请检查加密存储。',
   GRAY_GROUP_ALLOWED:'已加入灰名单：基础聊天与换算。',GROUP_ACCESS_CHANGED:'群权限已更新，该群上下文已清除。',GROUP_ACCESS_DENIED:'群权限已改变，本次结果未发送。',
@@ -128,9 +128,6 @@ async function refresh() {
     const state=await api('status');
     if (!state.ok) { feedback(state); return; }
     const transport=state.transport || {}, core=state.core || {};
-    const onebot=transport.protocol==='onebot11';
-    $('credentials').classList.toggle('hidden',onebot);$('officialSetupHint').classList.toggle('hidden',onebot);
-    $('onebotConnection').classList.add('hidden');
     const limits=core.limits;
     $('sendLimits').textContent=limits?`本地今日 ${core.dailyAttempts}/${limits.dailyAttempts} 次、最近一分钟 ${core.minuteAttempts}/${limits.minuteAttempts} 次发送尝试；总计达到 ${limits.replyDailyAttempts} 次后，最后 ${limits.reservedNotifications} 次只供主动通知。`:'本地限额暂不可用。';
     const agent=state.agent||{};

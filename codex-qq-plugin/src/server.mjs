@@ -1,16 +1,14 @@
 import {SocialConfigStore} from './social-config.mjs';
 import {GroupMorningService,createGroupMorningStatus,groupMorningClock} from './group-morning.mjs';
 import {SocialService} from './social-service.mjs';
-import {studyImage} from './study-briefing.mjs';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { timingSafeEqual, randomUUID, createHash } from 'node:crypto';
+import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { PrivateStore } from './storage.mjs';
 import { BridgeCore } from './core.mjs';
 import { QQAdapter } from './qq-adapter.mjs';
-import { OneBotAdapter, validateOneBotProfile } from './onebot-adapter.mjs';
 import { WeatherCommands, beijingDay } from './weather-commands.mjs';
 import {WeatherToolbox} from './weather-tools.mjs';
 import {ConversationAgent} from './conversation-agent.mjs';
@@ -41,12 +39,12 @@ function validToken(value, token) {
   const expected = Buffer.from('Bearer ' + token);
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
-async function body(req, limit = maxBody) {
+async function body(req) {
   if (req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw new Error('JSON_REQUIRED');
   let total = 0; const chunks = [];
   for await (const chunk of req) {
     total += chunk.length;
-    if (total > limit) throw new Error('BODY_TOO_LARGE');
+    if (total > maxBody) throw new Error('BODY_TOO_LARGE');
     chunks.push(chunk);
   }
   const data = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
@@ -55,10 +53,8 @@ async function body(req, limit = maxBody) {
 }
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
 
-export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory, oneBotProfile = null, weatherCommands = new WeatherCommands({home,air:createCalendarAirQuality(home)}), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, agentWorker, ragEnabled = Boolean(process.env.QQ_RAG_CONFIG), morningReport, groupMorningNow, groupMorningSleep, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), socialConfigStore = new SocialConfigStore(home), socialService, telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
-  const profile = oneBotProfile === null ? null : validateOneBotProfile(oneBotProfile);
-  const identityDomain = profile ? 'qq_uin_'+profile.selfId : null;
-  const readTransportCredentials = () => profile ?? store.readCredentials();
+export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || root, port = 19327, store = new PrivateStore(home), adapterFactory, weatherCommands = new WeatherCommands({home,air:createCalendarAirQuality(home)}), agentConfigStore = new AgentConfigStore(home), campusConfigStore = new CampusConfigStore(home), campusService, conversationAgent, agentWorker, ragEnabled = Boolean(process.env.QQ_RAG_CONFIG), morningReport, groupMorningNow, groupMorningSleep, sendLimits, monitoringConfigStore = new MonitoringConfigStore(home), socialConfigStore = new SocialConfigStore(home), socialService, telemetry, prewarm = false, isMorningEnabled = async()=>{try{return JSON.parse((await fs.readFile(path.join(home,'config','morning-report.json'),'utf8')).replace(/^\uFEFF/,'')).enabled===true;}catch{return false;}} } = {}) {
+  const readTransportCredentials = () => store.readCredentials();
   const limits=sendLimits??await loadSendLimits(home);
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
@@ -72,33 +68,31 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const statusTools = new PublicStatusService({home});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,home,worker});
-  const enableSocial = prewarm && (!profile || profile.mode === 'normal');
-  const social=socialService||(enableSocial ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
+  const social=socialService||(prewarm ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
   const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core,weatherAlerts;
-  const makeAdapter = adapterFactory ?? (options => profile ? new OneBotAdapter(options) : new QQAdapter(options));
+  const makeAdapter = adapterFactory ?? (options => new QQAdapter(options));
   const adapter = makeAdapter({
     groupAddressed: (groupId,text) => core?.addressesGroupMessage(groupId,text)===true,
     canSend: request => core?.canDeliver(request) === true,
-    admit: event => core?.admitsOneBotEvent(event) === true,
-    onGroupJoin: event => profile || (event.messageId!==undefined&&core?.groupAccess(event.groupId)!==null)
+    onGroupJoin: event => (event.messageId!==undefined&&core?.groupAccess(event.groupId)!==null)
       ? undefined : core?.recordOfficialGroupJoin(event),
     onMessage: async (message, replyExpiresAt) => {
       try { await monitoring.run({scope:message?.kind},()=>core.handleMessage(message,replyExpiresAt)); } catch { /* no text or credential logging */ }
     },
     onStatus: (status) => {
-      if (['blocked','error'].includes(status.state) && (profile ||
-          ['QQ_BOT_BANNED','QQ_BOT_UNAVAILABLE','QQ_PERMISSION_DENIED'].includes(status.code))) {
+      if (['blocked','error'].includes(status.state) &&
+          ['QQ_BOT_BANNED','QQ_BOT_UNAVAILABLE','QQ_PERMISSION_DENIED'].includes(status.code)) {
         core?.setPaused(true).catch(() => {});
       }
     },
   });
   core = new BridgeCore({ loadState: async () => {
     const raw = await store.loadState();
-    if (raw && (raw.identityDomain ?? null) !== identityDomain) throw Error('TRANSPORT_STATE_MISMATCH');
+    if (raw?.identityDomain != null) throw Error('TRANSPORT_STATE_MISMATCH');
     return raw;
-  }, saveState: state => store.saveState(identityDomain ? {...state,identityDomain} : state), oneBotMode:profile?.mode,
+  }, saveState: state => store.saveState(state),
     send: (request) => measureSpan('qq_send',()=>adapter.send(request)), now: () => groupMorningNow?Number(groupMorningNow()):Date.now(), limits, observeMessage:social?(data,context)=>social.observe(data,context):null, commandHandler: (text,context) => measureSpan('agent',async()=>await weatherAlerts.handle(text,context)??await agent.handle(text,context)) });
   await core.init();
   weatherAlerts=new WeatherAlertsService({home,core,adapter});
@@ -135,7 +129,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     const admin=validToken(req.headers.authorization,store.token);
     const integration=store.integrationToken&&validToken(req.headers.authorization,store.integrationToken);
     if(!admin&&!integration)return json(res,401,{ok:false,code:'UNAUTHORIZED'});
-    if(!admin&&!['/api/status','/api/notify','/api/notify-all-allowed','/api/weather/preview','/api/weather/briefing','/api/morning/test-all-allowed','/api/study-briefing','/api/group/morning/run','/api/group/morning/prepare'].includes(pathname))return json(res,403,{ok:false,code:'INTEGRATION_SCOPE_DENIED'});
+    if(!admin&&!['/api/status','/api/notify','/api/notify-all-allowed','/api/weather/preview','/api/weather/briefing','/api/morning/test-all-allowed','/api/group/morning/run','/api/group/morning/prepare'].includes(pathname))return json(res,403,{ok:false,code:'INTEGRATION_SCOPE_DENIED'});
     let mutationHeld = false;
     try {
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status({includeHelpNotes:admin}), agent:await agentStatus(), campus:await campus.status(),
@@ -150,18 +144,9 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         const log = core.groupDeliveryLog(groupLogRoute[1]);
         return json(res, log.ok ? 200 : 404, log);
       }
-      if (req.method === 'GET' && pathname === '/api/group/directory') {
-        if (!core.status().paired) return json(res,409,{ok:false,code:'NOT_PAIRED'});
-        try {
-          const groups=await adapter.listGroups();
-          return json(res,200,{ok:true,groups:groups.map(({id,name,number})=>({
-            name,number,groupKey:createHash('sha256').update('group:'+id).digest('hex'),
-          }))});
-        } catch {return json(res,503,{ok:false,code:'GROUP_DIRECTORY_UNAVAILABLE'});}
-      }
       if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
-      const data = await body(req, pathname === '/api/study-briefing' ? 2100000 : maxBody);
+      const data = await body(req);
       if(pathname==='/api/weather-alerts/search'){
         if(Object.keys(data).some(k=>k!=='query')||typeof data.query!=='string'||data.query.length>48)throw Error('INVALID_INPUT');
         return json(res,200,await weatherAlerts.search(data.query));
@@ -228,24 +213,13 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         const result=await monitoring.run({
           operation:preparing?'morning.prepare':'morning.dispatch',
           date:groupMorningClock(groupMorningNow?.()).date,
-        },()=>!profile||profile.mode==='normal'?
-          (preparing?groupMorning.prepare():groupMorning.run()):
-          {ok:false,code:'GROUP_MORNING_UNAVAILABLE'});
+        },()=>preparing ? groupMorning.prepare() : groupMorning.run());
         return json(res,200,result);
       }
       if (configBusy) return json(res, 409, { ok: false, code: 'CONFIG_BUSY' });
       configBusy = true; mutationHeld = true;
       let result;
       switch (pathname) {
-        case '/api/group/bind': {
-          if (Object.keys(data).some(k=>!['groupKey','features'].includes(k)) || !/^[a-f0-9]{64}$/.test(data.groupKey||'')) throw Error('INVALID_INPUT');
-          let groups;
-          try {groups=await adapter.listGroups();}
-          catch {result={ok:false,code:'GROUP_DIRECTORY_UNAVAILABLE'};break;}
-          const selected=groups.find(g=>createHash('sha256').update('group:'+g.id).digest('hex')===data.groupKey);
-          result=selected?await core.addDiscoveredGroup({...selected,features:data.features}):{ok:false,code:'GROUP_DIRECTORY_CHANGED'};
-          break;
-        }
         case '/api/monitoring/test': {
           if(Object.keys(data).length)throw Error('INVALID_INPUT');
           await monitoring.run({scope:'c2c',synthetic:true},()=>measureSpan('agent',async()=>({ok:true,code:'MONITORING_TEST'})));
@@ -283,11 +257,6 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
           if(!report.data.ok){result={ok:false,code:report.data.code,data:report.data};break;}
           const delivery=await core.notifyImage({image:report.image,idempotencyKey:'campus:'+data.requestId});
           result={ok:delivery.ok,code:delivery.code,data:report.data,delivery};break;
-        }
-        case '/api/study-briefing': {
-          if(adapter.status().state!=='connected'){result={ok:false,code:'NOT_CONNECTED'};break;}
-          const image=await studyImage(data);
-          result=await core.notifyImage({image,idempotencyKey:data.idempotencyKey});break;
         }
         case '/api/morning/test-all-allowed': {
           if(Object.keys(data).some(key=>key!=='idempotencyKey')||typeof data.idempotencyKey!=='string'||!/^[a-zA-Z0-9._:-]{1,100}$/.test(data.idempotencyKey))throw new Error('INVALID_INPUT');
@@ -332,7 +301,6 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
           break;
         }
         case '/api/config': {
-          if (profile) return json(res,409,{ok:false,code:'OPERATOR_MANAGED_TRANSPORT'});
           if (!/^[0-9]{4,30}$/.test(data.appId || '') || typeof data.appSecret !== 'string' || data.appSecret.length < 8 || data.appSecret.length > 512 || /\s/.test(data.appSecret)) {
             return json(res, 400, { ok: false, code: 'INVALID_CREDENTIAL_FORMAT' });
           }
@@ -467,7 +435,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     async listen() {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
       boundPort = server.address().port;
-      if(prewarm&&!profile)weatherAlerts.start();
+      if(prewarm)weatherAlerts.start();
       if(prewarm&&ragEnabled&&!ragMaintenance){ragMaintenance=setInterval(()=>{void indexWhenIdle(worker);},60000);ragMaintenance.unref();}
       return boundPort;
     },
@@ -490,12 +458,10 @@ if (await isEntrypoint(import.meta.url)) {
   let app;
   try {
     const transport = process.env.QQ_TRANSPORT ?? 'official';
-    if (!['official','onebot11'].includes(transport)) throw Error('TRANSPORT_INVALID');
-    const profile = transport === 'onebot11'
-      ? validateOneBotProfile(JSON.parse(await fs.readFile(path.join(process.env.CREDENTIALS_DIRECTORY,'onebot.json'),'utf8'))) : null;
-    app = await createBridgeServer({prewarm:true,oneBotProfile:profile});
+    if (transport !== 'official') throw Error('TRANSPORT_INVALID');
+    app = await createBridgeServer({prewarm:true});
     const port = await app.listen();
-    if (process.argv.includes('--connect') && app.core.status().paired && (!profile || !app.core.status().paused)) {
+    if (process.argv.includes('--connect') && app.core.status().paired) {
       const credentials=await app.readTransportCredentials();
       if(credentials) await app.adapter.connect(credentials);
     }

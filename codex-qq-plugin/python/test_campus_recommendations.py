@@ -1,17 +1,12 @@
-import importlib
-import sys
 import unittest
 from unittest.mock import patch
 from langchain_core.messages import AIMessage
 from campus_classrooms import envelope
-from campus_report import SCRIPTS
+import campus_planner as plan
 from campus_recommendations import recommend, build_recommendation_tool, verified_explanation
 import campus_worker
 import agent_worker
 from test_agent_worker import ScriptedModel, packet, call
-
-sys.path.insert(0,str(SCRIPTS))
-plan=importlib.import_module('plan')
 
 
 def snapshot():

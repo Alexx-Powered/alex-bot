@@ -1,13 +1,11 @@
-#!/usr/bin/env python3
 """Validate per-period observations and produce a Building 3 study plan. Stdlib only."""
-import argparse
 import itertools
 import json
 import re
 from datetime import date as date_type
 from pathlib import Path
 
-RULES = json.loads((Path(__file__).resolve().parents[1] / 'references' / 'rules.json').read_text(encoding='utf-8'))
+RULES = json.loads((Path(__file__).resolve().parents[1] / 'data' / 'building3-rules.json').read_text(encoding='utf-8'))
 SMALL = set(RULES['small_rooms'])
 EXCLUDED = set(RULES['excluded_rooms'])
 KNOWN = set(RULES['known_rooms'])
@@ -334,83 +332,3 @@ def render_route(route):
     path = ' → '.join(f"{s['room']}：{window_text(s['start'], s['end'])}" for s in route['segments'])
     transfers = '；'.join(f"{t['leave_after']}—{t['arrive_by']} 换到{t['to']}（{t['distance']}）" for t in route['transfers'])
     return f'{path}。换{route["moves"]}次；{transfers}。'
-
-
-def render_markdown(result):
-    lines = [f"# {result['suggested_title'] or '三号楼自习安排｜查询日期未提供'}", '']
-    if result['date_note']:
-        lines += [result['date_note'], '']
-    lines += ['本次截图均为同一天；绿色为空闲，白色为有课。空闲不保证到场时有座位。已排除204、205、211、213、303、304、310、311。',
-              f"以下完整列出截图中已识别且未排除的{len(result['rooms'])}间教室，小教室在前；表内列出各时段的全部空闲课节。", '',
-              '| 教室（三号楼） | 上午：第1—5节 | 下午：第6—10节 | 晚上：第11—14节 |',
-              '|---|---|---|---|']
-    for room in sorted(result['rooms'], key=lambda r: (r not in SMALL, int(r))):
-        cells = [availability(result['rooms'][room], *bounds) for bounds in RULES['sessions'].values()]
-        cells = ['**全空闲**' if c == '全空闲' else c for c in cells]
-        lines.append('| ' + ' | '.join([room + ('（小）' if room in SMALL else ''), *cells]) + ' |')
-    if result['missing_small_rooms']:
-        lines += ['', '截图未覆盖的小教室：' + '、'.join(result['missing_small_rooms']) + '，状态未提供。']
-    if result['conflicts']:
-        details = '、'.join(f"{c['room']}第{c['period']}节" for c in result['conflicts'])
-        lines += ['', '重叠截图存在冲突，以下单元格暂不用于规划：' + details + '。']
-    if result['unmapped_rooms']:
-        lines += ['', '以下房间未收录于布局图，相邻关系待确认：' + '、'.join(result['unmapped_rooms']) + '。']
-    for label, session in result['sessions'].items():
-        a, b = RULES['sessions'][label]
-        lines += ['', f'## {label}建议', '']
-        if label == '晚上':
-            lines += ['按你通常自习的第12—14节（19:50—22:15）安排；第11—14节全空闲的教室优先。', '']
-        recommendations = session['recommendations']
-        if session['shortfall']:
-            lines += [f"已确认仅{len(recommendations)}条不同方案，不足5条（还差{session['shortfall']}条）；不以重复路线、未知课节或排除教室凑数。", '']
-        if session['partial_options']:
-            lines += [f"其中覆盖目标时段的方案{session['complete_count']}条，局部可用方案{len(session['partial_options'])}条；局部方案不能覆盖整个自习时段。", '']
-        for index, item in enumerate(recommendations, 1):
-            prefix = f'- **方案{index}**'
-            if item['kind'] == 'full':
-                room = item['room']
-                lines.append(f"{prefix}｜{'首选' if index == 1 else '备选'} **{room}**：{window_text(a,b)}全空闲。")
-            elif item['kind'] == 'evening':
-                lines.append(f"{prefix}｜晚间次选 **{item['room']}**：第12—14节（19:50—22:15）连续空闲。")
-            elif item['kind'] == 'route':
-                window = window_text(item['start'], item['end'])
-                lines.append(f"{prefix}｜换教室，覆盖{window}：{render_route(item)}")
-            else:
-                lines.append(f"{prefix}｜**局部可用，非整段**：{item['room']}，{window_text(item['start'], item['end'])}。")
-            lines[-1] += ' **推荐原因：**' + item['reason']
-        if not session['full']:
-            lines += ['', f'现有截图中，未找到已确认{window_text(a,b)}全空闲的单间教室。']
-        if label == '下午' and session['full'] and not any(i['arrive_early'] for i in session['full']):
-            lines += ['', '未找到已确认“下午全空闲且第5节有课”的教室；上述整段空闲教室仍可作为备选。']
-        shown_full = {x['room'] for x in recommendations if x['kind'] == 'full'}
-        other_full = [x['room'] for x in session['full'] if x['room'] not in shown_full]
-        if other_full:
-            lines += ['', '其他全空闲教室：' + '、'.join(other_full) + '。']
-        if session['uncovered_periods']:
-            lines += ['', '无法拼成整个时段的连续方案；' + period_text(session['uncovered_periods']) + '未找到已确认空闲的可用教室。', '']
-        if session.get('usual_uncovered_periods'):
-            lines.append('第12—14节仍有缺口：' + period_text(session['usual_uncovered_periods']) + '。')
-    if result['notes']:
-        lines += ['', '补充：' + '；'.join(result['notes'])]
-    return '\n'.join(lines) + '\n'
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('input', type=Path)
-    parser.add_argument('--format', choices=['markdown', 'json'], default='markdown')
-    parser.add_argument('--output', type=Path)
-    args = parser.parse_args()
-    try:
-        result = analyze(json.loads(args.input.read_text(encoding='utf-8-sig')))
-    except (KeyError, ValueError, TypeError) as exc:
-        parser.error(str(exc))
-    text = json.dumps(result, ensure_ascii=False, indent=2) if args.format == 'json' else render_markdown(result)
-    if args.output:
-        args.output.write_text(text, encoding='utf-8')
-    else:
-        print(text)
-
-
-if __name__ == '__main__':
-    main()

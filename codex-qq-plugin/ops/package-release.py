@@ -9,7 +9,15 @@ import zipfile
 
 root = Path(__file__).resolve().parents[2]
 commit = subprocess.check_output(["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=root, text=True).strip()
-source = subprocess.check_output(["git", "archive", commit, "--", "codex-qq-plugin", "workbuddy-study-qq"], cwd=root)
+paths = subprocess.check_output(["git", "ls-tree", "-rz", "--name-only", commit], cwd=root)
+ignored = subprocess.run(["git", "check-ignore", "--no-index", "--stdin", "-z"], cwd=root,
+                         input=paths, stdout=subprocess.PIPE)
+if ignored.returncode == 0:
+    raise ValueError("Local-only paths in release commit: " + ", ".join(
+        name.decode() for name in ignored.stdout.split(b"\0") if name))
+if ignored.returncode != 1:
+    ignored.check_returncode()
+source = subprocess.check_output(["git", "archive", commit, "--", "codex-qq-plugin"], cwd=root)
 target = root / "codex-qq-plugin/test-output/migration"
 target.mkdir(parents=True, exist_ok=True)
 archive = target / "release.zip"

@@ -123,7 +123,7 @@ export class CampusService{
         const file=path.join(output,value.artifact_id+'.png');
         if((await fs.stat(file)).size>1_500_000)throw Error('CAMPUS_RENDER_FAILED');
         const buffer=await fs.readFile(file);
-        const image=await studyImage({idempotencyKey:'study:'+value.artifact_id.repeat(2),pngBase64:buffer.toString('base64')});
+        const image=await studyImage(buffer);
         return {data,image};
       });
       this.#last=result.data;return result;
@@ -185,7 +185,7 @@ export class CampusService{
     if(!fullAccess(context,'campus'))return null;
     const file=path.join(this.home,'.private','campus-output',id+'.png');
     if((await fs.stat(file)).size>1_500_000)throw Error('CAMPUS_RENDER_FAILED');
-    const image=await studyImage({idempotencyKey:'study:'+id.repeat(2),pngBase64:(await fs.readFile(file)).toString('base64')});
+    const image=await studyImage(await fs.readFile(file));
     return fullAccess(context,'campus')?{image,text:'',requiredAccess:'white'}:null;
   }
   async handle(text,context){const args=parseCampusCommand(text);return args?this.execute(args,context):null;}
