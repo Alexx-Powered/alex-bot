@@ -1,6 +1,5 @@
 """Stage a Git-built application and its verified private weather runtimes on the existing ECS."""
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -9,17 +8,12 @@ import shutil
 import tempfile
 import zipfile
 
-from map_review import require_map_review
+from map_review import digest, require_map_review
 
 
 ROOT = Path('/opt/alex-bot')
 CURRENT = ROOT / 'current'
 RUNTIMES = ('.ifs-runtime', '.pm25-runtime')
-
-
-def digest(path):
-    with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
 def stage(archive, expected_commit):

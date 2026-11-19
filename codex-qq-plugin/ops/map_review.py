@@ -17,13 +17,21 @@ MAP_FILES=(
 HOLD='MAP_PUBLICATION_ON_HOLD'
 
 
+def digest(path):
+    checksum = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            checksum.update(block)
+    return checksum.hexdigest()
+
+
 def asset_hashes(root):
     if root is None:return {}
     result={}
     for name in MAP_FILES:
         path=root/name
         if path.is_file():
-            with path.open('rb') as stream:result[name]=hashlib.file_digest(stream,'sha256').hexdigest()
+            result[name] = digest(path)
     return result
 
 

@@ -2,7 +2,6 @@
 import argparse
 from datetime import datetime
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,7 +13,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 from urllib.error import URLError
 from zoneinfo import ZoneInfo
 
-from map_review import require_map_review
+from map_review import digest, require_map_review
 
 ROOT = Path('/opt/alex-bot')
 CURRENT = ROOT / 'current'
@@ -41,11 +40,6 @@ def run(*args, timeout=100):
 
 def prop(unit, field):
     return run('systemctl', 'show', unit, '-p', field, '--value')
-
-
-def digest(path):
-    with path.open('rb') as f:
-        return hashlib.file_digest(f, 'sha256').hexdigest()
 
 
 def verify_process(release):
