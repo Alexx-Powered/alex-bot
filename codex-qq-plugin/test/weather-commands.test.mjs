@@ -14,6 +14,17 @@ test('tomorrow tool moves weather, CAMS and chart together while preserving real
   await assert.rejects(tool.execute('weather_image',{city:'北京',day:'yesterday'}));
   assert.equal((await commands.briefing({renderImage:false})).date,'2026-12-31');
 });
+test('tomorrow tool reports a missing or ambiguous geocoded place accurately',async()=>{
+  const commands=new WeatherCommands({locations:{resolve:async city=>{
+    if(city==='同名地点')throw Object.assign(Error(),{code:'LOCATION_AMBIGUOUS',suggestions:['四川 同名地点','云南 同名地点']});
+    throw Object.assign(Error(),{code:'LOCATION_NOT_FOUND'});
+  }}});
+  const tool=new WeatherToolbox(commands,{});
+  const ambiguous=await tool.execute('weather_image',{city:'同名地点',day:'tomorrow'});
+  assert.match(ambiguous.text,/重名[\s\S]*四川 同名地点/);
+  const missing=await tool.execute('weather_image',{city:'查不到的地点',day:'tomorrow'});
+  assert.match(missing.text,/未找到该地点/);
+});
 test('weather grammar accepts location queries only after a fixed operation',()=>{
   assert.deepEqual(parseWeatherCommand('发 雷达 北京'),{type:'radar',city:'北京'});
   assert.deepEqual(parseWeatherCommand('发雷达天津'),{type:'radar',city:'天津'});

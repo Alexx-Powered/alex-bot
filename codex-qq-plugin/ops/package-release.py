@@ -25,7 +25,7 @@ with tarfile.open(fileobj=io.BytesIO(source)) as tree, zipfile.ZipFile(archive, 
         data = tree.extractfile(entry).read()
         manifest[name] = hashlib.sha256(data).hexdigest()
         out.writestr(name, data)
-    release = "linux-" + hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()[:12]
+    release = "linux-" + commit[:12]
     out.writestr("release-manifest.json", json.dumps({"release": release, "commit": commit, "files": manifest}, indent=2))
 receipt = {"release": release, "commit": commit, "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(), "files": len(manifest)}
 (target / "release.json").write_text(json.dumps(receipt), encoding="utf-8")

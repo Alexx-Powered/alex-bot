@@ -8,6 +8,7 @@ Type=simple
 User=alexbot
 Group=alexbot
 WorkingDirectory=/var/lib/alexbot
+Environment=QQ_TRANSPORT=official
 Environment=QQ_BRIDGE_HOME=/var/lib/alexbot
 Environment=QQ_PYTHON=/opt/alex-bot-runtime/python/app-venv/bin/python
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/alex-bot-runtime/browsers

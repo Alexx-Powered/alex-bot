@@ -423,7 +423,7 @@ class WorkerTests(unittest.TestCase):
         prior = next(m for m in payloads[1]['messages'] if m['role']=='assistant')
         self.assertEqual(prior['reasoning_content'],'fixture reasoning')
 
-    def test_thinking_free_text_retries_once_through_a_validated_tool(self):
+    def test_thinking_draft_then_unknown_tool_recovers_in_the_same_mode(self):
         import httpx
 
         payloads = []
@@ -433,13 +433,16 @@ class WorkerTests(unittest.TestCase):
             if len(payloads) == 1:
                 message={'role':'assistant','content':'unchecked draft','reasoning_content':'fixture reasoning'}
                 finish='stop'
-            else:
-                message={'role':'assistant','content':'','tool_calls':[{
-                    'id':'call_weather','type':'function','function':{
-                        'name':'weather_image','arguments':'{"city":"广州"}',
+            elif len(payloads) <= 3:
+                valid = len(payloads) == 3
+                message={'role':'assistant','content':'','reasoning_content':'fixture tool reasoning','tool_calls':[{
+                    'id':'call_weather' if valid else 'call_invalid','type':'function','function':{
+                        'name':'weather_image' if valid else 'unknown_tool','arguments':'{"city":"广州"}',
                     },
                 }]}
                 finish='tool_calls'
+            else:
+                self.fail('unexpected extra model call')
             return httpx.Response(200,json={
                 'id':'fixture','created':0,'object':'chat.completion','model':'deepseek-flash',
                 'choices':[{'index':0,'finish_reason':finish,'message':message}],
@@ -450,10 +453,65 @@ class WorkerTests(unittest.TestCase):
             result=runner.run(packet(text='羊城今天出门会不会淋雨，给我看看图'))
         self.assertEqual(result['kind'],'tool',result)
         self.assertEqual(len(self.calls),1)
-        self.assertEqual(len(payloads),2)
-        self.assertEqual(payloads[1]['thinking'],{'type':'disabled'})
-        self.assertEqual(payloads[1]['tool_choice'],'required')
-        self.assertEqual(payloads[1]['messages'],payloads[0]['messages'])
+        self.assertEqual(len(payloads),3)
+        for payload in payloads:
+            self.assertEqual(payload['thinking'],{'type':'enabled'})
+            self.assertEqual(payload['reasoning_effort'],'low')
+            self.assertEqual(payload['tool_choice'],'auto')
+        self.assertEqual(payloads[1]['messages'][1:],payloads[0]['messages'][1:])
+        self.assertIn('上一次未提交',payloads[1]['messages'][0]['content'])
+        assistant, validation = payloads[2]['messages'][-2:]
+        self.assertEqual(assistant['reasoning_content'],'fixture tool reasoning')
+        self.assertEqual(validation['tool_call_id'],assistant['tool_calls'][0]['id'])
+        self.assertEqual(self.calls[0][2:],('weather_image',{'city':'广州'}))
+
+    def test_invalid_return_direct_tool_arguments_retry_before_execution(self):
+        import httpx
+
+        payloads = []
+
+        def respond(request):
+            payloads.append(json.loads(request.content))
+            day = '明天' if len(payloads) == 1 else 'tomorrow'
+            message = {
+                'role': 'assistant', 'content': '', 'reasoning_content': 'fixture',
+                'tool_calls': [{'id': 'call_weather', 'type': 'function', 'function': {
+                    'name': 'weather_image', 'arguments': json.dumps({'city': '广州', 'day': day}),
+                }}],
+            }
+            return httpx.Response(200, json={
+                'id': 'fixture', 'created': 0, 'object': 'chat.completion', 'model': 'deepseek-flash',
+                'choices': [{'index': 0, 'finish_reason': 'tool_calls', 'message': message}],
+            })
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client, patch.object(worker,'get_model_http_client',return_value=client):
+            runner = worker.build_runner(rpc_callback=self.runner.rpc_callback)
+            result = runner.run(packet(text='羊城明天出门会不会淋雨，给我看看图'))
+        self.assertEqual(result['kind'], 'tool', result)
+        self.assertEqual(len(payloads), 2)
+        self.assertEqual(payloads[0]['messages'][1:], payloads[1]['messages'][1:])
+        self.assertTrue(all(payload['thinking'] == {'type': 'enabled'} for payload in payloads))
+        self.assertEqual([call[2:] for call in self.calls], [('weather_image', {'city': '广州', 'day': 'tomorrow'})])
+
+    def test_provider_bad_request_uses_only_safe_protocol_diagnostics(self):
+        import httpx
+
+        for message, code in [
+            ('Missing reasoning_content on assistant message (private fixture)', 'MODEL_TOOL_PROTOCOL_ERROR'),
+            ('Other invalid request (private fixture)', 'MODEL_REQUEST_REJECTED'),
+        ]:
+            with self.subTest(code=code):
+                transport = httpx.MockTransport(lambda request: httpx.Response(400, json={
+                    'error': {'message': message, 'type': 'invalid_request_error'},
+                }))
+                with httpx.Client(transport=transport) as client, patch.object(worker,'get_model_http_client',return_value=client):
+                    runner = worker.build_runner(rpc_callback=self.runner.rpc_callback, profiling=True)
+                    result = runner.run(packet(text='羊城今天出门会不会淋雨，给我看看图'))
+                self.assertEqual(result['code'],code)
+                failed = next(event for event in runner.performance.finish() if event.get('status') == 'error')
+                self.assertEqual((failed['errorCode'], failed['httpStatus']),(code,400))
+                self.assertNotIn('private fixture', json.dumps([result, failed]))
+                self.assertFalse(self.calls)
 
     def test_living_tool_then_model_explanation_gets_verified_facts_with_no_second_tool(self):
         self.model.responses.extend([call('living_cost_budget',{'balance':'0.6','unit':'HU$'}),AIMessage(content='按一天50元算，这点不够撑到发薪，还差530元。')])

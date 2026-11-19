@@ -301,11 +301,19 @@ class DeepSeekProviderTests(unittest.TestCase):
 
     def test_metadata_compatibility_does_not_relax_url_authority_validation(self):
         urls = ['https://user:key@www.gov.cn/a', 'http://www.gov.cn:8080/a',
-                'https://www.gov.cn/a#section', 'http://127.0.0.1/a']
+                'https://user:key@www.gov.cn/a#section', 'http://127.0.0.1/a#1']
         data = {'results':[{'url':url, 'snippet':None} for url in urls]}
         provider = transport.DeepSeekSearchProvider('test-only-key')
         with patch.object(transport, '_post_json', return_value=self.response(data)):
             self.assertEqual(provider.search('福州福道', 4), [])
+
+    def test_article_fragments_are_removed_before_deduplication_and_fetch(self):
+        data={'results':[{'url':'https://www.8264.com/youji/5745357.html#'+n,'title':'长穿毕'} for n in ['1','2']]}
+        provider=transport.DeepSeekSearchProvider('test-only-key')
+        with patch.object(transport,'_post_json',return_value=self.response(data)):
+            rows=provider.search('长穿毕',4)
+        self.assertEqual(rows,[transport.SearchHit('https://www.8264.com/youji/5745357.html','长穿毕')])
+        self.assertTrue(provider.can_fetch(rows[0].url))
 
     def test_search_stats_include_proxy_http_hits_and_reset_after_failure(self):
         provider = transport.DeepSeekSearchProvider('test-only-key')

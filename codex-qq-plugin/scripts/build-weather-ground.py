@@ -4,6 +4,7 @@ Inputs and upstream hashes are pinned below. Build dependencies: pyshp, shapely,
 The deployed reader uses only sqlite3, struct, zlib and Pillow.
 """
 import hashlib
+import gzip
 import io
 import json
 import math
@@ -115,10 +116,15 @@ def global_boundaries(folder, insert):
     from shapely import STRtree
     from shapely.geometry import shape
 
+    # These four upstream parent units overlap the Kashmir area. The government
+    # originals use a region boundary and ceasefire symbols drawn by the map layer.
+    kashmir_parents={'70912109B54485417915534','70912109B7720427584286',
+                     '1811400B23769854471902','1811400B42025667129192'}
+
     def index_by_country(reader, level):
         groups = defaultdict(list)
         for i,row in enumerate(reader.iterRecords(fields=['shapeID','shapeGroup','shapeType'])):
-            if row.shapeType == level and row.shapeGroup not in {'CHN','MAC','HKG'}:
+            if row.shapeType == level and row.shapeGroup not in {'CHN','TWN','MAC','HKG'}:
                 groups[row.shapeGroup].append((i,row.shapeID))
         return groups
 
@@ -152,18 +158,21 @@ def global_boundaries(folder, insert):
                 def units():
                     for i, code in districts[country]:
                         geom = shape(adm2.shape(i).__geo_interface__)
-                        yield code, assign_parent(geom,tree,ids), geom
+                        parent=assign_parent(geom,tree,ids)
+                        if parent not in kashmir_parents:yield code,parent,geom
                 shared_boundaries(units(), insert, country, .002)
                 count += len(districts[country])
             else:
-                shared_boundaries(zip(ids,ids,geoms), insert, country, .002)
+                shared_boundaries(((code,code,geom) for code,geom in zip(ids,geoms) if code not in kashmir_parents), insert, country, .002)
     return count
 
 
 def build(folder):
     import shapefile
-    from shapely.geometry import shape
-    from shapely.ops import clip_by_rect
+    from shapely.geometry import shape,LineString
+    from shapely.ops import clip_by_rect,unary_union
+    from shapely.prepared import prep
+    from shapely import make_valid
     from PIL import Image
 
     for name, (_, expected) in SOURCES.items():
@@ -191,18 +200,40 @@ def build(folder):
 
     mainland = []
     china_count = 0
+    domestic=[]
+    tibet=json.loads(gzip.decompress((ROOT/'data/weather-xizang-reference.json.gz').read_bytes()))
+    domestic.append(shape(tibet['province']))
     for row in json.loads((folder/'prefectures.json').read_text(encoding='utf-8'))['features']:
         prop = row['properties']; code = str(prop['id'])
+        geom = shape(row['geometry'])
+        if not code.startswith('54'):domestic.append(make_valid(geom))
         if code.startswith('71'):
             continue
-        geom = shape(row['geometry']); name=prop['地名']
+        name=prop['地名']
         mainland.append((code, code[:2], geom))
         if code.endswith('00') and not code.startswith(('81','82')):
             china_count += 1
             point = geom.representative_point()
             insert('citylabel',name,point.bounds,[[(point.x,point.y)]])
     shared_boundaries(mainland,insert,'CHN',0)
-    count = global_boundaries(folder/'inputs',insert)
+    footprint=unary_union(domestic)
+    prepared=prep(footprint)
+    west,south,east,north=footprint.bounds
+    def foreign_insert(kind,name,bounds,rings):
+        w,s,e,n=bounds
+        if e<west or w>east or n<south or s>north:
+            insert(kind,name,bounds,rings)
+            return
+        line=LineString(rings[0])
+        if not prepared.intersects(line):
+            insert(kind,name,bounds,rings)
+            return
+        outside=line.difference(footprint)
+        parts=outside.geoms if hasattr(outside,'geoms') else [outside]
+        for part in parts:
+            if not part.is_empty and part.geom_type=='LineString':
+                insert(kind,name,part.bounds,[part.coords])
+    count = global_boundaries(folder/'inputs',foreign_insert)
     print('Municipal geometries',count,china_count,flush=True)
 
     def store_surface(geometry,kind,name):
@@ -227,9 +258,11 @@ def build(folder):
                 tile.save(stream,'PNG'); db.execute('INSERT INTO relief VALUES (?,?,?)',(x,y,stream.getvalue()))
     db.commit(); db.execute('VACUUM'); db.close(); draft.replace(target)
     note={'sources':SOURCES,'geometry':'EPSG:4326','mainlandUnits':china_count,'otherADM2':count,
+          'tibetClip':{'source':tibet['url'],'sha256':tibet['sha256']},'foreignAdminExcludes':['CHN','TWN','HKG','MAC'],
           'credit':['Natural Earth, public domain','Runfola et al. (2020), geoBoundaries, CC BY 4.0, https://doi.org/10.1371/journal.pone.0231866',
                     'Rui Cheng, CTAmap provincial, municipal and county administrative divisions, 2023 edition. Prefectures redistributed by Amll/cn-atlas (ISC). https://github.com/ruiduobao/shengshixian.com'],
           'processing':'Internal lines are shared polygon edges, stored once and styled by the two owners. Mainland Chinese province membership uses the first two digits of the administrative code, including directly administered county-level units. CGAZ ADM1 identifies parents of other ADM2 units, or supplies shared edges where ADM2 is unavailable. No coastlines inferred from administrative polygons. Physical polygons tiled, land relief cropped from SR_50M.', 'sha256':digest(target)}
+    note['kashmir']='Four unverified upstream IND/PAK ADM1 units and their assigned internal edges are excluded from the internal map candidate.'
     (target.parent/'weather-ground-NOTICE.json').write_text(json.dumps(note,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
     print('Built',target.stat().st_size,note['sha256'],flush=True)
 

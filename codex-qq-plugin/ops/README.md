@@ -1,5 +1,14 @@
 # ECS 运行与密钥交接
 
+## 正式版本与 GitHub 同步
+
+生产源码基线为提交 `fcc3955` 对应的 `linux-agent-unified-eb945a1bf6f9`。每次正式版本使用同一份 Git 提交。
+
+1. 从正式主线创建工作树，将本次改动及回归用例一并提交。通过本机 Node 和 Python 回归后，运行 `python codex-qq-plugin/ops/package-release.py`。
+2. 将包传至 ECS。使用本次提交的 `ops/install-release.py --archive <包> --expected-commit <完整提交号> --stage-only` 暂存。两个已安装的气象运行库逐文件校验继承。依赖版本发生变化时先验证新的运行库。
+3. 执行 `ops/map_review.py <候选插件目录> --current <现行插件目录>` 和本次变更的受限串行专项。运行 `python3 <候选插件目录>/ops/activate-production.py <完整提交号> <现行版本名>`，完成备份、切换、实际进程与权限校验。切换异常时恢复原源码。
+4. 将验收通过的提交快进推送原仓库 `main`，对照 `git ls-remote origin refs/heads/main`、线上清单的 `commit`、实际监听 PID 及本机 SSH 隧道。
+
 ## Comfort 取消固定余量（2026-11-08 00:53 CST）
 
 当前`linux-hiking-comfort-e65f92b573e6`，19327实际监听PID206521、00:53:51 CST启动，1397文件核验。用户指定Comfort按完整营地夜间最低温直接选择，去掉固定减5°C和向下取整；全程取露营夜最低值，图中文字同步。线上党岭验证−7.1/−6.9°C对应同值Comfort。本机Python17/Node13、ECS受限串行Python17/Node7及map_review通过。配置、账本、07:28/07:30定时和退役单元状态保持；备份/回滚/样例见HANDOVER最新节。

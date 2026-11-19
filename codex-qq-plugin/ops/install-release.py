@@ -1,29 +1,110 @@
-"""Root operator installs verified source without starting or connecting the Bot."""
-import hashlib,json,os,subprocess,zipfile,sys
-from pathlib import Path
+"""Stage a Git-built application and its verified private weather runtimes on the existing ECS."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import shutil
+import tempfile
+import zipfile
 
-archive=Path('/tmp/alex-release.zip')
-with zipfile.ZipFile(archive) as zipped:
-    manifest=json.loads(zipped.read('release-manifest.json'));release=manifest['release']
-    if not release.startswith('linux-') or not release[6:].isalnum():raise ValueError('INVALID_RELEASE')
-    target=Path('/opt/alex-bot/releases')/release
-    if not target.exists():
-        for name in zipped.namelist():
-            if Path(name).is_absolute() or '..' in Path(name).parts:raise ValueError('INVALID_PATH')
-        zipped.extractall(target)
-    for name,digest in manifest['files'].items():
-        if hashlib.sha256((target/name).read_bytes()).hexdigest()!=digest:raise ValueError('HASH_MISMATCH')
-for p in target.rglob('*'):
-    if not p.is_symlink():p.chmod(0o755 if p.is_dir() else 0o644)
-modules=target/'codex-qq-plugin/node_modules'
-if not modules.exists():modules.symlink_to('/opt/alex-bot-runtime/node/node_modules',target_is_directory=True)
-if '--stage-only' not in sys.argv:
-    current=Path('/opt/alex-bot/current')
-    from map_review import require_map_review
-    require_map_review(target/'codex-qq-plugin',current/'codex-qq-plugin')
-    temporary=Path('/opt/alex-bot/current.next')
-    if temporary.is_symlink():temporary.unlink()
-    temporary.symlink_to(target,target_is_directory=True);temporary.replace(current)
-Path('/var/lib/alexbot').chmod(0o700)
-subprocess.run(['chown','alexbot:alexbot','/var/lib/alexbot'],check=True)
-print(json.dumps({'release':release,'source_verified':True,'activated':'--stage-only' not in sys.argv,'started':False}))
+from map_review import require_map_review
+
+
+ROOT = Path('/opt/alex-bot')
+CURRENT = ROOT / 'current'
+RUNTIMES = ('.ifs-runtime', '.pm25-runtime')
+
+
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def stage(archive, expected_commit):
+    releases = ROOT / 'releases'
+    releases.mkdir(exist_ok=True)
+    with zipfile.ZipFile(archive) as package:
+        manifest = json.loads(package.read('release-manifest.json'))
+        release, commit = manifest['release'], manifest['commit']
+        if not re.fullmatch(r'linux-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', release):
+            raise ValueError('INVALID_RELEASE')
+        if not re.fullmatch(r'[a-f0-9]{40}', commit) or (expected_commit and commit != expected_commit):
+            raise ValueError('COMMIT_MISMATCH')
+        source = manifest['files']
+        names = package.namelist()
+        if len(names) != len(source) + 1 or set(names) != set(source) | {'release-manifest.json'}:
+            raise ValueError('ARCHIVE_INVENTORY_MISMATCH')
+        target = releases / release
+        with tempfile.TemporaryDirectory(dir=releases) as scratch:
+            root = Path(scratch) / release
+            for name, checksum in source.items():
+                path = PurePosixPath(name)
+                if path.parts[0] not in {'codex-qq-plugin', 'workbuddy-study-qq'} or '..' in path.parts or str(path) != name:
+                    raise ValueError('INVALID_SOURCE_PATH')
+                dest = root / path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with package.open(name) as reader, dest.open('xb') as writer:
+                    shutil.copyfileobj(reader, writer)
+                if digest(dest) != checksum:
+                    raise ValueError('SOURCE_HASH_MISMATCH')
+                dest.chmod(0o644)
+            carried = {}
+            if CURRENT.is_dir():
+                previous = json.loads((CURRENT / 'release-manifest.json').read_bytes())
+                for runtime in RUNTIMES:
+                    prefix = 'codex-qq-plugin/python/' + runtime + '/'
+                    for name, checksum in previous['files'].items():
+                        if not name.startswith(prefix):
+                            continue
+                        original = CURRENT / name
+                        if '..' in PurePosixPath(name).parts or not original.resolve().is_relative_to(CURRENT.resolve()):
+                            raise ValueError('INVALID_RUNTIME_PATH')
+                        dest = root / name
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        with original.open('rb') as reader, dest.open('xb') as writer:
+                            shutil.copyfileobj(reader, writer)
+                        if digest(dest) != checksum:
+                            raise ValueError('RUNTIME_HASH_MISMATCH')
+                        dest.chmod(original.stat().st_mode & 0o755)
+                        carried[name] = checksum
+            manifest['files'] = {**source, **carried}
+            manifest['runtimeFiles'] = len(carried)
+            receipt = root / 'release-manifest.json'
+            receipt.write_text(json.dumps(manifest, indent=2))
+            receipt.chmod(0o644)
+            root.chmod(0o755)
+            for directory in root.rglob('*'):
+                if directory.is_dir():
+                    directory.chmod(0o755)
+            modules = root / 'codex-qq-plugin/node_modules'
+            modules.symlink_to('/opt/alex-bot-runtime/node/node_modules', target_is_directory=True)
+            if target.exists():
+                stored = json.loads((target / 'release-manifest.json').read_bytes())
+                if stored != manifest or any(digest(target / k) != v for k, v in stored['files'].items()):
+                    raise ValueError('EXISTING_RELEASE_MISMATCH')
+            else:
+                root.rename(target)
+    return target, commit
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--archive', type=Path, default=Path('/tmp/alex-release.zip'))
+    parser.add_argument('--expected-commit')
+    parser.add_argument('--stage-only', action='store_true')
+    args = parser.parse_args()
+    target, commit = stage(args.archive, args.expected_commit)
+    if not args.stage_only:
+        require_map_review(target / 'codex-qq-plugin', CURRENT / 'codex-qq-plugin')
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            link = Path(directory) / 'current'
+            link.symlink_to(target, target_is_directory=True)
+            os.replace(link, CURRENT)
+    print(json.dumps({'release':target.name, 'commit':commit, 'source_verified':True,
+                      'activated':not args.stage_only, 'started':False}))
+
+
+if __name__ == '__main__':
+    main()
