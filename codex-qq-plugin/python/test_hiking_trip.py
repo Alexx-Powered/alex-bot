@@ -86,7 +86,10 @@ class HikingTests(unittest.TestCase):
     def test_catalogue_types_and_bounded_route_storage(self):
         profiles=seed_profiles();self.assertGreaterEqual(len({p['topic'] for p in profiles}),3)
         with self.tempdir() as temp:
-            q=ResearchQueue(Path(temp)/'queue.sqlite3');s=HikingStore(q);p=self.profile();s.put(p)
+            q=ResearchQueue(Path(temp)/'queue.sqlite3');s=HikingStore(q);p=self.profile()
+            p['checked_at']=q.clock()
+            s.put(p);self.assertEqual(s.get('测试山'),[])
+            s.put(p,machine_checked=True)
             self.assertEqual(s.get('测试山')[0]['variant'],p['variant'])
             canonical=RagStore(Path(temp)/'rag.sqlite3');ingest_profile(canonical,p)
             q.clock=lambda:time.time()+8*86400
@@ -163,20 +166,32 @@ class HikingTests(unittest.TestCase):
         with patch('hiking_trip.make_trip',return_value=card):
             result=build_hiking_tool(source='发 徒步 测试山',outdoor_config=config).invoke({'destination':'测试山'})
         self.assertIn('ERA5 1991—2020',result['hikingCard']['climate'])
-    def test_background_promotes_only_after_committed_job(self):
+    def test_background_promotes_only_after_committed_verification(self):
         from bounded_research import run_next
+        from research_checks import perform_check
+        from research_verifier import build_verifier
         from hashlib import sha256
         with self.tempdir() as temp:
             q=ResearchQueue(Path(temp)/'queue.sqlite3');q.enqueue('测试山');p=self.profile();p['checked_at']=time.time()
             body='测试山第1天山村至湖畔，湖畔露营；第2天返回山村。此为历史行程，当前开放情况需核对。'
+            for day in p['days']:day['evidence']=body
             candidate={'url':p['sources'][0]['url'],'title':'测试山两日行程','text':body,'published_at':'2026-11-07','fetched_at':datetime.now(TZ).isoformat(),'content_hash':sha256(body.encode()).hexdigest()}
             result={'status':'completed','candidates':[candidate],'metrics':{},'hiking_profiles':[p]}
             store=RagStore(Path(temp)/'rag.sqlite3')
             with patch('bounded_research.run_child',return_value=result):out=run_next(q,store=store)
-            self.assertEqual(out['metrics']['hiking_profiles'],1);self.assertEqual(out['metrics']['rag_updates'],1)
+            self.assertEqual(out['status'],'completed')
+            self.assertEqual(HikingStore(q).get('测试山'),[])
+            self.assertFalse(store.active_chunks(namespace='test',domain='outdoor',include_shared=True))
+            def model(packet,key):
+                count=len(json.loads(packet['messages'][1]['content'])['claims'])
+                self.assertEqual((packet['reasoning_effort'],packet['thinking']['type']),('max','enabled'))
+                reply={'decisions':[{'status':'supported','citations':[{'source':1,'quote':body}]} for _ in range(count)]}
+                return {'choices':[{'finish_reason':'stop','message':{'content':json.dumps(reply)}}]}
+            graph=build_verifier('fixture',call=model)
+            for _ in range(4):perform_check(q,q.claim_check(),store,'fixture',verifier=graph)
+            self.assertIsNone(q.claim_check())
             self.assertEqual(HikingStore(q).get('测试山')[0]['variant'],'两日穿越')
-            with q._transaction() as db:metrics=json.loads(db.execute('SELECT metrics FROM jobs').fetchone()[0])
-            self.assertEqual(metrics['hiking_profiles'],1);self.assertEqual(metrics['rag_updates'],1)
+            self.assertEqual(len({d['doc_id'] for d in store.active_chunks(namespace='test',domain='outdoor',include_shared=True)}),2)
     def test_auto_reference_never_overwrites_same_named_reviewed_route(self):
         with self.tempdir() as temp:
             store=RagStore(Path(temp)/'rag.sqlite3');p=self.profile();p['reviewed']=True

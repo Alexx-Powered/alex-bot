@@ -144,6 +144,10 @@ class ResearchQueue:
                 connection.execute('CREATE UNIQUE INDEX jobs_single_running ON jobs((1)) WHERE status=\'running\'')
                 connection.execute('CREATE TABLE candidates (id TEXT PRIMARY KEY,job_id TEXT NOT NULL REFERENCES jobs(id),topic_key TEXT NOT NULL,url TEXT NOT NULL,title TEXT NOT NULL,text TEXT NOT NULL,published_at TEXT,fetched_at REAL NOT NULL,expires_at REAL NOT NULL,content_hash TEXT NOT NULL,state TEXT NOT NULL DEFAULT \'candidate\',reviewed_text TEXT,review_note TEXT,reviewed_hash TEXT,approved_at REAL,UNIQUE(job_id,url,content_hash))')
                 connection.execute('CREATE INDEX candidates_topic ON candidates(topic_key,expires_at)')
+            connection.execute("""CREATE TABLE IF NOT EXISTS research_checks (
+                job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, slot TEXT NOT NULL,
+                payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', expires REAL NOT NULL,
+                lease REAL, receipt TEXT, PRIMARY KEY(job_id,slot))""")
             yield connection
             connection.commit()
         except sqlite3.Error as exc:
@@ -217,7 +221,7 @@ class ResearchQueue:
             db.execute("UPDATE jobs SET status='running',started_at=?,lease_until=? WHERE id=?",(now,now+LEASE_SECONDS,row['id']))
             return self._summary(db,db.execute('SELECT * FROM jobs WHERE id=?',(row['id'],)).fetchone(),now)
 
-    def finish(self,job_id,result):
+    def finish(self,job_id,result,*,checks=()):
         if not isinstance(job_id,str) or not re.fullmatch('[0-9a-f]{32}',job_id):raise ResearchQueueError('RESEARCH_INVALID_JOB')
         now=self.clock()
         if not isinstance(result,dict) or set(result)-{'status','error_code','metrics','candidates'}:raise ResearchQueueError('RESEARCH_INVALID_RESULT')
@@ -263,8 +267,58 @@ class ResearchQueue:
                     return
                 for identity,url,title,body,published,fetched,expires,digest in candidates:
                     db.execute('INSERT INTO candidates(id,job_id,topic_key,url,title,text,published_at,fetched_at,expires_at,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?)',(identity,job_id,row['topic_key'],url,title,body,published,fetched,expires,digest))
+                if len(checks)>5:raise ResearchQueueError('RESEARCH_INVALID_CHECK')
+                db.execute('DELETE FROM research_checks WHERE expires<=?',(now,))
+                for slot,payload in checks:
+                    encoded_task=json.dumps(payload,ensure_ascii=False,separators=(',',':'))
+                    if len(encoded_task.encode())>65000:raise ResearchQueueError('RESEARCH_INVALID_CHECK')
+                    db.execute('INSERT INTO research_checks(job_id,slot,payload,expires) VALUES(?,?,?,?)',
+                               (job_id,slot,encoded_task,min(c[6] for c in candidates)))
                 db.execute('UPDATE jobs SET status=?,finished_at=?,expires_at=?,error_code=?,metrics=? WHERE id=?',(state,now,now+(SUCCESS_TTL if state=='completed' else NEGATIVE_TTL),code,encoded,job_id))
         if expired:raise ResearchQueueError('RESEARCH_JOB_NOT_RUNNING')
+
+    def claim_check(self):
+        now=self.clock()
+        with self._transaction() as db:
+            # A lost billable request is never submitted twice. Publishing the
+            # saved response can be repeated with the same document IDs.
+            db.execute("UPDATE research_checks SET state='pending' WHERE state='checking' AND lease<=?",(now,))
+            db.execute("""UPDATE research_checks SET state=CASE WHEN json_extract(receipt,'$.publish_attempts')>=3
+                      THEN 'pending' ELSE 'ready' END WHERE state='publishing' AND lease<=?""",(now,))
+            if db.execute("SELECT 1 FROM research_checks WHERE state IN ('checking','publishing') AND lease>?",(now,)).fetchone():
+                return None
+            row=db.execute("""SELECT * FROM research_checks WHERE state IN ('ready','queued') AND expires>?
+                              ORDER BY coalesce(json_extract(receipt,'$.publish_attempts'),0),state='ready' DESC,rowid LIMIT 1""",(now,)).fetchone()
+            if row is None:return None
+            stage='publishing' if row['state']=='ready' else 'checking'
+            lease=now+LEASE_SECONDS
+            receipt=json.loads(row['receipt']) if row['receipt'] else None
+            if stage=='publishing':receipt['publish_attempts']=receipt.get('publish_attempts',0)+1
+            db.execute('UPDATE research_checks SET state=?,lease=?,receipt=? WHERE job_id=? AND slot=?',
+                       (stage,lease,json.dumps(receipt,ensure_ascii=False) if receipt else None,row['job_id'],row['slot']))
+            return {**dict(row),'state':stage,'lease':lease,'payload':json.loads(row['payload']),
+                    'receipt':receipt}
+
+    @contextmanager
+    def publication(self,task):
+        with self._transaction() as db:
+            now=self.clock()
+            row=db.execute("""SELECT receipt FROM research_checks WHERE job_id=? AND slot=? AND state='publishing'
+                         AND lease=? AND lease>? AND expires>?""",(task['job_id'],task['slot'],task['lease'],now,now)).fetchone()
+            if not row or json.loads(row[0])!=task['receipt'] or task['receipt'].get('status')!='supported':
+                raise ResearchQueueError('RESEARCH_CHECK_LEASE_LOST')
+            yield db
+            db.execute("UPDATE research_checks SET state='published',lease=NULL WHERE job_id=? AND slot=?",
+                       (task['job_id'],task['slot']))
+
+    def advance_check(self,task,state,receipt):
+        with self._transaction() as db:
+            now=self.clock()
+            changed=db.execute("""UPDATE research_checks SET state=?,receipt=?,lease=NULL WHERE job_id=? AND slot=?
+                          AND state=? AND lease=? AND lease>? AND expires>?""",
+                          (state,json.dumps(receipt,ensure_ascii=False),task['job_id'],task['slot'],
+                           task['state'],task['lease'],now,now)).rowcount
+            if changed!=1:raise ResearchQueueError('RESEARCH_CHECK_LEASE_LOST')
 
     def note_enrichment(self,job_id,counts):
         """Persist the small post-commit catalogue/RAG outcome, not raw pages."""
@@ -290,7 +344,9 @@ class ResearchQueue:
     def candidates(self,topic):
         key=_key(normalize_topic(topic));now=self.clock()
         with self._transaction() as db:
-            rows=db.execute('SELECT * FROM candidates WHERE topic_key=? AND expires_at>? ORDER BY fetched_at DESC,id LIMIT 3',(key,now)).fetchall()
+            rows=db.execute("""SELECT c.*,r.state AS check_state,r.receipt AS check_receipt FROM candidates c
+                LEFT JOIN research_checks r ON r.job_id=c.job_id AND r.slot='url:'||c.url
+                WHERE c.topic_key=? AND c.expires_at>? ORDER BY c.fetched_at DESC,c.id LIMIT 3""",(key,now)).fetchall()
             # The raw fetched text stays untrusted even after a separate reviewed
             # summary is approved. Promotion must use approved().reviewed_text.
             return [{**dict(row),'fresh':True,'trusted':False} for row in rows]

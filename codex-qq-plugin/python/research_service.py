@@ -118,6 +118,10 @@ def probe(config, *, now=None):
         if db.execute("SELECT 1 FROM jobs WHERE status='running' AND lease_until>? LIMIT 1", (now,)).fetchone():
             return {'status': 'busy'}
         ready = db.execute("SELECT 1 FROM jobs WHERE status='queued' AND created_at>? LIMIT 1", (now-QUEUE_TTL,)).fetchone()
+        if not ready and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_checks'").fetchone():
+            ready=db.execute("""SELECT 1 FROM research_checks WHERE expires>? AND
+                      (state IN ('queued','ready') OR (state IN ('publishing','checking') AND lease<=?)) LIMIT 1""",
+                      (now,now)).fetchone()
         return {'status': 'ready' if ready else 'idle'}
     except sqlite3.Error as exc:
         if getattr(exc, 'sqlite_errorcode', 0) & 255 in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
@@ -134,6 +138,10 @@ def result_summary(result):
     if status not in allowed:
         return {'status': 'failed', 'error_code': 'RESEARCH_INVALID_OUTPUT'}
     summary = {'status': status}
+    if result.get('stage') in ('check','publish'):
+        summary['stage']=result['stage']
+        if result.get('verdict') in ('supported','insufficient','conflicting','pending'):
+            summary['verdict']=result['verdict']
     code = result.get('error_code')
     if isinstance(code, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,63}', code):
         summary['error_code'] = code
@@ -144,7 +152,8 @@ def result_summary(result):
     if isinstance(metrics, dict):
         numbers = {key: value for key, value in metrics.items()
                    if key in {'search_calls', 'fetch_calls', 'retries', 'llm_calls', 'search_ms', 'fetch_ms',
-                              'validate_ms', 'total_ms', 'raw_hits', 'discovered_hits', 'eligible_pages','hiking_profiles','rag_updates'}
+                              'validate_ms', 'total_ms', 'raw_hits', 'discovered_hits', 'eligible_pages','hiking_profiles','rag_updates',
+                              'latency_ms','prompt_tokens','completion_tokens','prompt_cache_hit_tokens','prompt_cache_miss_tokens'}
                    and type(value) in (int, float) and 0 <= value <= 600000}
         if numbers:
             summary['metrics'] = numbers
@@ -168,7 +177,13 @@ def consume(config, packet, *, admitted=None, runner=None):
     if not runner and config.get('store_path'):
         from rag_store import RagStore
         extra['store']=RagStore(config['store_path'])
-    result = (runner or run_next)(ResearchQueue(config['queue_path']), provider='deepseek', api_key=packet['api_key'],**extra)
+    queue=ResearchQueue(config['queue_path'])
+    result = (runner or run_next)(queue, provider='deepseek', api_key=packet['api_key'],**extra)
+    if result['status']=='idle' and runner is None:
+        task=queue.claim_check()
+        if task:
+            from research_checks import perform_check
+            result=perform_check(queue,task,extra.get('store'),packet['api_key'])
     return result_summary(result)
 
 

@@ -267,6 +267,9 @@ class RagStore:
             raise RagStoreError('RAG_INVALID_SCOPE')
         now = schema.timestamp(self.clock())
         where = "d.status='active' AND d.valid_from<=? AND (d.valid_until IS NULL OR d.valid_until>?)"
+        # Pre-verifier auto documents remain in storage until expiry; neither
+        # lexical retrieval nor vector rehydration may publish them as evidence.
+        where += " AND NOT (d.namespace='shared' AND d.domain='outdoor' AND (d.doc_id GLOB 'research-auto-*' OR d.doc_id GLOB 'hiking-auto-*'))"
         params = [now,now]
         where += " AND ((d.namespace=? AND d.visibility='private')"
         params.append(namespace)

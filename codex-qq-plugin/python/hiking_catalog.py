@@ -5,6 +5,7 @@ They are references, never permissions, current opening guarantees or navigation
 """
 from __future__ import annotations
 from datetime import datetime, timezone
+from contextlib import nullcontext
 import hashlib,json,math,re,time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -115,22 +116,30 @@ class HikingStore:
     def __init__(self,queue):self.queue=queue
     def _tables(self,db):
         db.execute('CREATE TABLE IF NOT EXISTS hiking_routes(topic TEXT NOT NULL,variant TEXT NOT NULL,profile TEXT NOT NULL,digest TEXT NOT NULL,updated REAL NOT NULL,expires REAL NOT NULL,PRIMARY KEY(topic,variant))')
+        db.execute('CREATE TABLE IF NOT EXISTS hiking_route_checks(topic TEXT NOT NULL,variant TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(topic,variant),FOREIGN KEY(topic,variant) REFERENCES hiking_routes(topic,variant) ON DELETE CASCADE)')
         db.execute('CREATE TABLE IF NOT EXISTS hiking_points(name TEXT NOT NULL,region TEXT NOT NULL,payload TEXT NOT NULL,expires REAL NOT NULL,PRIMARY KEY(name,region))')
     def get(self,topic):
         with self.queue._transaction() as db:
             self._tables(db)
-            rows=db.execute('SELECT profile FROM hiking_routes WHERE topic=? AND expires>? ORDER BY variant LIMIT 2',(topic,self.queue.clock())).fetchall()
+            rows=db.execute("""SELECT r.profile FROM hiking_routes r LEFT JOIN hiking_route_checks v
+                ON (r.topic,r.variant,r.digest)=(v.topic,v.variant,v.digest) WHERE r.topic=? AND r.expires>?
+                AND (json_extract(r.profile,'$.reviewed')=1 OR v.digest IS NOT NULL) ORDER BY r.variant LIMIT 2""",
+                (topic,self.queue.clock())).fetchall()
             return [validate_profile(json.loads(r[0])) for r in rows]
-    def put(self,profile):
-        p=validate_profile(profile);now=self.queue.clock();encoded=json.dumps(p,ensure_ascii=False,separators=(',',':'))
+    def put(self,profile,*,machine_checked=False,connection=None,expires_at=None):
+        p=validate_profile(profile);now=self.queue.clock()
+        encoded=json.dumps(p,ensure_ascii=False,separators=(',',':'))
         if len(encoded.encode())>24000:raise ValueError('HIKING_PROFILE_TOO_LARGE')
         digest=hashlib.sha256(encoded.encode()).hexdigest()
-        with self.queue._transaction() as db:
+        with (self.queue._transaction() if connection is None else nullcontext(connection)) as db:
             self._tables(db);db.execute('DELETE FROM hiking_routes WHERE expires<=?',(now,))
-            old=db.execute('SELECT digest FROM hiking_routes WHERE topic=? AND variant=?',(p['topic'],p['variant'])).fetchone()
+            old=db.execute('SELECT digest,profile FROM hiking_routes WHERE topic=? AND variant=?',(p['topic'],p['variant'])).fetchone()
+            if old and json.loads(old[1]).get('reviewed') and not p['reviewed']:return False
             if not old and db.execute('SELECT count(*) FROM hiking_routes').fetchone()[0]>=64:raise ValueError('HIKING_CATALOG_FULL')
             db.execute('INSERT INTO hiking_routes VALUES(?,?,?,?,?,?) ON CONFLICT(topic,variant) DO UPDATE SET profile=excluded.profile,digest=excluded.digest,updated=excluded.updated,expires=excluded.expires',
-                       (p['topic'],p['variant'],encoded,digest,now,now+7*86400))
+                       (p['topic'],p['variant'],encoded,digest,now,expires_at if expires_at is not None else now+7*86400))
+            if machine_checked:
+                db.execute('INSERT OR REPLACE INTO hiking_route_checks VALUES(?,?,?)',(p['topic'],p['variant'],digest))
         return not old or old[0]!=digest
     def point(self,name,region,value=None):
         with self.queue._transaction() as db:
@@ -143,7 +152,7 @@ class HikingStore:
             db.execute('INSERT OR REPLACE INTO hiking_points VALUES(?,?,?,?)',(name,region,json.dumps(value),now+7*86400))
             return value
 
-def ingest_profile(store,profile,*,now=None):
+def ingest_profile(store,profile,*,now=None,machine_checked=False,expires_at=None):
     """Auto-derived references use their own IDs, scope, expiry and explicit label.
 
     Never overwrite reviewed campus/route rules. Canonical lexical retrieval sees
@@ -165,9 +174,9 @@ def ingest_profile(store,profile,*,now=None):
     identity=hashlib.sha256((p['topic']+'\0'+p['variant']).encode()).hexdigest()
     checked=p.get('checked_at',now)
     if not isinstance(checked,(int,float)):checked=now
-    return store.put_document(doc_id=('hiking-' if p['reviewed'] else 'hiking-auto-')+identity,namespace='shared',visibility='shared',domain='outdoor',
+    return store.put_document(doc_id=('hiking-' if p['reviewed'] else 'hiking-checked-' if machine_checked else 'hiking-auto-')+identity,namespace='shared',visibility='shared',domain='outdoor',
         title=p['topic']+'｜'+p['variant']+'行程参考',text='\n\n'.join(parts),source_ref=source['url'],
-        valid_from=checked,valid_until=None if p['reviewed'] else checked+7*86400)
+        valid_from=checked,valid_until=None if p['reviewed'] else expires_at if expires_at is not None else checked+7*86400)
 
 def extract_profiles(topic,candidates,api_key,*,timeout=8,requester=None,diagnostics=None,photos=()):
     """One schema-constrained extraction, zero tools/retries/coordinate authority."""
@@ -199,7 +208,12 @@ def extract_profiles(topic,candidates,api_key,*,timeout=8,requester=None,diagnos
         req=Request('https://api.deepseek.com/chat/completions',data=json.dumps(packet).encode(),headers={'Authorization':'Bearer '+api_key,'Content-Type':'application/json'})
         with urlopen(req,timeout=timeout) as r:raw=r.read(48001)
         if len(raw)>48000:raise ValueError('HIKING_EXTRACTION_TOO_LARGE')
-        return json.loads(raw)['choices'][0]['message']['content']
+        answer=json.loads(raw)
+        if diagnostics is not None:
+            usage=answer.get('usage',{})
+            diagnostics['extraction_usage']={k:usage[k] for k in ('prompt_tokens','completion_tokens','prompt_cache_hit_tokens','prompt_cache_miss_tokens')
+                                             if type(usage.get(k)) is int and usage[k]>=0}
+        return answer['choices'][0]['message']['content']
     try:
         value=json.loads((requester or call)());items=value['profiles']
         if not isinstance(items,list) or len(items)>2:return []
@@ -250,17 +264,18 @@ def extract_profiles(topic,candidates,api_key,*,timeout=8,requester=None,diagnos
         return []
 
 
-def ingest_candidates(store,topic,candidates,*,now=None):
+def ingest_candidates(store,topic,candidates,*,now=None,machine_checked=False):
     """Short-lived quoted references; never replace manually confirmed rules."""
     from bounded_research import _INJECTION,topic_matches
     now=time.time() if now is None else now
     count=0
     for c in candidates[:3]:
-        if not topic_matches(topic,c) or _INJECTION.search(c['text']):continue
+        if (not machine_checked and not topic_matches(topic,c)) or _INJECTION.search(c['text']):continue
         identity=hashlib.sha256((topic+'\0'+c['url']).encode()).hexdigest()
-        text='自动更新的待核验网页摘录；以下仅为来源原文，不代表当前开放、可订或安全。\n\n'+c['text']
+        label='已机器核对的来源原文' if machine_checked else '自动更新的待核验网页摘录'
+        text=label+'；不可据此确认当前开放、可订或安全。\n\n'+c['text']
         text+='\n\n来源日期：'+str(c.get('published_at') or '未标注')+'；采集：'+datetime.fromtimestamp(now,timezone.utc).isoformat()
-        store.put_document(doc_id='research-auto-'+identity,namespace='shared',visibility='shared',domain='outdoor',
-            title=topic+'｜待核验来源摘录',text=text,source_ref=c['url'],valid_from=now,valid_until=now+86400)
+        store.put_document(doc_id=('research-checked-' if machine_checked else 'research-auto-')+identity,namespace='shared',visibility='shared',domain='outdoor',
+            title=topic+'｜'+label,text=text,source_ref=c['url'],valid_from=now,valid_until=now+86400)
         count+=1
     return count

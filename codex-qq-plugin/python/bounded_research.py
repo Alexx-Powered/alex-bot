@@ -58,7 +58,7 @@ def _topic_terms(topic):
         return [topic[:-2],topic[-2:]]
     # These are descriptive route suffixes, not inferred place aliases. Require
     # the named entity and the route kind together in each admitted paragraph.
-    for suffix,kind in [('国家登山健身步道','步道'),('环湖步道','环湖'),('国家登山步道','步道')]:
+    for suffix,kind in [('国家登山健身步道','步道'),('环湖步道','环湖'),('国家登山步道','步道'),('徒步路线','徒步')]:
         if topic.endswith(suffix) and len(topic)-len(suffix)>=2:
             return [topic[:-len(suffix)],kind]
     if re.fullmatch(r'[\u4e00-\u9fff]{3}道',topic):
@@ -225,7 +225,13 @@ def run_next(queue, *, provider='bing_rss', api_key='',store=None):
     result=run_child({'topic':job['topic'],'provider':provider,'api_key':api_key})
     profiles=result.pop('hiking_profiles',[])
     try:
-        queue.finish(job['job_id'],result)
+        from research_checks import prepare_checks
+        checks=prepare_checks(job['topic'],result.get('candidates',[]),profiles) if result['status']=='completed' else []
+        try:queue.finish(job['job_id'],result,checks=checks)
+        except ResearchQueueError as exc:
+            if exc.code!='RESEARCH_STORAGE_FULL' or not checks:raise
+            result['metrics']['check_storage_full']=True
+            queue.finish(job['job_id'],result)
         final=queue.status(job['topic'])
         if final.get('status') not in {'completed','empty','timeout','failed'}:
             return {'status':'failed','error_code':'RESEARCH_RESULT_NOT_COMMITTED','candidates':[],'metrics':result.get('metrics',{})}
@@ -233,22 +239,6 @@ def run_next(queue, *, provider='bing_rss', api_key='',store=None):
             return {'status':final['status'],'error_code':'RESEARCH_RESULT_NOT_ADMITTED','candidates':[],'metrics':result.get('metrics',{})}
     except (ResearchQueueBusy,ResearchQueueError):
         return {'status':'failed','error_code':'RESEARCH_RESULT_NOT_COMMITTED','candidates':[],'metrics':result.get('metrics',{})}
-    if result['status']=='completed':
-        from hiking_catalog import HikingStore,ingest_profile,ingest_candidates
-        catalog=HikingStore(queue);accepted=0
-        for profile in profiles[:2] if isinstance(profiles,list) else []:
-            try:
-                if profile['topic']!=job['topic'] or profile.get('reviewed') is not False:continue
-                catalog.put(profile)
-                if store:ingest_profile(store,profile)
-                accepted+=1
-            except Exception:continue
-        result['metrics']['hiking_profiles']=accepted
-        if store:
-            try:result['metrics']['rag_updates']=ingest_candidates(store,job['topic'],result.get('candidates',[]))
-            except Exception:result['metrics']['rag_update_failed']=True
-        try:queue.note_enrichment(job['job_id'],{k:v for k,v in result['metrics'].items() if k in {'hiking_profiles','rag_updates','rag_update_failed'}})
-        except (ResearchQueueBusy,ResearchQueueError):pass
     return result
 
 
@@ -313,6 +303,8 @@ def topic_matches(topic, item):
     """Similarity alone cannot establish that the named route is covered."""
     haystack=_normalized(str(item.get('title',''))+' '+str(item.get('text','')))
     if _normalized(topic) in haystack:return True
+    if topic.endswith('徒步路线'):
+        return all(_normalized(term) in haystack for term in _topic_terms(topic))
     match=re.fullmatch(r'(.{2,12}?)(东|西|南|北)坡',topic)
     return bool(match and _normalized(match[1]) in haystack and match[2]+'坡' in haystack)
 
@@ -335,9 +327,16 @@ def foreground_research(queue, *, topic, source, allow_public_search=False):
                     hashlib.sha256(body.encode()).hexdigest()!=item.get('content_hash')):continue
                 try:url=_url(item['url'])
                 except ValueError:continue
+                if item.get('check_state') in ('insufficient','conflicting'):continue
+                checked=item.get('check_state')=='published'
+                if checked:
+                    receipt=json.loads(item['check_receipt'])
+                    quotes=[r['quote'] for r in receipt['evidence'] if r['content_hash']==item['content_hash'] and r['url']==url and r['quote'] in body]
+                    if not quotes:continue
+                    body='\n'.join(dict.fromkeys(quotes))
                 candidates.append({'text':body,'title':title,'source_url':url,
                     'published_at':_published(item.get('published_at')),
-                    'fetched_at':item['fetched_at'],'trusted':False,'current_access':'unknown'})
+                    'fetched_at':item['fetched_at'],'trusted':False,'machine_checked':checked,'current_access':'unknown'})
         return {**base,**result,'topic':topic,'candidate_evidence':candidates}
     except ResearchQueueError as exc:
         return {**base,'topic':topic,'status':'unavailable','error_code':'RAG_STORE_UNAVAILABLE',
@@ -353,7 +352,7 @@ def format_research_observation(value):
     if status=='denied':return '未登记搜索。请在本条消息中明确一个公开户外地点或路线名称。'
     heads={'queued':f'{topic}的补充资料已排队。下次询问时可读取结果。',
            'running':f'{topic}的补充资料正在查询。下次询问时可读取结果。',
-           'completed':f'{topic}｜未核验的补充资料',
+           'completed':f'{topic}｜补充资料',
            'empty':f'本次未找到{topic}的可用补充资料，暂不重复搜索。',
            'failed':f'{topic}的补充搜索暂未完成，稍后可再查询。',
            'timeout':f'{topic}的补充搜索已超时，稍后可再查询。',
@@ -361,12 +360,13 @@ def format_research_observation(value):
            'busy':'资料队列正忙，请稍后再试。','full':'资料队列已满，请稍后再试。',
            'rate_limited':'今日补充资料查询额度已用完。','unavailable':'补充资料查询暂不可用。'}
     parts=[heads.get(status,'补充资料查询暂不可用。')]
-    if status=='completed':parts.append('以下为历史/待核实原文；采集时间不等于生效时间，不能据此确认当前开放或安全。')
+    if status=='completed':parts.append('各条分别标明机器核对或未核验。采集时间不等于生效时间，不能据此确认当前开放或安全。')
     for item in value.get('candidate_evidence',[])[:3]:
         published=item.get('published_at') or '未标注'
         fetched=datetime.fromtimestamp(item['fetched_at'],timezone.utc).strftime('%Y-%m-%d UTC')
         meta=f"来源日期线索：{published}；采集：{fetched}\n来源：{item['source_url']}"
-        entry=f"【候选资料】\n{item['text']}\n{meta}"
+        label='机器核对的来源摘录' if item.get('machine_checked') else '候选资料'
+        entry=f"【{label}】\n{item['text']}\n{meta}"
         if len('\n\n'.join([*parts,entry]))<=1500:parts.append(entry)
         elif len(parts)==2 and len('\n\n'.join([*parts,meta]))<=1500:
             parts.append('原文较长，请查看来源；未截断原文生成结论。\n'+meta)

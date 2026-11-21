@@ -23,9 +23,13 @@ export function childEnvironment(source = process.env) {
 export function safeSummary(value) {
   if (!value || typeof value !== 'object' || !statuses.has(value.status)) return failure('RESEARCH_INVALID_OUTPUT');
   const result = {status:value.status};
+  if (['check','publish'].includes(value.stage)) {
+    result.stage=value.stage;
+    if (['supported','insufficient','conflicting','pending'].includes(value.verdict)) result.verdict=value.verdict;
+  }
   if (typeof value.error_code === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(value.error_code)) result.error_code=value.error_code;
   if (Number.isInteger(value.candidate_count) && value.candidate_count>=0 && value.candidate_count<=3) result.candidate_count=value.candidate_count;
-  const keys = ['search_calls','fetch_calls','retries','llm_calls','search_ms','fetch_ms','validate_ms','total_ms','raw_hits','discovered_hits','eligible_pages','hiking_profiles','rag_updates'];
+  const keys = ['search_calls','fetch_calls','retries','llm_calls','search_ms','fetch_ms','validate_ms','total_ms','raw_hits','discovered_hits','eligible_pages','hiking_profiles','rag_updates','latency_ms','prompt_tokens','completion_tokens','prompt_cache_hit_tokens','prompt_cache_miss_tokens'];
   if (value.metrics && typeof value.metrics==='object') {
     result.metrics=Object.fromEntries(keys.filter(key=>Number.isFinite(value.metrics[key]) && value.metrics[key]>=0 && value.metrics[key]<=600000).map(key=>[key,value.metrics[key]]));
   }
