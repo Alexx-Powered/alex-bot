@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from research_checks import perform_check, prepare_checks
-from research_queue import LEASE_SECONDS, ResearchQueue, ResearchQueueError
+from research_queue import CHECK_LEASE_SECONDS, LEASE_SECONDS, ResearchQueue, ResearchQueueError
 from research_service import probe
 from research_verifier import build_verifier, passage
 from rag_store import RagStore
@@ -64,7 +64,7 @@ class ResearchVerificationTests(unittest.TestCase):
 
     def test_lost_billable_lease_is_not_resubmitted(self):
         task=self.start()
-        self.clock+=LEASE_SECONDS+1
+        self.clock+=CHECK_LEASE_SECONDS+1
         self.assertIsNone(self.queue.claim_check())
         with self.assertRaises(ResearchQueueError):
             self.queue.advance_check(task,'ready',{'status':'supported'})

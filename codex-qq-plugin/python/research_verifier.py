@@ -6,11 +6,11 @@ import time
 from typing import TypedDict
 
 MODEL = 'deepseek-flash'
-TIMEOUT = 16
+TIMEOUT = 65
 
 
-def passage(url, text, published_at):
-    return {'url': url, 'text': text, 'published_at': published_at,
+def passage(url, text, published_at, title=''):
+    return {'url': url, 'text': text, 'published_at': published_at, **({'title':title[:200]} if title else {}),
             'content_hash': hashlib.sha256(text.encode()).hexdigest()}
 
 
@@ -66,7 +66,7 @@ def build_verifier(key, *, call=_call):
                   '按输入断言顺序输出 JSON {"decisions":[{"status":"supported","citations":[{"source":1,"quote":"连续逐字原文"}]}]}。'
                   '第1条来源编号为1。每项最多3段引文，每段8到800字，保留限定和否定；缺证可无引文。')
         material = {'claims': state['claims'], 'sources': [
-            {'source': i, 'url': s['url'], 'date': s['published_at'], 'text': s['text']}
+            {'source': i, 'url': s['url'], 'date': s['published_at'], 'text': s['text'],**({'title':s['title']} if s.get('title') else {})}
             for i, s in enumerate(state['sources'], 1)]}
         packet = {'model': MODEL, 'thinking': {'type': 'enabled'}, 'reasoning_effort': 'max', 'max_tokens': 8192,
                   'response_format': {'type': 'json_object'}, 'messages': [{'role': 'system', 'content': system},
@@ -80,13 +80,16 @@ def build_verifier(key, *, call=_call):
                 if type(usage.get(name)) is int and usage[name] >= 0:
                     metrics[name] = usage[name]
             choice = answer['choices'][0]
+            if choice['finish_reason']=='length':
+                raise ValueError('REVIEW_OUTPUT_LIMIT')
             if choice['finish_reason'] != 'stop':
                 raise ValueError('REVIEW_INCOMPLETE')
             decisions = json.loads(choice['message']['content'])['decisions']
             return {'status': 'answered', 'decisions': decisions, 'metrics': metrics}
         except Exception as exc:
             code = str(exc)
-            metrics['error'] = code if code.startswith('HTTP_') and code[5:].isdigit() else 'REVIEW_INCOMPLETE'
+            if isinstance(exc,TimeoutError):code='REVIEW_TIMEOUT'
+            metrics['error'] = code if code in ('REVIEW_TIMEOUT','REVIEW_OUTPUT_LIMIT') or (code.startswith('HTTP_') and code[5:].isdigit()) else 'REVIEW_INCOMPLETE'
             return {'status': 'pending', 'metrics': metrics}
         finally:
             metrics['latency_ms'] = round((time.monotonic() - started) * 1000)

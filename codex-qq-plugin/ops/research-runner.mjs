@@ -37,7 +37,7 @@ export function safeSummary(value) {
 }
 
 export function runPython(mode, packet, {spawnProcess=spawn,python=process.env.QQ_PYTHON || PYTHON,timeoutMs=25000,env=childEnvironment()} = {}) {
-  if (!['--probe','--consume'].includes(mode) || !path.isAbsolute(python)) return Promise.resolve(failure('RESEARCH_ARGUMENTS_INVALID'));
+  if (!['--probe','--consume','--review'].includes(mode) || !path.isAbsolute(python)) return Promise.resolve(failure('RESEARCH_ARGUMENTS_INVALID'));
   return new Promise(resolve=>{
     let child, timer, finished=false, bytes=0, chunks=[];
     const finish = value=>{if(finished)return;finished=true;clearTimeout(timer);resolve(safeSummary(value));};
@@ -73,6 +73,7 @@ export async function runResearchTick({invoke=runPython,loadConfig=()=>new Agent
     if(state.status!=='ready')return state;
     const config=await loadConfig();
     if(config?.provider!=='deepseek' || typeof config.apiKey!=='string' || !/^\S{8,512}$/u.test(config.apiKey)) return failure('RESEARCH_CREDENTIAL_UNAVAILABLE');
+    if(state.stage==='check')return safeSummary(await invoke('--review',{api_key:config.apiKey},{timeoutMs:80000}));
     return safeSummary(await invoke('--consume',{api_key:config.apiKey}));
   } catch {return failure('RESEARCH_RUNNER_FAILED');}
 }

@@ -6,7 +6,7 @@ from research_verifier import build_verifier, passage
 def prepare_checks(topic, candidates, profiles):
     from hiking_catalog import validate_profile
     checks = []
-    captured = [passage(c['url'],c['text'],c.get('published_at')) for c in candidates]
+    captured = [passage(c['url'],c['text'],c.get('published_at'),c['title']) for c in candidates]
     for number,(c,source) in enumerate(zip(candidates,captured),1):
         if source['content_hash'] != c['content_hash']:
             continue
@@ -32,7 +32,7 @@ def prepare_checks(topic, candidates, profiles):
                     if modes:sleep['options']=modes
                 for text in (day['evidence'], day.get('stay_evidence')):
                     if text:
-                        part = passage(src['url'], text, src['date'])
+                        part = passage(src['url'], text, src['date'],src['title'])
                         if part not in sources:
                             sources.append(part)
                 sleep = day['sleep']

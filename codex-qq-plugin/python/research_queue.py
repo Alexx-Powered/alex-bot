@@ -26,6 +26,7 @@ SUCCESS_TTL = 24 * 3600
 NEGATIVE_TTL = 6 * 3600
 QUEUE_TTL = 600
 LEASE_SECONDS = 25
+CHECK_LEASE_SECONDS = 90
 APPROVAL_RETENTION = 7 * 86400
 JOB_RETENTION = 30 * 86400
 
@@ -291,7 +292,7 @@ class ResearchQueue:
                               ORDER BY coalesce(json_extract(receipt,'$.publish_attempts'),0),state='ready' DESC,rowid LIMIT 1""",(now,)).fetchone()
             if row is None:return None
             stage='publishing' if row['state']=='ready' else 'checking'
-            lease=now+LEASE_SECONDS
+            lease=now+(CHECK_LEASE_SECONDS if stage=='checking' else LEASE_SECONDS)
             receipt=json.loads(row['receipt']) if row['receipt'] else None
             if stage=='publishing':receipt['publish_attempts']=receipt.get('publish_attempts',0)+1
             db.execute('UPDATE research_checks SET state=?,lease=?,receipt=? WHERE job_id=? AND slot=?',

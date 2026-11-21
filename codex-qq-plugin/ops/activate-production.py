@@ -118,6 +118,21 @@ def activate(commit, base_name):
     check(manifest['commit'] == commit and manifest['release'] == target.name, 'CANDIDATE_CHANGED')
     check(all(digest(target/name) == value for name,value in manifest['files'].items()), 'HASH_MISMATCH')
     require_map_review(target/'codex-qq-plugin', old/'codex-qq-plugin')
+    unit_name='alexbot-research.service'
+    unit_file=Path('/etc/systemd/system')/unit_name
+    unit_source=Path('codex-qq-plugin/ops')/unit_name
+    old_unit=(old/unit_source).read_bytes()
+    new_unit=(target/unit_source).read_bytes()
+    if old_unit!=new_unit:
+        check(prop(unit_name,'FragmentPath')==str(unit_file) and unit_file.read_bytes()==old_unit,'RESEARCH_UNIT_CHANGED')
+
+    def install_unit(data):
+        with tempfile.TemporaryDirectory(dir=unit_file.parent) as folder:
+            temporary=Path(folder)/unit_name
+            temporary.write_bytes(data)
+            temporary.chmod(0o644)
+            os.replace(temporary,unit_file)
+        run('systemctl','daemon-reload')
     check_schedule()
     before = ready()
     check(before['core']['uncertainDeliveries'] == 0, 'UNSETTLED_BEFORE_SWITCH')
@@ -128,6 +143,7 @@ def activate(commit, base_name):
     try:
         run('systemctl','stop',BOT)
         frozen = snapshot()
+        if old_unit!=new_unit:install_unit(new_unit)
         switch(target)
         run('systemctl','start',BOT)
         after = ready()
@@ -138,6 +154,7 @@ def activate(commit, base_name):
     except BaseException:
         run('systemctl','stop',BOT)
         switch(old)
+        if old_unit!=new_unit:install_unit(old_unit)
         run('systemctl','start',BOT)
         ready()
         verify_process(old)

@@ -4,6 +4,18 @@ import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
 import {childEnvironment,runResearchTick,runPython,safeSummary} from '../ops/research-runner.mjs';
 
+test('verification uses an independent supervisor deadline and reports the verdict',async()=>{
+  const calls=[];
+  const result=await runResearchTick({loadConfig:async()=>({provider:'deepseek',apiKey:'offline-test'}),
+    invoke:async(mode,packet,options)=>{
+      calls.push([mode,options.timeoutMs]);
+      return mode==='--probe'?{status:'ready',stage:'check'}:{status:'completed',stage:'check',verdict:'insufficient',metrics:{prompt_tokens:100}};
+    }});
+  assert.deepEqual(calls,[['--probe',3000],['--review',80000]]);
+  assert.equal(result.verdict,'insufficient');
+  assert.equal(result.metrics.prompt_tokens,100);
+});
+
 const key='FAKE-secret-key-for-test-only';
 
 test('idle, busy and low-memory probes do not decrypt credentials or consume',async()=>{

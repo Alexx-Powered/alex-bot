@@ -119,9 +119,10 @@ def probe(config, *, now=None):
             return {'status': 'busy'}
         ready = db.execute("SELECT 1 FROM jobs WHERE status='queued' AND created_at>? LIMIT 1", (now-QUEUE_TTL,)).fetchone()
         if not ready and db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_checks'").fetchone():
-            ready=db.execute("""SELECT 1 FROM research_checks WHERE expires>? AND
+            check=db.execute("""SELECT 1 FROM research_checks WHERE expires>? AND
                       (state IN ('queued','ready') OR (state IN ('publishing','checking') AND lease<=?)) LIMIT 1""",
                       (now,now)).fetchone()
+            if check:return {'status':'ready','stage':'check'}
         return {'status': 'ready' if ready else 'idle'}
     except sqlite3.Error as exc:
         if getattr(exc, 'sqlite_errorcode', 0) & 255 in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
@@ -160,7 +161,7 @@ def result_summary(result):
     return summary
 
 
-def consume(config, packet, *, admitted=None, runner=None):
+def consume(config, packet, *, admitted=None, runner=None, review_only=None):
     if not config.get('enabled'):
         return {'status': 'disabled'}
     if not (memory_guard() if admitted is None else admitted):
@@ -178,12 +179,13 @@ def consume(config, packet, *, admitted=None, runner=None):
         from rag_store import RagStore
         extra['store']=RagStore(config['store_path'])
     queue=ResearchQueue(config['queue_path'])
-    result = (runner or run_next)(queue, provider='deepseek', api_key=packet['api_key'],**extra)
-    if result['status']=='idle' and runner is None:
+    if review_only is True or (review_only is None and state.get('stage')=='check' and runner is None):
         task=queue.claim_check()
         if task:
             from research_checks import perform_check
-            result=perform_check(queue,task,extra.get('store'),packet['api_key'])
+            return result_summary(perform_check(queue,task,extra.get('store'),packet['api_key']))
+        return {'status':'idle'}
+    result = (runner or run_next)(queue, provider='deepseek', api_key=packet['api_key'],**extra)
     return result_summary(result)
 
 
@@ -191,7 +193,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv == ['--check-memory']:
         return 0 if memory_guard(compensate=False) else 1
-    if argv not in (['--probe'], ['--consume']):
+    if argv not in (['--probe'], ['--consume'], ['--review']):
         result = {'status': 'failed', 'error_code': 'RESEARCH_ARGUMENTS_INVALID'}
     else:
         try:
@@ -202,7 +204,7 @@ def main(argv=None):
                 raw = sys.stdin.buffer.read(4097)
                 if len(raw) > 4096:
                     raise ResearchServiceError('RESEARCH_INPUT_TOO_LARGE')
-                result = consume(config, json.loads(raw))
+                result = consume(config, json.loads(raw),review_only=argv==['--review'])
         except ResearchServiceError as exc:
             result = {'status': 'failed', 'error_code': exc.code}
         except Exception:
