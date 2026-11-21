@@ -147,6 +147,10 @@ test('console probe sends once after the listener is armed and binds only after 
   assert.equal((await router.confirm({groupKey:key,command:proof.command})).ok,true);
   assert.equal(core.groupRoutes()[0].active,'official');
   assert.equal((await select('milky',1)).ok,true);
+  router.receive({type:'roster',account:'111',groups:[{number:'222',name:'同名群'}]});
+  assert.equal(router.summary().groups[1].milky,'absent');
+  router.receive({type:'roster',account:'111',groups:[{number:'222',name:'同名群'},{number:'444',name:'其他'}]});
+  assert.equal(router.summary().groups[1].milky,'unverified');
   router.receive({type:'roster',account:'111',groups:[{number:'333',name:'同名群'}]});
   assert.equal(router.summary().groups[0].milky,'absent');
   router.observePresence('OPENID_A','absent',Date.now());

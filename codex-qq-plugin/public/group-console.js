@@ -23,7 +23,6 @@ window.createGroupConsole = ({api,action}) => {
   let catalog=[],defaults={},directory=[],groups=[],signature='',selected,ready=false,busy=false,initialized=false;
   let wakeEditor=null,lastCore={},groupPanel='features';
   let connections={groups:[],directory:[]},connectionSignature='';
-  const channelName={official:'官方 Bot',milky:'普通 QQ · NoneBot'};
   const routeFor=group=>connections.groups.find(row=>row.groupKey===group.groupKey);
   const baselines=new WeakMap();
   const settingsSignature=({disabledWakeWords,name,...group})=>JSON.stringify(group);
@@ -113,7 +112,7 @@ window.createGroupConsole = ({api,action}) => {
       details.append(summary,list);get('groupNavigation').after(details);
     }
   }
-  const presenceLabel={present:'已在群内',absent:'已不在群内',offline:'账号离线',unknown:'暂未核实',
+  const presenceLabel={present:'已在群内',absent:'不在群内',offline:'账号离线',unknown:'暂未核实',
     candidate:'发现同名群',unverified:'待核对群号',otherAccount:'当前登录了其他账号'};
   function renderConnection(group) {
     const panel=get('groupConnection');

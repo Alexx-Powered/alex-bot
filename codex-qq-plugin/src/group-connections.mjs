@@ -144,7 +144,7 @@ export class GroupConnections {
         const official=this.officialPresence(r);
         const candidates=r.peer?[]:directory.filter(g=>r.names.official&&g.name===r.names.official);
         const milky=this.directoryUnavailable?'unknown':!online?'offline':r.account&&r.account!==this.account?'otherAccount':
-          r.peer?(this.directory.has(r.peer)?'present':'absent'):candidates.length?'candidate':this.directory.size?'unverified':'absent';
+          r.peer?(this.directory.has(r.peer)?'present':'absent'):candidates.length?'candidate':directory.length?'unverified':'absent';
         return {groupKey:r.key,active:r.active,revision:r.revision,names:r.names,official,milky,candidates,
         canProbe:!r.peer&&directory.length>0&&official==='present'&&this.memberships.get(r.id)?.proactive===true&&
           this.core.sendingEnabled()&&this.core.groupEnabled(r.id)&&this.core.groupAccess(r.id)==='white',
