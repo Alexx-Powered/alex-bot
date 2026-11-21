@@ -19,13 +19,15 @@ ROOT = Path('/opt/alex-bot')
 CURRENT = ROOT / 'current'
 HOME = Path('/var/lib/alexbot')
 BOT = 'alexbot.service'
+GROUP_CHANNEL = 'alex-nonebot-milky.service'
+CHANNEL_SOURCE = Path('codex-qq-plugin/python/milky_group_channel.py')
 NODE = '/usr/local/bin/node'
 TIMERS = ('daily-reboot', 'morning-gefs', 'morning-ecmwf', 'group-morning-prepare',
           'group-morning', 'rag-backup', 'research', 'climate-refresh')
 RETIRED = ('alex-qq-gateway.service', 'alex-qq-control.service', 'alexbot-onebot.service',
            'alex-qq-pilot.service', 'alexbot-onebot-morning.service', 'alexbot-onebot-morning.timer',
            'alexbot-morning.service')
-PERMISSIONS = ('ownerId', 'allowedGroups', 'grayGroups', 'groupHelpNotes', 'wakeWords', 'wakeWordRevision',
+PERMISSIONS = ('ownerId', 'allowedGroups', 'grayGroups', 'groupLinks', 'groupHelpNotes', 'wakeWords', 'wakeWordRevision',
                'removedOfficialGroups', 'paused', 'pauseReason')
 
 
@@ -123,6 +125,9 @@ def activate(commit, base_name):
     unit_source=Path('codex-qq-plugin/ops')/unit_name
     old_unit=(old/unit_source).read_bytes()
     new_unit=(target/unit_source).read_bytes()
+    channel_managed = (Path('/etc/systemd/system') / (GROUP_CHANNEL+'.d') / '90-group-channel.conf').is_file()
+    restart_channel = channel_managed and prop(GROUP_CHANNEL,'ActiveState')=='active' and (
+        not (old/CHANNEL_SOURCE).is_file() or digest(old/CHANNEL_SOURCE)!=digest(target/CHANNEL_SOURCE))
     if old_unit!=new_unit:
         check(prop(unit_name,'FragmentPath')==str(unit_file) and unit_file.read_bytes()==old_unit,'RESEARCH_UNIT_CHANGED')
 
@@ -145,9 +150,14 @@ def activate(commit, base_name):
         frozen = snapshot()
         if old_unit!=new_unit:install_unit(new_unit)
         switch(target)
+        if restart_channel:
+            run('systemctl','restart',GROUP_CHANNEL)
         run('systemctl','start',BOT)
         after = ready()
         actual = verify_process(target)
+        if restart_channel:
+            check(prop(GROUP_CHANNEL,'ActiveState')=='active' and
+                  Path('/run/alex-nonebot-milky/groups.sock').is_socket(), 'GROUP_CHANNEL_START_FAILED')
         check(actual['pid'] != original['pid'] and actual['started'] != original['started'], 'STALE_PROCESS')
         check(snapshot() == frozen and after['core']['uncertainDeliveries'] == 0, 'PROTECTED_STATE_CHANGED')
         check_schedule()
@@ -155,6 +165,7 @@ def activate(commit, base_name):
         run('systemctl','stop',BOT)
         switch(old)
         if old_unit!=new_unit:install_unit(old_unit)
+        if restart_channel:run('systemctl','restart',GROUP_CHANNEL)
         run('systemctl','start',BOT)
         ready()
         verify_process(old)

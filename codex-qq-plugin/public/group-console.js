@@ -22,8 +22,11 @@ window.createGroupConsole = ({api,action}) => {
   ];
   let catalog=[],defaults={},directory=[],groups=[],signature='',selected,ready=false,busy=false,initialized=false;
   let wakeEditor=null,lastCore={},groupPanel='features';
+  let connections={groups:[],directory:[]},connectionSignature='';
+  const channelName={official:'官方 Bot',milky:'普通 QQ · NoneBot'};
+  const routeFor=group=>connections.groups.find(row=>row.groupKey===group.groupKey);
   const baselines=new WeakMap();
-  const settingsSignature=({disabledWakeWords,...group})=>JSON.stringify(group);
+  const settingsSignature=({disabledWakeWords,name,...group})=>JSON.stringify(group);
   function read(container) {
     const value={...baselines.get(container)};
     for (const input of container.querySelectorAll('input[data-features]')) {
@@ -88,10 +91,78 @@ window.createGroupConsole = ({api,action}) => {
       const button=document.createElement('button');button.type='button';button.className='group-nav-item';
       button.setAttribute('aria-pressed',String(selected===group.groupKey));
       const name=document.createElement('strong');name.textContent=group.name;
-      const info=document.createElement('span');info.textContent=(group.groupNumber||'已登记群')+' · '+(group.enabled===false?'已停用':'已启用');
+      const info=document.createElement('span');
+      const route=routeFor(group);
+      info.textContent=channelName[route?.active||'official']+(route?.number?' · 双通道':'')+' · '+(group.enabled===false?'已停用':'已启用');
       button.append(name,info);button.onclick=()=>select(group.groupKey);get('groupNavigation').append(button);
     }
     get('groupCount').textContent=String(groups.length);
+    if(connections.directory.length){
+      const details=document.createElement('details'),summary=document.createElement('summary');
+      summary.textContent='普通 QQ 已加入、待关联（'+connections.directory.length+'）';
+      const list=document.createElement('ul');
+      for(const {name,number} of connections.directory){
+        const item=document.createElement('li');item.textContent=name+' · '+number;list.append(item);
+      }
+      details.append(summary,list);get('groupNavigation').append(details);
+    }
+  }
+  function renderConnection(group) {
+    const panel=get('groupConnection');
+    if(!panel||!group)return;
+    const oldNumber=panel.querySelector('select')?.value;
+    panel.replaceChildren();
+    const route=routeFor(group)||{active:'official'};
+    const label=document.createElement('strong');label.textContent='工作通道';
+    const state=document.createElement('span');
+    const online=route.active==='milky'?route.milkyOnline:connections.officialOnline;
+    state.textContent=channelName[route.active]+' · '+(online?'在线':'离线');
+    panel.append(label,state);
+    const profile=document.createElement('p');profile.className='help';
+    const names=route.names||{};
+    const unavailable=route.profileState==='denied'?'官方接口未授权读取群名':route.profileState==='unavailable'?'官方暂未返回群名':'等待官方查询群名';
+    profile.textContent=(names.official?'官方群名 '+names.official:names.milky?'普通 QQ 群名 '+names.milky:unavailable)+
+      (route.number?' · 群号 '+route.number:' · 数字群号待核实');
+    panel.append(profile);
+    function button(text,fn,disabled=false) {
+      const el=document.createElement('button');el.type='button';el.textContent=text;el.disabled=disabled;
+      el.onclick=async()=>{el.disabled=true;try{await fn();}finally{el.disabled=false;}};return el;
+    }
+    if(route.number){
+      const other=route.active==='official'?'milky':'official';
+      const detail=document.createElement('span');detail.className='help';
+      detail.textContent=channelName[other]+' '+((other==='milky'?route.milkyOnline:connections.officialOnline)?'在线':'离线');
+      panel.append(detail,button('切换到'+channelName[other],()=>action('group/connection/select',{
+        groupKey:group.groupKey,channel:other,revision:route.revision
+      }),!(other==='milky'?route.milkyOnline:connections.officialOnline)));
+      return;
+    }
+    const pair=connections.pairing;
+    if(pair?.groupKey===group.groupKey){
+      const help=document.createElement('p');help.className='help';
+      help.textContent='在'+(pair.number?'群 '+(pair.name||'')+'（'+pair.number+'）':'要识别的群')+'中 @ 官方 Bot，发送下面的指令（五分钟内有效）。';
+      const code=document.createElement('code');code.textContent=pair.command;
+      const seen=document.createElement('span');seen.setAttribute('role','status');
+      seen.textContent='官方 Bot '+(pair.official?'已收到':'等待中')+' · 普通 QQ '+(pair.milky?'已收到':'等待中');
+      panel.append(help,code,seen,button('确认关联此群',()=>action('group/connection/confirm',{
+        groupKey:group.groupKey,command:pair.command
+      }),!pair.matched));
+      if(pair.official&&pair.milky&&!pair.matched){
+        const mismatch=document.createElement('span');mismatch.textContent=pair.ambiguous?'多个群收到同一指令，请重新匹配。':'两条消息时间不一致，请重新匹配。';
+        panel.append(mismatch,button('重新生成匹配指令',()=>action('group/connection/verify',{groupKey:group.groupKey,number:''})));
+      }
+      return;
+    }
+    if(!connections.directory.length||!connections.online)return;
+    const select=document.createElement('select'),caption=document.createElement('label');
+    select.id='groupConnectionNumber';caption.htmlFor=select.id;caption.textContent='关联普通 QQ 群';
+    select.add(new Option('通过群内指令自动识别群号',''));
+    for(const {name,number} of connections.directory)select.add(new Option(name+' · '+number,number));
+    if(connections.directory.some(g=>g.number===oldNumber))select.value=oldNumber;
+    const verify=button('生成匹配指令',()=>action('group/connection/verify',{
+      groupKey:group.groupKey,number:select.value
+    }),!connections.officialOnline);
+    panel.append(caption,select,verify);
   }
   function deliveryLog(group) {
     const panel=document.createElement('details');
@@ -143,8 +214,9 @@ window.createGroupConsole = ({api,action}) => {
     const form=document.createElement('form');form.className='group-card';form.dataset.groupKey=group.groupKey;
     const header=document.createElement('div');header.className='group-editor-heading';
     const heading=document.createElement('h3');heading.textContent=group.name;
-    const detail=document.createElement('p');detail.className='help';detail.textContent=group.groupNumber?'群号 '+group.groupNumber:'QQ 官方机器人群';
-    header.append(heading,detail);
+    header.append(heading);
+    const connectionPanel=document.createElement('section');connectionPanel.id='groupConnection';
+    connectionPanel.className='group-connection';connectionPanel.setAttribute('aria-label','群连接方式');
     const enabledRow=document.createElement('label');enabledRow.className='setting-row group-enable';
     const enabledText=document.createElement('span');enabledText.className='setting-copy';
     const title=document.createElement('span');title.className='setting-title';title.textContent='启用这个群';
@@ -201,7 +273,7 @@ window.createGroupConsole = ({api,action}) => {
       if(!['ArrowLeft','ArrowRight'].includes(event.key))return;
       event.preventDefault();choose(groupPanel==='features'?'wake':'features');(groupPanel==='features'?featureTab:wakeTab).focus();
     };
-    navigation.append(featureTab,wakeTab);get('groupList').append(header,deliveryLog(group),navigation,form,wakeSection);choose(groupPanel);
+    navigation.append(featureTab,wakeTab);get('groupList').append(header,connectionPanel,deliveryLog(group),navigation,form,wakeSection);renderConnection(group);choose(groupPanel);
     wakeEditor=window.createWakeWordEditor({container:wakeSection,action,groupKey:group.groupKey});
     wakeEditor.update(lastCore,group);
   }
@@ -216,8 +288,11 @@ window.createGroupConsole = ({api,action}) => {
   return {
     selectGroup:key=>select(key),
     enrollmentFeatures:()=>read(get('groupNewFeatures')),
-    update(core,transport,schedule={}) {
+    update(core,transport,schedule={},channels) {
       lastCore=core;
+      connections=channels??{groups:[],directory:[],officialOnline:transport.state==='connected'};
+      const nextConnectionSignature=JSON.stringify(connections);
+      const changed=nextConnectionSignature!==connectionSignature;connectionSignature=nextConnectionSignature;
       ready=core.paired&&!core.paused&&transport.state==='connected';
       get('managedGroups').classList.remove('hidden');
       get('groupMorningState').textContent=schedule.active?
@@ -234,6 +309,11 @@ window.createGroupConsole = ({api,action}) => {
         if (selected===undefined||(selected!==null&&!current)) {select(groups[0]?.groupKey||null);return;}
         navigation();
         if (current&&(!previous||settingsSignature(current)!==settingsSignature(previous))) {renderEditor();return;}
+      }
+      if(changed||previous?.name!==current?.name){
+        navigation();renderConnection(current);
+        const title=get('groupList').querySelector('.group-editor-heading h3');
+        if(current&&title)title.textContent=current.name;
       }
       wakeEditor?.update(core,current);
     },

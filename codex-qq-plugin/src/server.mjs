@@ -9,6 +9,7 @@ import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { PrivateStore } from './storage.mjs';
 import { BridgeCore } from './core.mjs';
 import { QQAdapter } from './qq-adapter.mjs';
+import {GroupConnections} from './group-connections.mjs';
 import { WeatherCommands, beijingDay } from './weather-commands.mjs';
 import {WeatherToolbox} from './weather-tools.mjs';
 import {ConversationAgent} from './conversation-agent.mjs';
@@ -71,15 +72,17 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const social=socialService||(prewarm ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
   const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
-  let core,weatherAlerts;
+  let core,weatherAlerts,connections;
+  const receive=(message,expires,channel)=>monitoring.run({scope:message.kind},()=>core.handleMessage(message,expires,channel));
   const makeAdapter = adapterFactory ?? (options => new QQAdapter(options));
   const adapter = makeAdapter({
     groupAddressed: (groupId,text) => core?.addressesGroupMessage(groupId,text)===true,
-    canSend: request => core?.canDeliver(request) === true,
+    canSend: request => core?.canDeliver(request) === true &&
+      (!request.groupId||!core.groupRoutes().some(r=>r.id===request.groupId&&r.active!=='official')),
     onGroupJoin: event => (event.messageId!==undefined&&core?.groupAccess(event.groupId)!==null)
       ? undefined : core?.recordOfficialGroupJoin(event),
     onMessage: async (message, replyExpiresAt) => {
-      try { await monitoring.run({scope:message?.kind},()=>core.handleMessage(message,replyExpiresAt)); } catch { /* no text or credential logging */ }
+      try { if(!connections?.observeOfficial(message,replyExpiresAt))await receive(message,replyExpiresAt,'official'); } catch { /* no text or credential logging */ }
     },
     onStatus: (status) => {
       if (['blocked','error'].includes(status.state) &&
@@ -93,10 +96,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     if (raw?.identityDomain != null) throw Error('TRANSPORT_STATE_MISMATCH');
     return raw;
   }, saveState: state => store.saveState(state),
-    send: (request) => measureSpan('qq_send',()=>adapter.send(request)), now: () => groupMorningNow?Number(groupMorningNow()):Date.now(), limits, observeMessage:social?(data,context)=>social.observe(data,context):null, commandHandler: (text,context) => measureSpan('agent',async()=>await weatherAlerts.handle(text,context)??await agent.handle(text,context)) });
+    send: (request) => measureSpan('qq_send',()=>connections.send(request)), now: () => groupMorningNow?Number(groupMorningNow()):Date.now(), limits, observeMessage:social?(data,context)=>social.observe(data,context):null, commandHandler: (text,context) => measureSpan('agent',async()=>await weatherAlerts.handle(text,context)??await agent.handle(text,context)) });
   await core.init();
-  weatherAlerts=new WeatherAlertsService({home,core,adapter});
-  const groupMorning=new GroupMorningService({core,adapter,morning,campus,
+  connections=new GroupConnections({core,official:adapter,onMessage:receive,
+    socketPath:process.env.QQ_GROUP_CHANNEL_SOCKET});
+  const groupTransport={status:()=>adapter.status().state==='connected'||core.groupRoutes().some(r=>r.active==='milky'&&connections.available(r,'milky'))
+    ? {state:'connected'} : {state:'disconnected'}};
+  weatherAlerts=new WeatherAlertsService({home,core,adapter:groupTransport});
+  const groupMorning=new GroupMorningService({core,adapter:groupTransport,morning,campus,
     runRetry:(context,work)=>monitoring.run(context,work),now:groupMorningNow,sleep:groupMorningSleep});
   const morningScheduleStatus=createGroupMorningStatus();
   if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
@@ -135,7 +142,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       if (req.method === 'GET' && pathname === '/api/status') return json(res, 200, { ok: true, version: '0.2.1', configured, transport: adapter.status(), core: core.status({includeHelpNotes:admin}), agent:await agentStatus(), campus:await campus.status(),
         groupMorning:{...await morningScheduleStatus(),preparation:groupMorning.status(),enabledGroups:core.captureMorningTargets().length,
           weatherGroups:core.captureMorningTargets('morningWeather').length,campusGroups:core.captureMorningTargets('morningCampus').length},
-        ...(admin?{weatherAlerts:await weatherAlerts.status()}:{} ) });
+        ...(admin?{weatherAlerts:await weatherAlerts.status(),groupConnections:connections.summary()}:{} ) });
       if(req.method==='GET'&&pathname==='/api/weather-alerts/status')return json(res,200,await weatherAlerts.status());
       if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status(),transportDiagnostics:adapter.diagnostics?.()});
       if (req.method === 'GET' && pathname === '/api/social/status') return json(res,200,{ok:true,config:await socialConfigStore.status()});
@@ -147,6 +154,14 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req);
+      if(pathname.startsWith('/api/group/connection/')){
+        const op=pathname.slice('/api/group/connection/'.length);
+        const fields={verify:['groupKey','number'],confirm:['groupKey','command'],select:['groupKey','channel','revision']};
+        if(!Object.hasOwn(fields,op)||Object.keys(data).length!==fields[op].length||Object.keys(data).some(k=>!fields[op].includes(k)))throw Error('INVALID_INPUT');
+        const result=op==='verify'?connections.startPair(data):op==='confirm'?await connections.confirm(data):
+          await core.selectGroupRoute(data,(route,channel)=>connections.available(route,channel));
+        return json(res,200,result);
+      }
       if(pathname==='/api/weather-alerts/search'){
         if(Object.keys(data).some(k=>k!=='query')||typeof data.query!=='string'||data.query.length>48)throw Error('INVALID_INPUT');
         return json(res,200,await weatherAlerts.search(data.query));
@@ -425,7 +440,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       const inputCodes = new Set(['JSON_REQUIRED', 'BODY_TOO_LARGE', 'INVALID_INPUT']);
       const code = inputCodes.has(error.message) ? error.message : error instanceof SyntaxError ? 'INVALID_JSON' : 'OPERATION_FAILED';
       json(res, code === 'OPERATION_FAILED' ? 500 : 400, { ok: false, code });
-    } finally { if (mutationHeld) configBusy = false; }
+    } finally { if (mutationHeld) configBusy = false; if(req.method==='POST')connections.sync(); }
   });
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
@@ -435,11 +450,13 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     async listen() {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
       boundPort = server.address().port;
+      connections.start();
       if(prewarm)weatherAlerts.start();
       if(prewarm&&ragEnabled&&!ragMaintenance){ragMaintenance=setInterval(()=>{void indexWhenIdle(worker);},60000);ragMaintenance.unref();}
       return boundPort;
     },
     async close() {
+      connections.close();
       weatherAlerts.close();
       clearInterval(ragMaintenance);
       worker.close();

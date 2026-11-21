@@ -71,6 +71,20 @@ function inbound(overrides = {}) {
   };
 }
 
+test('official group profile reads just the group name and handles missing permission independently of messaging',async()=>{
+  const {adapter,connect}=fixture(),bot=await connect();
+  bot.api.get=async path=>{
+    assert.equal(path,'/v2/groups/GROUP_A/info');
+    return {group_openid:'GROUP_A',group_name:'  测试群  ',group_id:'123456',group_member_num:4};
+  };
+  assert.deepEqual(await adapter.groupProfile('GROUP_A'),{state:'available',name:'测试群'});
+  bot.api.get=async()=>({group_openid:'OTHER',group_name:'错误来源'});
+  assert.equal((await adapter.groupProfile('GROUP_A')).state,'unavailable');
+  bot.api.get=async()=>{throw {httpStatus:403,bizCode:123};};
+  assert.deepEqual(await adapter.groupProfile('GROUP_A'),{state:'denied',httpStatus:403,bizCode:123});
+  assert.equal(adapter.status().state,'connected');
+});
+
 test('connect returns while SDK lifecycle stays pending; no message is sent automatically', async () => {
   const f = fixture();
   const result = await f.adapter.connect({ appId: '123', appSecret: 'private-secret' });

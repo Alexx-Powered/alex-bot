@@ -157,6 +157,21 @@ export class QQAdapter {
     return { ...this.#current };
   }
 
+  async groupProfile(id) {
+    const bot=this.#bot;
+    if(!isId(id)||!bot||this.#current.state!=='connected')return {state:'offline'};
+    try{
+      const data=await bot.api.get('/v2/groups/'+encodeURIComponent(id)+'/info');
+      if(this.#bot!==bot||this.#current.state!=='connected')return {state:'offline'};
+      if(data?.group_openid&&data.group_openid!==id)return {state:'unavailable'};
+      const name=typeof data?.group_name==='string'?data.group_name.trim():'';
+      return name&&name.length<=80&&!/[\u0000-\u001f\u007f]/u.test(name)?{state:'available',name}:{state:'unavailable'};
+    }catch(failure){
+      const {httpStatus,bizCode}=safeError(failure,'GROUP_PROFILE_UNAVAILABLE');
+      return {state:httpStatus===403?'denied':'unavailable',httpStatus,bizCode};
+    }
+  }
+
   /** Event metadata only, never IDs, content, names or authorization. */
   diagnostics() {
     return { lastGroup: this.#lastGroupDiagnostic ? { ...this.#lastGroupDiagnostic } : null,

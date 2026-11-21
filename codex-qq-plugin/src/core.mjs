@@ -53,10 +53,15 @@ const validGroupName = (value) => typeof value === 'string' && value.trim() === 
 const validGroupKey = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const validDeliveryDeadline = value => value===undefined || (Number.isSafeInteger(value)&&value>=0&&value<=8_640_000_000_000_000);
 const groupKeyFor = (id) => hash(`group:${id}`);
+const discoveredName = id => '新加入群 · ' + groupKeyFor(id).slice(0,8);
+const validQQNumber = value => typeof value==='string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value)<=9223372036854775807n;
+function validGroupLink(link) {
+  return link && validQQNumber(link.account) && validQQNumber(link.peer) &&
+    ['official','milky'].includes(link.active) && Number.isSafeInteger(link.revision) && link.revision>=0;
+}
 const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white', helpNotes={}) => {
   const groupKey=groupKeyFor(id),helpNote=helpNotes[groupKey];
   return {name,groupKey,groupHint:`sha256:${groupKey.slice(0,12)}`,
-    ...(id.match(/^qq_[1-9]\d+_g_([1-9]\d+)$/)?{groupNumber:id.split('_').at(-1)}:{}),
     enabled,features:features??defaultGroupFeatures(access),disabledWakeWords:[...disabledWakeWords],
     ...(helpNote!==undefined?{helpNote}:{}),
   };
@@ -145,6 +150,15 @@ function restoreState(raw) {
   const groupHelpNotes=raw.groupHelpNotes===undefined?{}:raw.groupHelpNotes;
   if(!groupHelpNotes||typeof groupHelpNotes!=='object'||Array.isArray(groupHelpNotes))throw new Error('STATE_INVALID');
   const helpNotes=Object.entries(groupHelpNotes),groupKeys=new Set(allGroups.map(g=>groupKeyFor(g.id)));
+  const groupLinks=raw.groupLinks===undefined?{}:raw.groupLinks;
+  if(!groupLinks||typeof groupLinks!=='object'||Array.isArray(groupLinks))throw Error('STATE_INVALID');
+  const links=Object.entries(groupLinks);
+  const names=raw.groupNames??{};
+  if(typeof names!=='object'||Array.isArray(names)||Object.entries(names).some(([key,row])=>
+    !groupKeys.has(key)||!row||typeof row!=='object'||Array.isArray(row)||Object.entries(row).some(([source,name])=>
+      !['official','milky'].includes(source)||!validGroupName(name))))throw Error('STATE_INVALID');
+  if(links.some(([key,link])=>!groupKeys.has(key)||!validGroupLink(link)) ||
+    new Set(links.map(([,link])=>link.account+'/'+link.peer)).size!==links.length)throw Error('STATE_INVALID');
   if(helpNotes.some(([key,note])=>!groupKeys.has(key)||typeof note!=='string'||normalizeGroupHelpNote(note)!==note))throw new Error('STATE_INVALID');
   const removedOfficialGroups=raw.removedOfficialGroups===undefined?[]:raw.removedOfficialGroups;
   if(!Array.isArray(removedOfficialGroups)||removedOfficialGroups.length>CORE_LIMITS.historySize||
@@ -170,6 +184,8 @@ function restoreState(raw) {
     lastDeliveryCode: raw.lastDeliveryCode ?? null,
     allowedGroups,
     grayGroups,
+    ...(links.length?{groupLinks:structuredClone(groupLinks)}:{}),
+    ...(Object.keys(names).length?{groupNames:structuredClone(names)}:{}),
     ...(helpNotes.length?{groupHelpNotes:Object.fromEntries(helpNotes)}:{}),
     ...(removedOfficialGroups.length?{removedOfficialGroups:removedOfficialGroups.map(({key,at})=>({key,at}))}:{}),
     ...(morningAttempts?{morningAttempts:structuredClone(morningAttempts)}:{}),
@@ -366,6 +382,68 @@ export class BridgeCore {
     return this.groupAccess(groupId)!==null && group?.enabled!==false;
   }
 
+  groupRoutes() {
+    return [...this.#state.allowedGroups,...this.#state.grayGroups].map(({id})=>{
+      const key=groupKeyFor(id), link=this.#state.groupLinks?.[key];
+      return {id,key,names:{...this.#state.groupNames?.[key]},...(link??{active:'official',revision:0})};
+    });
+  }
+
+  async rememberGroupNames(rows,source) {
+    if(!['milky','official'].includes(source)||!rows.length)return;
+    await this.#enqueue(async()=>{
+      const names={...this.#state.groupNames};
+      let changed=false;
+      for(const {key,account,peer} of this.groupRoutes()){
+        const row=rows.find(r=>r.key===key&&(source==='official'||(account===r.account&&peer===r.peer)));
+        if(!row||!validGroupName(row.name)||row.name===names[key]?.[source])continue;
+        names[key]={...names[key],[source]:row.name};
+        changed=true;
+      }
+      if(changed)await this.#persist({...this.#state,groupNames:names});
+    });
+  }
+
+  #displayName(group) {
+    if(!group||group.name!==discoveredName(group.id))return group?.name;
+    const names=this.#state.groupNames?.[groupKeyFor(group.id)];
+    return names?.official||names?.milky||group.name;
+  }
+
+  async linkGroupRoute(groupKey,account,peer,groupName) {
+    if(!validGroupKey(groupKey)||!validQQNumber(account)||!validQQNumber(peer))return result(false,'INVALID_INPUT');
+    return this.#enqueue(async()=>{
+      if(!this.#ready||!this.#state.ownerId)return result(false,'NOT_PAIRED');
+      const routes=this.groupRoutes(), route=routes.find(r=>r.key===groupKey);
+      if(!route)return result(false,'GROUP_NOT_FOUND');
+      if(route.peer||routes.some(r=>r.account===account&&r.peer===peer))return result(false,'GROUP_ROUTE_ALREADY_LINKED');
+      const link={account,peer,active:'official',revision:1};
+      const next={...this.#state,groupLinks:{...this.#state.groupLinks,[groupKey]:link}};
+      if(validGroupName(groupName))next.groupNames={...next.groupNames,[groupKey]:{...next.groupNames?.[groupKey],milky:groupName}};
+      try{await this.#persist(next);}
+      catch{return this.#storageFailed();}
+      return result(true,'GROUP_ROUTE_LINKED');
+    });
+  }
+
+  async selectGroupRoute({groupKey,channel,revision},available) {
+    if(!validGroupKey(groupKey)||!['official','milky'].includes(channel)||!Number.isSafeInteger(revision))return result(false,'INVALID_INPUT');
+    const route=this.groupRoutes().find(r=>r.key===groupKey);
+    if(!route?.peer)return result(false,'GROUP_ROUTE_UNLINKED');
+    if(route.revision!==revision)return result(false,'GROUP_ROUTE_CHANGED');
+    if(!available(route,channel))return result(false,'GROUP_ROUTE_OFFLINE');
+    if(route.active===channel)return result(true,'GROUP_ROUTE_SAVED');
+    const restriction=this.#restrictGroup(route.id,null);
+    try{return await this.#enqueue(async()=>{
+      const link=this.#state.groupLinks?.[groupKey];
+      if(!link||link.revision!==revision)return result(false,'GROUP_ROUTE_CHANGED');
+      if(!available(link,channel))return result(false,'GROUP_ROUTE_OFFLINE');
+      const next={...this.#state,groupLinks:{...this.#state.groupLinks,[groupKey]:{...link,active:channel,revision:revision+1}}};
+      try{await this.#persist(next);}catch{return this.#storageFailed();}
+      return result(true,'GROUP_ROUTE_SAVED');
+    });}finally{this.#releaseRestriction(route.id,restriction);}
+  }
+
   groupFeatures(groupId) {
     const group=[...this.#state.allowedGroups,...this.#state.grayGroups].find(g=>g.id===groupId);
     return group?.features??defaultGroupFeatures(this.groupAccess(groupId));
@@ -554,9 +632,9 @@ export class BridgeCore {
       lastDeliveryCode: this.#state.lastDeliveryCode,
       uncertainDeliveries: this.#state.deliveries.filter((entry) => entry.state === 'uncertain' || entry.state === 'inFlight').length,
       groupCount: this.#state.allowedGroups.length,
-      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup(g,'white',helpNotes)),
+      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup({...g,name:this.#displayName(g)},'white',helpNotes)),
       grayGroupCount:this.#state.grayGroups.length,
-      grayGroups:this.#state.grayGroups.map(g=>describeGroup(g,'gray',helpNotes)),
+      grayGroups:this.#state.grayGroups.map(g=>describeGroup({...g,name:this.#displayName(g)},'gray',helpNotes)),
       groupFeatureCatalog:GROUP_FEATURES.filter(feature=>!feature.hidden),
       groupDefaultFeatures:basicGroupFeatures(),
       groupHelpNote:{...HELP_NOTE_LIMITS,defaultWhenChatOff:DEFAULT_CHAT_OFF_HELP_NOTE},
@@ -687,7 +765,7 @@ export class BridgeCore {
         if (!exists) {
           next.allowedGroups.push({
             id: groupId,
-            name: '新加入群 · ' + groupKey.slice(0, 8),
+            name: discoveredName(groupId),
             enabled: false,
             features: Object.fromEntries(GROUP_FEATURES.map(({key}) => [key, false])),
           });
@@ -787,6 +865,8 @@ export class BridgeCore {
       next.allowedGroups = next.allowedGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       next.grayGroups = next.grayGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       if (next.groupHelpNotes) delete next.groupHelpNotes[groupKey];
+      if (next.groupLinks) delete next.groupLinks[groupKey];
+      if (next.groupNames) delete next.groupNames[groupKey];
       next.removedOfficialGroups=[...(next.removedOfficialGroups??[]).filter(entry=>entry.key!==groupKey),
         {key:groupKey,at:this.#time()}].slice(-CORE_LIMITS.historySize);
       try { await this.#persist(next); } catch { return this.#storageFailed(); }
@@ -860,7 +940,7 @@ export class BridgeCore {
     });
   }
 
-  async handleMessage(message, replyExpiresAt) {
+  async handleMessage(message, replyExpiresAt, channel='official') {
     // Capture only normalized scalar fields: a queued caller cannot replace its
     // identity/target while another request is waiting for a model or provider.
     if (message && typeof message === 'object') {
@@ -881,10 +961,13 @@ export class BridgeCore {
     // Every queued incoming message consumes capacity by default. Only actual
     // owner management commands bypass it; group binding and public help/ping
     // cannot build an unbounded queue while a model/provider is pending.
-    let groupContext, countedIncoming = true;
+    let groupContext, routeRevision, countedIncoming = true;
+    const currentRoute=()=>this.#state.groupLinks?.[groupKeyFor(message.groupId)];
     if (this.#ready && message?.kind === 'group') {
       const { groupId, id, senderId, text, replyTarget } = message;
       if (!validGroupId(groupId)) return result(false, 'SCOPE_DENIED');
+      if((currentRoute()?.active??'official')!==channel)return result(true,'IGNORED');
+      routeRevision=currentRoute()?.revision??0;
       if (!validId(id) || !validId(senderId) || typeof text !== 'string' || text.length > CORE_LIMITS.textLength) return result(false, 'INVALID_INPUT');
       if (replyTarget?.scope !== 'group' || replyTarget.targetId !== groupId || replyTarget.msgId !== id) return result(false, 'GROUP_REPLY_TARGET_INVALID');
       if (!this.#state.ownerId) return result(false, 'NOT_PAIRED');
@@ -919,7 +1002,10 @@ export class BridgeCore {
     if (!official && countedIncoming) this.#pendingIncoming++;
     const work = async () => {
       if (!this.#ready) return result(false, 'NOT_READY');
-      if (message?.kind === 'group') return this.#handleGroupMessage(message, groupContext);
+      if (message?.kind === 'group') {
+        if((currentRoute()?.active??'official')!==channel||(currentRoute()?.revision??0)!==routeRevision)return result(true,'IGNORED');
+        return this.#handleGroupMessage(message, groupContext);
+      }
       if (!message || message.kind !== 'c2c') return result(false, 'SCOPE_DENIED');
       const { id, senderId, text, replyTarget } = message;
       if (!validId(id) || !validId(senderId) || typeof text !== 'string' || text.length > CORE_LIMITS.textLength) {
@@ -1334,7 +1420,7 @@ export class BridgeCore {
       const groupHint=hint(groupId);
       const detail={code:failure.code,groupHint,bizCode:rejectedBizCode};
       recordTiming('qq_group_permission',0,{status:'error',error:detail});
-      console.warn('[qq_group_permission] '+JSON.stringify({...detail,groupName:group?.name,reason:'请检查该群的 QQ 发送权限及机器人成员状态'}));
+      console.warn('[qq_group_permission] '+JSON.stringify({...detail,groupName:this.#displayName(group),reason:'请检查该群的 QQ 发送权限及机器人成员状态'}));
     }
     if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress) this.#rememberGroup(groupId, {
       key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: video ? '[已发送动态天气视频]' : image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,

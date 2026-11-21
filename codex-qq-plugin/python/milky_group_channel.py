@@ -1,0 +1,204 @@
+"""Pass verified group events and delivery receipts to the local business service."""
+import asyncio
+from contextlib import suppress
+import os
+from pathlib import Path
+import time
+
+import nonebot
+from aiohttp import WSMsgType, web
+from nonebot.adapters.milky import Adapter, Bot, MessageSegment
+from nonebot.adapters.milky.event import GroupMessageEvent
+from nonebot.adapters.milky.exception import ActionFailed
+
+
+class GroupChannel:
+    def __init__(self):
+        self.bot = self.ws = None
+        self.groups = {}
+        self.peers = set()
+        self.verification = None
+        self.changed = asyncio.Event()
+        self.resource_slots = asyncio.Semaphore(2)
+
+    def clear_subscription(self):
+        self.peers.clear()
+        self.verification = None
+
+    async def set_bot(self, bot):
+        self.bot = bot
+        self.groups = {}
+        self.clear_subscription()
+        if self.ws is not None and not self.ws.closed:
+            await self.ws.send_json({"type": "offline"})
+        self.changed.set()
+
+    async def roster(self, ws):
+        while not ws.closed:
+            self.changed.clear()
+            bot = self.bot
+            if bot is not None:
+                try:
+                    rows = await asyncio.wait_for(bot.get_group_list(no_cache=True), 8)
+                    if self.bot is bot:
+                        self.groups = {str(row.group_id): row.group_name[:80] for row in rows}
+                        await ws.send_json({"type": "roster", "account": bot.self_id,
+                                            "groups": [{"number": k, "name": v} for k, v in self.groups.items()]})
+                except Exception:
+                    if ws.closed:
+                        return
+                    if self.bot is bot:
+                        self.groups.clear()
+                        self.clear_subscription()
+                        await ws.send_json({"type": "offline"})
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self.changed.wait(), 30)
+
+    async def events(self, request):
+        if self.ws is not None and not self.ws.closed:
+            raise web.HTTPConflict()
+        ws = web.WebSocketResponse(max_msg_size=8*1024*1024, heartbeat=15, compress=False)
+        self.ws = ws
+        poll = None
+        try:
+            await ws.prepare(request)
+            poll = asyncio.create_task(self.roster(ws))
+            async for packet in ws:
+                if packet.type != WSMsgType.TEXT:
+                    break
+                data = packet.json()
+                if data.get("type") == "subscriptions":
+                    if self.bot and data.get("account") == self.bot.self_id:
+                        self.peers = set(data["peers"]).intersection(self.groups)
+                        self.verification = data.get("verification")
+                elif data.get("type") == "deliver":
+                    await ws.send_json(await self.deliver(data))
+                else:
+                    break
+        finally:
+            self.clear_subscription()
+            self.ws = None
+            if poll is not None:
+                poll.cancel()
+                with suppress(asyncio.CancelledError, ConnectionError):
+                    await poll
+            await ws.close()
+        return ws
+
+    async def deliver(self, data):
+        bot, peer = self.bot, data.get("peer")
+        ack = {"type": "receipt", "request": data.get("request"), "outcome": "cancelled"}
+        if not bot or bot.self_id != data.get("account") or peer not in self.peers or peer not in self.groups:
+            return ack
+        if data.get("deadline") is not None and time.time()*1000 >= data["deadline"]:
+            return ack
+        segments = []
+        for item in data["parts"]:
+            if item["type"] == "text":
+                segments.append(MessageSegment.text(item["text"]))
+            elif item["type"] == "image":
+                segments.append(MessageSegment.image(base64=item["base64"]))
+            elif item["type"] == "video":
+                segments.append(MessageSegment.video(base64=item["base64"]))
+            else:
+                return ack
+        try:
+            result = await asyncio.wait_for(bot.send_group_message(group_id=int(peer), message=segments), 110)
+            return dict(ack, outcome="accepted", seq=str(result.message_seq))
+        except ActionFailed as failure:
+            code = failure.info.get("retcode")
+            return dict(ack, outcome="rejected", retcode=code if type(code) is int else None)
+        except Exception:
+            return dict(ack, outcome="unknown")
+
+    async def incoming(self, bot: Bot, event: GroupMessageEvent):
+        peer = str(event.data.peer_id)
+        ws = self.ws
+        if self.bot is not bot or str(event.self_id) != bot.self_id or event.data.sender_id == event.self_id:
+            return
+        if ws is None or ws.closed or peer not in self.groups:
+            return
+        segments = event.data.segments
+        text = "".join(s["data"].get("text", "") for s in segments if s["type"] == "text").strip()
+        verification = self.verification
+        verifying = verification and verification["peer"] in ("", peer) and verification["command"] == text
+        if not verifying and peer not in self.peers:
+            return
+        mentioned = any(s["type"] == "mention" and str(s["data"].get("user_id")) == bot.self_id for s in segments)
+        media = []
+        for seg in segments:
+            kind = {"record": "audio", "image": "image"}.get(seg["type"])
+            if not kind or len(media) >= 4 or verifying:
+                continue
+            resource = seg["data"].get("resource_id")
+            if resource:
+                try:
+                    url = await asyncio.wait_for(self.resource_url(bot, resource), 3)
+                    media.append({"kind": kind, "url": url, "animated": seg["data"].get("sub_type") == "sticker"})
+                except Exception:
+                    pass
+        if not text and media:
+            text = "[语音]" if any(m["kind"] == "audio" for m in media) else "[图片]"
+        if not text or len(text)>4000 or self.ws is not ws or ws.closed or self.bot is not bot:
+            return
+        if not verifying and peer not in self.peers:
+            return
+        await ws.send_json({"type": "message", "account": bot.self_id, "peer": peer,
+                            "sender": str(event.data.sender_id), "seq": str(event.data.message_seq),
+                            "at": event.data.time*1000, "text": text, "mentioned": mentioned, "media": media})
+
+    async def resource_url(self, bot, resource):
+        async with self.resource_slots:
+            return await bot.get_resource_temp_url(resource_id=resource)
+
+
+def main():
+    runtime = Path(os.environ["RUNTIME_DIRECTORY"])
+    token = (Path(os.environ["CREDENTIALS_DIRECTORY"]) / "milky.token").read_text().strip()
+    nonebot.init(driver="~aiohttp", log_level="CRITICAL", milky_clients=[
+        {"host": "127.0.0.1", "port": 19437, "access_token": token}
+    ])
+    driver = nonebot.get_driver()
+    driver.register_adapter(Adapter)
+    channel = GroupChannel()
+    matcher = nonebot.on_message(block=False)
+    matcher.handle()(channel.incoming)
+    app = web.Application()
+    app.router.add_get("/groups", channel.events)
+    runner = web.AppRunner(app, access_log=None)
+
+    def state(value):
+        path = runtime / "status.tmp"
+        path.write_text(value + "\n")
+        path.replace(runtime / "status")
+
+    @driver.on_startup
+    async def startup():
+        await runner.setup()
+        path = runtime / "groups.sock"
+        await web.UnixSite(runner, str(path)).start()
+        path.chmod(0o660)
+
+    @driver.on_shutdown
+    async def shutdown():
+        if channel.ws is not None:
+            await channel.ws.close()
+        await runner.cleanup()
+
+    @driver.on_bot_connect
+    async def connected(bot: Bot):
+        await channel.set_bot(bot)
+        state("connected")
+
+    @driver.on_bot_disconnect
+    async def disconnected(bot: Bot):
+        if channel.bot is bot:
+            await channel.set_bot(None)
+            state("awaiting_gateway")
+
+    state("awaiting_gateway")
+    nonebot.run()
+
+
+if __name__ == "__main__":
+    main()

@@ -31,4 +31,8 @@ input[type="checkbox"].ios-switch:checked{background:#34c759}input[type="checkbo
 .alert-search input{min-width:180px;flex:1}.alert-search-results{flex-wrap:wrap}
 #alertTarget{width:100%;min-height:44px;margin:8px 0 12px}
 #alertRegions .setting-row{gap:16px}#alertRegions .setting-title{overflow-wrap:anywhere}
+.group-connection{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;padding:14px 0;margin-bottom:12px}
+.group-connection code,.group-connection select{max-width:100%;overflow-wrap:anywhere;min-width:0}
+.group-connection button,.group-connection select{min-height:44px}
+.group-connection .help,.group-connection code{flex-basis:100%;margin:0}
 @media(max-width:540px){.alert-region-controls{gap:10px}.alert-region-controls button{padding:10px}#alertRegions .setting-row{gap:8px}}
