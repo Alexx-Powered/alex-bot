@@ -49,8 +49,7 @@ class GroupChannel:
                         return
                     if self.bot is bot:
                         self.groups.clear()
-                        self.clear_subscription()
-                        await ws.send_json({"type": "offline"})
+                        await ws.send_json({"type": "roster_error"})
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.changed.wait(), 30)
 
@@ -71,6 +70,11 @@ class GroupChannel:
                     if self.bot and data.get("account") == self.bot.self_id:
                         self.peers = set(data["peers"]).intersection(self.groups)
                         self.verification = data.get("verification")
+                        if self.verification and self.verification.get("probe"):
+                            await ws.send_json({"type": "probe_ready", "account": self.bot.self_id,
+                                                "command": self.verification["command"]})
+                elif data.get("type") == "refresh":
+                    self.changed.set()
                 elif data.get("type") == "deliver":
                     await ws.send_json(await self.deliver(data))
                 else:

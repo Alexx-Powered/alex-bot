@@ -9,6 +9,7 @@ const decimal=s=>typeof s==='string'&&/^[1-9]\d{0,18}$/.test(s)&&BigInt(s)<=9223
 const error=(code,attempted=false)=>new QQAdapterError(code,{messageAttempted:attempted,phase:'send'});
 const pairCommand=/^\/group-link ([a-f0-9]{32})$/;
 const membershipTTL=90_000;
+const officialPollMs=120_000;
 const pairingTTL=300_000;
 
 export class GroupConnections {
@@ -16,10 +17,15 @@ export class GroupConnections {
     Object.assign(this,{core,official,onMessage,socketPath,now});
     this.directory=new Map(); this.pending=new Map(); this.observed=new Map();
     this.profileChecks=new Map();
+    this.memberships=new Map();
+    this.generation=0;
   }
   start() {
     if(this.official.groupProfile){
-      this.profileTimer=setInterval(()=>{void this.refreshProfile().catch(()=>{});},3500).unref();
+      this.profileTimer=setInterval(()=>{
+        void this.refreshProfile().catch(()=>{});
+        void this.refreshMembership().catch(()=>{});
+      },3500).unref();
     }
     if(!this.socketPath)return;
     const connect=()=>{
@@ -40,6 +46,8 @@ export class GroupConnections {
   }
   reset() {
     this.account=null;this.directory.clear();this.observed.clear();this.configSignature=null;
+    this.directoryUnavailable=false;
+    if(this.pair?.mode==='probe'&&!this.pair.ticket)this.finishProbe(this.pair,'GROUP_ROUTE_OFFLINE');
     for(const request of [...this.pending.values()])request.finish(error('QQ_SERVICE_UNAVAILABLE',true));
   }
   close() {this.closed=true;clearTimeout(this.retry);clearInterval(this.profileTimer);this.socket?.terminate();this.reset();}
@@ -60,12 +68,62 @@ export class GroupConnections {
     }finally{this.checkingProfile=false;}
   }
   live() {return Boolean(this.account&&this.socket?.readyState===WebSocket.OPEN&&this.now()-this.lastRoster<membershipTTL);}
+  officialDisconnected() {
+    this.generation++;
+    this.memberships.clear();
+  }
+  observePresence(id,state,at) {
+    const now=this.now(),previous=this.memberships.get(id);
+    if(!this.core.groupRoutes().some(r=>r.id===id)||!Number.isSafeInteger(at)||at<now-300000||at>now+60000)return;
+    at=Math.min(at,now);
+    if(previous&&(at<previous.at||(at===previous.at&&previous.state==='absent')))return;
+    this.memberships.set(id,{state,at,source:'event',next:previous?.next??0,
+      proactive:state==='present'&&previous?.proactive===true});
+  }
+  async refreshMembership() {
+    if(this.closed||this.readingMembership||!this.official.groupMembership||this.official.status().state!=='connected')return;
+    const routes=this.core.groupRoutes();
+    for(const id of this.memberships.keys())if(!routes.some(r=>r.id===id))this.memberships.delete(id);
+    const route=routes.find(r=>(this.memberships.get(r.id)?.next??0)<=this.now());
+    if(!route)return;
+    const previous=this.memberships.get(route.id),generation=this.generation;
+    this.readingMembership=true;
+    try{
+      const result=await this.official.groupMembership(route.id);
+      if(this.closed||generation!==this.generation||!this.core.groupRoutes().some(r=>r.id===route.id))return;
+      const current=this.memberships.get(route.id),now=this.now();
+      if(current!==previous || (result.state==='unknown'&&current?.source==='event'&&now-current.at<officialPollMs)){
+        if(current)current.next=now+30000;
+        return;
+      }
+      this.memberships.set(route.id,{...result,source:'api',at:now,next:now+(result.state==='present'?officialPollMs:30000)});
+    }finally{this.readingMembership=false;}
+  }
+  officialPresence(route) {
+    if(this.official.status().state!=='connected')return 'offline';
+    const record=this.memberships.get(route.id);
+    return record&&this.now()-record.at<officialPollMs*2?record.state:'unknown';
+  }
   available(route,channel) {
-    return channel==='official'?this.official.status().state==='connected':
-      this.live()&&route.account===this.account&&this.directory.has(route.peer);
+    return channel==='official'?this.officialPresence(route)==='present':
+      this.live()&&!this.directoryUnavailable&&route.account===this.account&&this.directory.has(route.peer);
+  }
+  detect({groupKey}) {
+    const route=this.core.groupRoutes().find(r=>r.key===groupKey);
+    if(!route)return {ok:false,code:'GROUP_NOT_FOUND'};
+    const now=this.now(),entry=this.memberships.get(route.id);
+    if(entry&&(!this.lastDetection||now-this.lastDetection>=10000))entry.next=0;
+    if(!this.lastDetection||now-this.lastDetection>=10000){
+      this.lastDetection=now;
+      if(this.socket?.readyState===WebSocket.OPEN)this.socket.send(JSON.stringify({type:'refresh'}));
+    }
+    return {ok:true,code:'GROUP_DETECTION_QUEUED'};
   }
   activePair() {
-    if(this.pair&&this.now()>=this.pair.expires)this.pair=null;
+    if(this.pair&&this.now()>=this.pair.expires){
+      if(this.pair.mode==='probe')this.finishProbe(this.pair,'GROUP_PROBE_TIMEOUT');
+      else this.pair=null;
+    }
     return this.pair;
   }
   sync() {
@@ -73,30 +131,86 @@ export class GroupConnections {
     const peers=this.core.sendingEnabled()?this.core.groupRoutes().filter(r=>r.active==='milky'&&this.available(r,'milky')&&this.core.groupEnabled(r.id)).map(r=>r.peer):[];
     const pair=this.activePair();
     const frame=JSON.stringify({type:'subscriptions',account:this.account,peers,
-      verification:pair&&pair.account===this.account?{peer:pair.peer,command:pair.command}:null});
+      verification:pair&&pair.account===this.account?{peer:pair.peer,command:pair.command,probe:pair.mode==='probe'}:null});
     if(frame!==this.configSignature){this.socket.send(frame);this.configSignature=frame;}
   }
   summary() {
     const routes=this.core.groupRoutes(),online=this.live();
     const pair=this.activePair();
+    const directory=online&&!this.directoryUnavailable?[...this.directory].filter(([id])=>!routes.some(r=>r.peer===id&&r.account===this.account))
+      .map(([number,name])=>({number,name})):[];
     return {online,officialOnline:this.official.status().state==='connected',
-      groups:routes.map(r=>({groupKey:r.key,active:r.active,revision:r.revision,names:r.names,profileState:this.profileChecks.get(r.key)?.state,
+      groups:routes.map(r=>{
+        const official=this.officialPresence(r);
+        const candidates=r.peer?[]:directory.filter(g=>r.names.official&&g.name===r.names.official);
+        const milky=this.directoryUnavailable?'unknown':!online?'offline':r.account&&r.account!==this.account?'otherAccount':
+          r.peer?(this.directory.has(r.peer)?'present':'absent'):candidates.length?'candidate':this.directory.size?'unverified':'absent';
+        return {groupKey:r.key,active:r.active,revision:r.revision,names:r.names,official,milky,candidates,
+        canProbe:!r.peer&&directory.length>0&&official==='present'&&this.memberships.get(r.id)?.proactive===true&&
+          this.core.sendingEnabled()&&this.core.groupEnabled(r.id)&&this.core.groupAccess(r.id)==='white',
+        profileState:this.profileChecks.get(r.key)?.state,
         profileCode:this.profileChecks.get(r.key)?.bizCode,profileHttp:this.profileChecks.get(r.key)?.httpStatus,
-        ...(r.peer?{number:r.peer,milkyOnline:this.available(r,'milky')}:{})})),
-      directory:online?[...this.directory].filter(([id])=>!routes.some(r=>r.peer===id&&r.account===this.account))
-        .map(([number,name])=>({number,name})):[],
-      pairing:pair?{groupKey:pair.key,number:pair.peer||pair.observedPeer,name:this.directory.get(pair.peer||pair.observedPeer),
+        ...(r.peer?{number:r.peer,milkyOnline:this.available(r,'milky')}:{})};}),
+      directory,probeResult:this.probeResult,
+      pairing:pair?.mode==='probe'?{mode:'probe',groupKey:pair.key,matched:!!pair.ticket,
+        ...(pair.ticket?{number:pair.observedPeer,name:this.directory.get(pair.observedPeer),command:pair.ticket}:{})}:pair?{groupKey:pair.key,number:pair.peer||pair.observedPeer,name:this.directory.get(pair.peer||pair.observedPeer),
         ambiguous:Boolean(pair.ambiguous),command:pair.command,official:pair.officialAt!=null,milky:pair.milkyAt!=null,
         matched:this.proofMatches(pair),expires:pair.expires}:null};
   }
   startPair({groupKey,number}) {
+    if(this.activePair()?.mode==='probe')return {ok:false,code:'GROUP_PROBE_BUSY'};
     const route=this.core.groupRoutes().find(r=>r.key===groupKey);
     if(!route||(number!==''&&!decimal(number)))return {ok:false,code:'INVALID_INPUT'};
     if(route.peer||this.core.groupRoutes().some(r=>r.account===this.account&&r.peer===number))return {ok:false,code:'GROUP_ROUTE_ALREADY_LINKED'};
-    if(!this.live()||!this.directory.size||(number&&!this.directory.has(number))||!this.available(route,'official'))return {ok:false,code:'GROUP_ROUTE_OFFLINE'};
+    if(!this.live()||this.directoryUnavailable||!this.directory.size||(number&&!this.directory.has(number))||
+      ['offline','absent'].includes(this.officialPresence(route)))return {ok:false,code:'GROUP_ROUTE_OFFLINE'};
     this.pair={key:groupKey,id:route.id,peer:number,account:this.account,command:'/group-link '+randomBytes(16).toString('hex'),
       expires:this.now()+pairingTTL};
     this.sync();return {ok:true,code:'GROUP_ROUTE_VERIFY'};
+  }
+  startProbe({groupKey}) {
+    if(this.activePair())return {ok:false,code:'GROUP_PROBE_BUSY'};
+    const route=this.core.groupRoutes().find(r=>r.key===groupKey);
+    if(!route||!this.summary().groups.find(r=>r.groupKey===groupKey)?.canProbe)return {ok:false,code:'GROUP_PROBE_UNAVAILABLE'};
+    if(this.lastProbe&&this.now()-this.lastProbe<60000)return {ok:false,code:'GROUP_PROBE_COOLDOWN'};
+    const nonce=randomBytes(16).toString('hex');
+    const pair={mode:'probe',key:groupKey,id:route.id,peer:'',account:this.account,nonce,command:'群连接核验 '+nonce,expires:this.now()+60000};
+    this.lastProbe=this.now();this.probeResult=null;this.pair=pair;
+    pair.timeout=setTimeout(()=>this.finishProbe(pair,'GROUP_PROBE_TIMEOUT'),60000).unref();
+    this.sync();
+    return {ok:true,code:'GROUP_PROBE_STARTED'};
+  }
+  finishProbe(pair,code) {
+    if(this.pair!==pair)return;
+    clearTimeout(pair.timeout);clearTimeout(pair.settle);
+    this.pair=null;this.probeResult={groupKey:pair.key,code};
+    this.sync();
+  }
+  async submitProbe(pair) {
+    if(pair.startedAt!==undefined)return;
+    pair.startedAt=this.now();
+    const current=()=>this.activePair()===pair&&this.live()&&!this.directoryUnavailable&&
+      this.account===pair.account&&this.officialPresence(pair)==='present';
+    try{
+      const receipt=await this.core.notifyGroupProbe(pair.key,pair.nonce,pair.expires,current);
+      if(!receipt.ok||!current())return this.finishProbe(pair,receipt.ok?'GROUP_ROUTE_OFFLINE':receipt.code);
+      pair.accepted=true;
+      this.settleProbe(pair);
+    }catch{this.finishProbe(pair,'GROUP_PROBE_FAILED');}
+  }
+  settleProbe(pair) {
+    if(pair.ambiguous)return this.finishProbe(pair,'GROUP_PROBE_AMBIGUOUS');
+    if(!pair.accepted||!pair.observedPeer||pair.settle)return;
+    // Allow duplicate observations from another group to invalidate this proof.
+    pair.settle=setTimeout(()=>{
+      if(this.activePair()!==pair)return;
+      const peer=pair.observedPeer;
+      if(!this.available({...pair,peer},'milky')||!this.available(pair,'official'))return this.finishProbe(pair,'GROUP_ROUTE_OFFLINE');
+      pair.ticket=randomUUID();
+      clearTimeout(pair.timeout);
+      pair.expires=this.now()+pairingTTL;
+      pair.timeout=setTimeout(()=>this.finishProbe(pair,'GROUP_PROBE_TIMEOUT'),pairingTTL).unref();
+    },2500).unref();
   }
   proofMatches(pair) {
     return !pair.ambiguous&&Number.isFinite(pair.officialAt)&&Number.isFinite(pair.milkyAt)&&Math.abs(pair.officialAt-pair.milkyAt)<=5000;
@@ -105,18 +219,31 @@ export class GroupConnections {
     if(message?.kind!=='group'||!pairCommand.test(message.text))return false;
     const p=this.activePair();
     if(p&&p.id===message.groupId&&message.mentioned&&message.text===p.command&&Number.isFinite(expires))
-      p.officialAt??=expires-pairingTTL;
+      {p.officialAt??=expires-pairingTTL;this.observePresence(p.id,'present',p.officialAt);}
     return true;
   }
   async confirm({groupKey,command}) {
     const p=this.activePair();
-    if(!p||p.key!==groupKey||p.command!==command||!this.proofMatches(p))return {ok:false,code:'GROUP_ROUTE_UNVERIFIED'};
+    if(!p||p.key!==groupKey||typeof command!=='string'||(p.mode==='probe'?
+      !p.ticket||p.ticket!==command||p.ambiguous:p.command!==command||!this.proofMatches(p)))return {ok:false,code:'GROUP_ROUTE_UNVERIFIED'};
     const peer=p.peer||p.observedPeer;
     if(!this.available({...p,peer},'milky')||!this.available(p,'official'))return {ok:false,code:'GROUP_ROUTE_OFFLINE'};
+    clearTimeout(p.timeout);clearTimeout(p.settle);
     this.pair=null;this.sync();return this.core.linkGroupRoute(groupKey,p.account,peer,this.directory.get(peer));
   }
   receive(frame) {
+    if(frame.type==='roster_error'){
+      this.directoryUnavailable=true;
+      this.configSignature=null;
+      if(this.pair?.mode==='probe'&&!this.pair.ticket)this.finishProbe(this.pair,'GROUP_ROUTE_OFFLINE');
+      return;
+    }
     if(frame.type==='offline'){this.reset();return;}
+    if(frame.type==='probe_ready'){
+      const p=this.activePair();
+      if(p?.mode==='probe'&&p.account===frame.account&&p.command===frame.command)void this.submitProbe(p);
+      return;
+    }
     if(frame.type==='roster'){
       if(!decimal(frame.account)||!Array.isArray(frame.groups)||frame.groups.length>5000)throw Error('INVALID_ROSTER');
       const directory=new Map();
@@ -125,7 +252,7 @@ export class GroupConnections {
         directory.set(g.number,g.name);
       }
       if(frame.account!==this.account)this.reset();
-      this.account=frame.account;this.directory=directory;this.lastRoster=this.now();this.sync();
+      this.account=frame.account;this.directory=directory;this.lastRoster=this.now();this.directoryUnavailable=false;this.sync();
       const updates=this.core.groupRoutes().filter(r=>r.account===this.account&&directory.has(r.peer)&&r.names.milky!==directory.get(r.peer));
       if(updates.length)void this.core.rememberGroupNames(updates.map(r=>({...r,name:directory.get(r.peer)})),'milky').catch(()=>{});
       return;
@@ -140,10 +267,16 @@ export class GroupConnections {
       else request.finish(error('QQ_SERVICE_UNAVAILABLE',true));
       return;
     }
-    if(frame.type!=='message'||!this.live()||frame.account!==this.account||!this.directory.has(frame.peer)||
+    if(frame.type!=='message'||!this.live()||this.directoryUnavailable||frame.account!==this.account||!this.directory.has(frame.peer)||
        !decimal(frame.sender)||!decimal(frame.seq)||frame.sender===this.account||typeof frame.text!=='string'||
        frame.text.length>4000||!Number.isSafeInteger(frame.at)||frame.at>this.now()+60000||frame.at<=this.now()-300000)return;
     const p=this.activePair();
+    if(p?.mode==='probe'&&frame.text===p.command){
+      if(p.startedAt===undefined||p.account!==this.account||frame.at<p.startedAt-1000||frame.at>this.now()+1000)return;
+      if(p.observedPeer&&p.observedPeer!==frame.peer)p.ambiguous=true;
+      p.observedPeer??=frame.peer;
+      this.settleProbe(p);return;
+    }
     if(pairCommand.test(frame.text)){
       if(p&&p.account===this.account&&(!p.peer||p.peer===frame.peer)&&p.command===frame.text){
         if(p.observedPeer&&p.observedPeer!==frame.peer)p.ambiguous=true;

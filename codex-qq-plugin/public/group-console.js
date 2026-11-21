@@ -86,6 +86,9 @@ window.createGroupConsole = ({api,action}) => {
     }
   }
   function navigation() {
+    const oldDirectory=get('ordinaryGroupDirectory');
+    const expanded=oldDirectory?.open;
+    oldDirectory?.remove();
     get('groupNavigation').replaceChildren();
     for (const group of groups) {
       const button=document.createElement('button');button.type='button';button.className='group-nav-item';
@@ -93,7 +96,9 @@ window.createGroupConsole = ({api,action}) => {
       const name=document.createElement('strong');name.textContent=group.name;
       const info=document.createElement('span');
       const route=routeFor(group);
-      info.textContent=channelName[route?.active||'official']+(route?.number?' · 双通道':'')+' · '+(group.enabled===false?'已停用':'已启用');
+      const both=route?.official==='present'&&route?.milky==='present';
+      info.textContent=(route?.active==='milky'?'普通 QQ':'官方 Bot')+'处理'+(both?' · 双端在群':'')+
+        (group.enabled===false?' · 已停用':'');
       button.append(name,info);button.onclick=()=>select(group.groupKey);get('groupNavigation').append(button);
     }
     get('groupCount').textContent=String(groups.length);
@@ -104,65 +109,105 @@ window.createGroupConsole = ({api,action}) => {
       for(const {name,number} of connections.directory){
         const item=document.createElement('li');item.textContent=name+' · '+number;list.append(item);
       }
-      details.append(summary,list);get('groupNavigation').append(details);
+      details.id='ordinaryGroupDirectory';details.open=!!expanded;
+      details.append(summary,list);get('groupNavigation').after(details);
     }
   }
+  const presenceLabel={present:'已在群内',absent:'已不在群内',offline:'账号离线',unknown:'暂未核实',
+    candidate:'发现同名群',unverified:'待核对群号',otherAccount:'当前登录了其他账号'};
   function renderConnection(group) {
     const panel=get('groupConnection');
     if(!panel||!group)return;
-    const oldNumber=panel.querySelector('select')?.value;
-    panel.replaceChildren();
+    const previousNumber=panel.querySelector('select')?.value;
+    const expanded=panel.querySelector('details')?.open;
+    const focused=panel.contains(document.activeElement)?document.activeElement.id:null;
     const route=routeFor(group)||{active:'official'};
-    const label=document.createElement('strong');label.textContent='工作通道';
-    const state=document.createElement('span');
-    const online=route.active==='milky'?route.milkyOnline:connections.officialOnline;
-    state.textContent=channelName[route.active]+' · '+(online?'在线':'离线');
-    panel.append(label,state);
-    const profile=document.createElement('p');profile.className='help';
+    const element=(tag,content,className)=>{
+      const el=document.createElement(tag);
+      if(content!==undefined)el.textContent=content;
+      if(className)el.className=className;
+      return el;
+    };
+    const button=(id,text,run,disabled=false)=>{
+      const el=element('button',text,'secondary');
+      el.type='button';el.id=id;el.disabled=disabled;
+      el.onclick=async()=>{el.disabled=true;try{await run();}finally{el.disabled=disabled;}};
+      return el;
+    };
+    const heading=element('div',undefined,'connection-heading');
+    heading.append(element('h4','群内账号'),button('groupDetect','重新检测',()=>action('group/connection/detect',{groupKey:group.groupKey})));
+    const accounts=element('div',undefined,'presence-grid');
     const names=route.names||{};
-    const unavailable=route.profileState==='denied'?'官方接口未授权读取群名':route.profileState==='unavailable'?'官方暂未返回群名':'等待官方查询群名';
-    profile.textContent=(names.official?'官方群名 '+names.official:names.milky?'普通 QQ 群名 '+names.milky:unavailable)+
-      (route.number?' · 群号 '+route.number:' · 数字群号待核实');
-    panel.append(profile);
-    function button(text,fn,disabled=false) {
-      const el=document.createElement('button');el.type='button';el.textContent=text;el.disabled=disabled;
-      el.onclick=async()=>{el.disabled=true;try{await fn();}finally{el.disabled=false;}};return el;
+    for(const [key,label] of [['official','官方 Bot'],['milky','普通 QQ']]){
+      const state=route[key]||'unknown';
+      const row=element('div',undefined,'presence-row');
+      row.append(element('strong',label));
+      const badge=element('span',presenceLabel[state]||presenceLabel.unknown,'presence-status');
+      badge.dataset.state=state;row.append(badge);accounts.append(row);
     }
-    if(route.number){
-      const other=route.active==='official'?'milky':'official';
-      const detail=document.createElement('span');detail.className='help';
-      detail.textContent=channelName[other]+' '+((other==='milky'?route.milkyOnline:connections.officialOnline)?'在线':'离线');
-      panel.append(detail,button('切换到'+channelName[other],()=>action('group/connection/select',{
-        groupKey:group.groupKey,channel:other,revision:route.revision
-      }),!(other==='milky'?route.milkyOnline:connections.officialOnline)));
-      return;
+    const controls=element('fieldset',undefined,'connection-choice');
+    controls.append(element('legend','群消息工作通道'));
+    const options=element('div',undefined,'connection-options');
+    for(const [key,label] of [['official','官方 Bot'],['milky','普通 QQ']]){
+      const option=element('label'),input=element('input');
+      input.type='radio';input.name='selectedGroupConnection';input.id='channel-'+key;
+      input.checked=route.active===key;
+      input.disabled=!input.checked&&(!route.number||route[key]!=='present');
+      const text=element('span',label);
+      input.onchange=async()=>{
+        if(!input.checked)return;
+        const radios=Array.from(options.querySelectorAll('input'));
+        const disabled=radios.map(el=>el.disabled);
+        for(const el of radios)el.disabled=true;
+        try{
+          const result=await action('group/connection/select',{groupKey:group.groupKey,channel:key,revision:route.revision});
+          if(!result?.ok&&options.isConnected)for(const el of radios)el.checked=el.id==='channel-'+route.active;
+        }finally{if(options.isConnected)radios.forEach((el,i)=>{el.disabled=disabled[i];});}
+      };
+      option.append(input,text);options.append(option);
     }
-    const pair=connections.pairing;
-    if(pair?.groupKey===group.groupKey){
-      const help=document.createElement('p');help.className='help';
-      help.textContent='在'+(pair.number?'群 '+(pair.name||'')+'（'+pair.number+'）':'要识别的群')+'中 @ 官方 Bot，发送下面的指令（五分钟内有效）。';
-      const code=document.createElement('code');code.textContent=pair.command;
-      const seen=document.createElement('span');seen.setAttribute('role','status');
-      seen.textContent='官方 Bot '+(pair.official?'已收到':'等待中')+' · 普通 QQ '+(pair.milky?'已收到':'等待中');
-      panel.append(help,code,seen,button('确认关联此群',()=>action('group/connection/confirm',{
-        groupKey:group.groupKey,command:pair.command
-      }),!pair.matched));
-      if(pair.official&&pair.milky&&!pair.matched){
-        const mismatch=document.createElement('span');mismatch.textContent=pair.ambiguous?'多个群收到同一指令，请重新匹配。':'两条消息时间不一致，请重新匹配。';
-        panel.append(mismatch,button('重新生成匹配指令',()=>action('group/connection/verify',{groupKey:group.groupKey,number:''})));
+    controls.append(options);
+    panel.replaceChildren(heading,accounts,controls);
+    const identity=[names.official&&names.official!==group.name?'官方群名 '+names.official:null,route.number?'已核实群号 '+route.number:null].filter(Boolean);
+    if(identity.length)panel.append(element('p',identity.join(' · '),'help'));
+    if(!route.number){
+      const pair=connections.pairing;
+      const report=connections.probeResult;
+      if(report?.groupKey===group.groupKey&&!pair){
+        const reason={GROUP_PROBE_AMBIGUOUS:'多个群收到了核验消息。',GROUP_PROBE_TIMEOUT:'核验超时，尚未确认群号。',
+          GROUP_ROUTE_OFFLINE:'核验期间连接中断。',QQ_TARGET_PERMISSION_DENIED:'QQ 拒绝向该群发送核验消息。',
+          DELIVERY_UNCERTAIN:'核验消息的发送结果尚未确认。',RATE_LIMITED:'QQ 限制了本次发送。'};
+        panel.append(element('p',reason[report.code]||'核验未完成，可以使用群内口令。','help'));
       }
-      return;
+      if(pair?.groupKey===group.groupKey){
+        const box=element('div',undefined,'connection-verify');
+        if(pair.mode==='probe'){
+          const status=element('p',pair.matched?'普通 QQ 在「'+pair.name+'」（'+pair.number+'）收到了核验消息。':'正在等待普通 QQ 收到本群核验消息…');
+          status.setAttribute('role','status');box.append(status);
+        }else{
+          box.append(element('p','在目标群 @ 官方 Bot，发送下面的指令。'),element('code',pair.command));
+          box.append(element('p','官方 Bot '+(pair.official?'已收到':'等待中')+' · 普通 QQ '+(pair.milky?'已收到':'等待中'),'help'));
+          if(pair.number)box.append(element('p','识别的群号 '+pair.number,'help'));
+        }
+        if(pair.matched)box.append(button('groupConfirm','确认群号并关联',()=>action('group/connection/confirm',{groupKey:group.groupKey,command:pair.command})));
+        if(pair.ambiguous||(pair.official&&pair.milky&&!pair.matched))box.append(button('groupRetry','重新生成口令',()=>action('group/connection/verify',{groupKey:group.groupKey,number:''})));
+        panel.append(box);
+      }else if(connections.online&&connections.directory.length){
+        const candidates=route.candidates||[];
+        if(candidates.length)panel.append(element('p','同名候选：'+candidates.map(g=>g.name+'（'+g.number+'）').join('、'),'help'));
+        if(route.canProbe)panel.append(button('groupProbe','向本群发送一条核验消息',()=>action('group/connection/probe',{groupKey:group.groupKey}),!!pair));
+        const details=element('details'),summary=element('summary','使用群内口令核对群号');
+        const select=element('select'),caption=element('label','目标普通 QQ 群');
+        select.id='groupConnectionNumber';caption.htmlFor=select.id;
+        select.add(new Option('自动识别群号',''));
+        for(const {name,number} of connections.directory)select.add(new Option(name+' · '+number,number));
+        if(connections.directory.some(g=>g.number===previousNumber))select.value=previousNumber;
+        details.append(summary,caption,select,button('groupVerify','生成匹配指令',()=>action('group/connection/verify',{groupKey:group.groupKey,number:select.value}),
+          !!pair||['offline','absent'].includes(route.official)));
+        details.open=!!expanded;panel.append(details);
+      }
     }
-    if(!connections.directory.length||!connections.online)return;
-    const select=document.createElement('select'),caption=document.createElement('label');
-    select.id='groupConnectionNumber';caption.htmlFor=select.id;caption.textContent='关联普通 QQ 群';
-    select.add(new Option('通过群内指令自动识别群号',''));
-    for(const {name,number} of connections.directory)select.add(new Option(name+' · '+number,number));
-    if(connections.directory.some(g=>g.number===oldNumber))select.value=oldNumber;
-    const verify=button('生成匹配指令',()=>action('group/connection/verify',{
-      groupKey:group.groupKey,number:select.value
-    }),!connections.officialOnline);
-    panel.append(caption,select,verify);
+    if(focused)document.getElementById(focused)?.focus({preventScroll:true});
   }
   function deliveryLog(group) {
     const panel=document.createElement('details');

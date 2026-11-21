@@ -51,6 +51,12 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
                 async with client.ws_connect("/groups") as ws:
                     group = {"number": "80001", "name": "测试群"}
                     self.assertEqual((await ws.receive_json(timeout=2))["groups"], [group])
+                    await ws.send_json({"type": "refresh"})
+                    self.assertEqual((await ws.receive_json(timeout=2))["groups"], [group])
+                    await ws.send_json({"type": "subscriptions", "account": "70001", "peers": [],
+                                        "verification": {"peer": "", "command": "群连接核验 test", "probe": True}})
+                    armed = await ws.receive_json(timeout=2)
+                    self.assertEqual((armed["type"], armed["account"]), ("probe_ready","70001"))
                     await ws.send_json({"type": "subscriptions", "account": "70001", "peers": ["80001"]})
                     payload = {"type": "deliver", "request": "fixture", "account": "70001", "peer": "80001",
                                "parts": [{"type": "text", "text": "天气"}, {"type": "image", "base64": "AQID"}]}

@@ -81,10 +81,12 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       (!request.groupId||!core.groupRoutes().some(r=>r.id===request.groupId&&r.active!=='official')),
     onGroupJoin: event => (event.messageId!==undefined&&core?.groupAccess(event.groupId)!==null)
       ? undefined : core?.recordOfficialGroupJoin(event),
+    onGroupPresence:(id,state,at)=>connections?.observePresence(id,state,at),
     onMessage: async (message, replyExpiresAt) => {
       try { if(!connections?.observeOfficial(message,replyExpiresAt))await receive(message,replyExpiresAt,'official'); } catch { /* no text or credential logging */ }
     },
     onStatus: (status) => {
+      if(status.state!=='connected')connections?.officialDisconnected();
       if (['blocked','error'].includes(status.state) &&
           ['QQ_BOT_BANNED','QQ_BOT_UNAVAILABLE','QQ_PERMISSION_DENIED'].includes(status.code)) {
         core?.setPaused(true).catch(() => {});
@@ -156,9 +158,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       const data = await body(req);
       if(pathname.startsWith('/api/group/connection/')){
         const op=pathname.slice('/api/group/connection/'.length);
-        const fields={verify:['groupKey','number'],confirm:['groupKey','command'],select:['groupKey','channel','revision']};
+        const fields={verify:['groupKey','number'],probe:['groupKey'],detect:['groupKey'],confirm:['groupKey','command'],select:['groupKey','channel','revision']};
         if(!Object.hasOwn(fields,op)||Object.keys(data).length!==fields[op].length||Object.keys(data).some(k=>!fields[op].includes(k)))throw Error('INVALID_INPUT');
-        const result=op==='verify'?connections.startPair(data):op==='confirm'?await connections.confirm(data):
+        const result=op==='probe'?connections.startProbe(data):op==='detect'?connections.detect(data):
+          op==='verify'?connections.startPair(data):op==='confirm'?await connections.confirm(data):
           await core.selectGroupRoute(data,(route,channel)=>connections.available(route,channel));
         return json(res,200,result);
       }

@@ -100,3 +100,55 @@ test('automatic group identification requires one peer, preserves remarks, and r
   const restored=new BridgeCore({...store,send:async()=>{}});await restored.init();
   assert.equal(restored.status().allowedGroups[0].name,'官方识别名');
 });
+
+test('per-group membership follows genuine events, rejects stale checks and never treats a name as a binding',async()=>{
+  const {core,router,key}=await fixture();
+  const at=Date.now();router.now=()=>at;
+  await core.rememberGroupNames([{key,name:'同名群'}],'official');
+  assert.equal(router.summary().groups[0].candidates.length,2);
+  assert.equal(router.summary().groups[0].milky,'candidate');
+  assert.equal(router.summary().groups[0].official,'unknown');
+  let finish;
+  router.official.groupMembership=()=>new Promise(resolve=>{finish=resolve;});
+  const job=router.refreshMembership();
+  router.observePresence('OPENID_A','absent',at);
+  finish({state:'present',proactive:true});await job;
+  router.observePresence('OPENID_A','present',at-100);
+  assert.equal(router.summary().groups[0].official,'absent');
+  router.now=()=>at+200;
+  router.observePresence('OPENID_A','present',at+200);
+  assert.equal(router.summary().groups[0].official,'present');
+  router.receive({type:'roster_error'});
+  assert.equal(router.summary().groups[0].milky,'unknown');
+  router.receive({type:'roster',account:'111',groups:[]});
+  assert.equal(router.summary().groups[0].milky,'absent');
+  router.officialDisconnected();
+  assert.equal(router.summary().groups[0].official,'unknown');
+});
+
+test('console probe sends once after the listener is armed and binds only after the operator confirms the number',async()=>{
+  const {core,router,key,wire,sent,milkyEvent,select}=await fixture();
+  router.official.groupMembership=async()=>({state:'present',proactive:true});
+  await router.refreshMembership();
+  assert.equal(router.startProbe({groupKey:key}).code,'GROUP_PROBE_STARTED');
+  assert.equal(sent.length,0);
+  const {command}=wire.at(-1).verification;
+  assert.ok(!JSON.stringify(router.summary()).includes(command));
+  for(let i=0;i<2;i++)router.receive({type:'probe_ready',account:'111',command});
+  await tick();
+  assert.equal(sent.length,1);assert.equal(sent[0].groupId,'OPENID_A');
+  assert.equal(sent[0].text,command);
+  assert.equal(core.canDeliver({...sent[0]}),false);
+  milkyEvent(command);
+  await new Promise(resolve=>setTimeout(resolve,2650));
+  const proof=router.summary().pairing;
+  assert.equal(proof.matched,true);assert.equal(proof.number,'222');
+  assert.equal(core.groupRoutes()[0].peer,undefined);
+  assert.equal((await router.confirm({groupKey:key,command:proof.command})).ok,true);
+  assert.equal(core.groupRoutes()[0].active,'official');
+  assert.equal((await select('milky',1)).ok,true);
+  router.receive({type:'roster',account:'111',groups:[{number:'333',name:'同名群'}]});
+  assert.equal(router.summary().groups[0].milky,'absent');
+  router.observePresence('OPENID_A','absent',Date.now());
+  assert.equal((await select('official',2)).code,'GROUP_ROUTE_OFFLINE');
+});

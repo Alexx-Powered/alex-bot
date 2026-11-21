@@ -125,6 +125,7 @@ export function imageBase64(image) {
 export class QQAdapter {
   #onMessage;
   #onGroupJoin;
+  #onGroupPresence;
   #onStatus;
   #createBot;
   #now;
@@ -140,12 +141,13 @@ export class QQAdapter {
   #lastGroupObservation = null;
   #lastSendDiagnostic = null;
 
-  constructor({ onMessage = () => {}, onGroupJoin = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true,
+  constructor({ onMessage = () => {}, onGroupJoin = () => {}, onGroupPresence = () => {}, onStatus = () => {}, createBot = (options) => new QQBot(options), now = Date.now, canSend = () => true,
     groupAddressed = (_groupId,text) => ALIAS_ADDRESS.test(text.trim()) } = {}) {
     if (typeof canSend !== 'function') throw new TypeError('INVALID_SEND_GUARD');
     if (typeof groupAddressed !== 'function') throw new TypeError('INVALID_GROUP_ADDRESS_GUARD');
     this.#onMessage = onMessage;
     this.#onGroupJoin = onGroupJoin;
+    this.#onGroupPresence = onGroupPresence;
     this.#onStatus = onStatus;
     this.#createBot = createBot;
     this.#now = now;
@@ -170,6 +172,17 @@ export class QQAdapter {
       const {httpStatus,bizCode}=safeError(failure,'GROUP_PROFILE_UNAVAILABLE');
       return {state:httpStatus===403?'denied':'unavailable',httpStatus,bizCode};
     }
+  }
+
+  async groupMembership(id) {
+    const bot=this.#bot;
+    if(!isId(id)||!bot||this.#current.state!=='connected')return {state:'unknown'};
+    try{
+      const data=await bot.api.get('/v2/groups/'+encodeURIComponent(id)+'/bot_state');
+      if(bot===this.#bot&&this.#current.state==='connected'&&isId(data?.member_openid))
+        return {state:'present',proactive:data.allow_proactive_msg===true};
+    }catch{ /* Permission errors and timeouts do not establish a departure. */ }
+    return {state:'unknown'};
   }
 
   /** Event metadata only, never IDs, content, names or authorization. */
@@ -249,6 +262,7 @@ export class QQAdapter {
         if (!normalized) return;
         try {
           if (normalized.message.kind==='group') {
+            this.#onGroupPresence(normalized.message.groupId,'present',normalized.issuedAt);
             const observation=this.#onGroupJoin({groupId:normalized.message.groupId,
               joinedAt:normalized.issuedAt,messageId:normalized.message.id,isCurrent});
             if (observation) {
@@ -265,13 +279,16 @@ export class QQAdapter {
         }
       });
       bot.on('rawEvent', async (event) => {
-        if (!active() || event?.eventType !== 'GROUP_ADD_ROBOT') return;
+        if (!active() || !['GROUP_ADD_ROBOT','GROUP_DEL_ROBOT'].includes(event?.eventType)) return;
         const {group_openid: groupId, timestamp} = event.data ?? {};
         const diagnostic={receivedAt:this.#now(),timestampType:typeof timestamp,decision:'invalid'};
         this.#lastGroupJoin=diagnostic;
         if (!isCurrent()) { diagnostic.decision='disconnected';return; }
         const seconds=typeof timestamp==='string'&&/^\d{1,10}$/.test(timestamp)?Number(timestamp):timestamp;
         if (!isId(groupId) || !Number.isSafeInteger(seconds) || seconds <= 0) return;
+        const removed=event.eventType==='GROUP_DEL_ROBOT';
+        this.#onGroupPresence(groupId,removed?'absent':'present',seconds*1000);
+        if(removed)return;
         try {
           diagnostic.decision='pending';
           const outcome=await this.#onGroupJoin({groupId,joinedAt:seconds*1000,isCurrent});

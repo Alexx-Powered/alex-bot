@@ -66,6 +66,9 @@ const descriptions = {
 };
 Object.assign(descriptions,{WAKE_WORDS_SAVED:'全局唤醒词已保存，所有页面同步。',GROUP_WAKE_WORDS_SAVED:'本群唤醒词开关已保存。',WAKE_WORDS_CHANGED:'词库已在其他页面更新，请核对最新列表后再保存。',INVALID_WAKE_WORD:'请输入 1–24 字、不含空白的唤醒词。',WAKE_WORD_EXISTS:'这个唤醒词已经存在（英文不区分大小写）。',WAKE_WORD_NOT_FOUND:'该唤醒词已被删除，请刷新列表。',WAKE_WORD_LIMIT:'最多可保存 32 个唤醒词。'});
 Object.assign(descriptions,{
+  GROUP_DETECTION_QUEUED:'正在刷新两个账号的群内状态。',GROUP_PROBE_STARTED:'已开始核验，将向本群发送一条消息。',
+  GROUP_PROBE_BUSY:'已有群正在核验。',GROUP_PROBE_UNAVAILABLE:'当前无法向本群发送核验消息，请使用群内口令。',
+  GROUP_PROBE_COOLDOWN:'刚刚发起过核验，请稍后再试。',
   GROUP_ROUTE_VERIFY:'匹配指令已生成。',GROUP_ROUTE_LINKED:'已核实两个账号连接到同一个群。',GROUP_ROUTE_SAVED:'本群工作通道已保存。',
   GROUP_ROUTE_OFFLINE:'目标通道离线或当前账号已不在该群。',GROUP_ROUTE_UNVERIFIED:'两个通道还未收到同一条有效匹配指令。',
   GROUP_ROUTE_ALREADY_LINKED:'此群已有通道关联，请刷新群设置。',GROUP_ROUTE_CHANGED:'工作通道已在其他页面更改，请核对最新状态。',

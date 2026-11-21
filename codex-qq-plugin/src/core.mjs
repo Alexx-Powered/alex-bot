@@ -247,6 +247,7 @@ function classifyError(error) {
 /** Owner C2C notifications and explicitly allowed group replies share one serial queue. */
 export class BridgeCore {
   #weatherAlertPermits=new WeakSet();
+  #groupProbe;
   #loadState;
   #saveState;
   #send;
@@ -437,7 +438,7 @@ export class BridgeCore {
     try{return await this.#enqueue(async()=>{
       const link=this.#state.groupLinks?.[groupKey];
       if(!link||link.revision!==revision)return result(false,'GROUP_ROUTE_CHANGED');
-      if(!available(link,channel))return result(false,'GROUP_ROUTE_OFFLINE');
+      if(!available({...route,...link},channel))return result(false,'GROUP_ROUTE_OFFLINE');
       const next={...this.#state,groupLinks:{...this.#state.groupLinks,[groupKey]:{...link,active:channel,revision:revision+1}}};
       try{await this.#persist(next);}catch{return this.#storageFailed();}
       return result(true,'GROUP_ROUTE_SAVED');
@@ -489,6 +490,8 @@ export class BridgeCore {
 
   #groupCanDeliver(groupId,requiredAccess,requiredFeature,proactiveGroup) {
     if (!this.groupEnabled(groupId)) return false;
+    if(proactiveGroup&&requiredFeature==='connectionProbe')return this.groupAccess(groupId)==='white'&&
+      this.#groupProbe?.id===groupId&&this.#groupProbe.current();
     if (proactiveGroup) return this.canUseFeature(groupId,isMorningFeature(requiredFeature)?requiredFeature:'notifications') &&
       (!requiredFeature || this.canUseFeature(groupId,requiredFeature));
     return requiredFeature ? this.canUseFeature(groupId,requiredFeature) :
@@ -1170,6 +1173,19 @@ export class BridgeCore {
     // always address the persisted owner, never a caller-specified destination.
     const {text,idempotencyKey}=input??{};
     return this.#enqueue(() => this.#notify({text,idempotencyKey}));
+  }
+
+  notifyGroupProbe(groupKey,nonce,deadline,isCurrent) {
+    if(!validGroupKey(groupKey)||!(/^[a-f0-9]{32}$/).test(nonce)||typeof isCurrent!=='function')
+      return Promise.resolve(result(false,'INVALID_INPUT'));
+    return this.#enqueue(async()=>{
+      const route=this.groupRoutes().find(r=>r.key===groupKey);
+      if(!route||route.peer||!isCurrent())return result(false,'GROUP_ROUTE_CHANGED');
+      this.#groupProbe={id:route.id,current:isCurrent};
+      try{return await this.#notify({text:'群连接核验 '+nonce,idempotencyKey:'group-probe:'+nonce,
+        requiredAccess:'white',requiredFeature:'connectionProbe',deliveryDeadline:deadline},undefined,route.id,true);}
+      finally{this.#groupProbe=undefined;}
+    });
   }
 
   async notifyImage({image,idempotencyKey}={}) {
