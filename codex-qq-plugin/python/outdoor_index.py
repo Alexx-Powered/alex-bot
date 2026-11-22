@@ -133,7 +133,7 @@ def outdoor_index(date: str, hours: list[OutdoorHour], red_hazards: list[str] | 
     if polluted or hazards:
         reasons = [h+'红色预警' for h in hazards]
         if polluted and '重污染天气' not in hazards:
-            reasons.append('全天PM2.5高于220ug/m3')
+            reasons.append('全天PM2.5高于220 μg/m³')
         for p in periods:
             p.update(status='complete', score=0, displayScore=0, grade='poor', character='拉', gold=False, reason='应当避免外出')
         return {'date':date, 'version':RULES['version'], 'status':'complete', 'periods':periods, 'score':0,
