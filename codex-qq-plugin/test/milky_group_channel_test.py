@@ -81,7 +81,7 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
                     before = list(requests)
                     event = {"time": timestamp, "self_id": 70001, "event_type": "bot_offline",
                              "data": {"reason": "synthetic reason must stay private"}}
-                    await asyncio.wait_for(bot.handle_event(Adapter.json_to_event(event)), 2)
+                    await asyncio.wait_for(bot.handle_event(Adapter.json_to_event(event.copy())), 2)
                     notice = {"type": "account_offline", "account": "70001", "at": timestamp * 1000}
                     self.assertEqual(await ws.receive_json(timeout=2), notice)
                     await bot.handle_event(Adapter.json_to_event(dict(event, time=timestamp+1)))
