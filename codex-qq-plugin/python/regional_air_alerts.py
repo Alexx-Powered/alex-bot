@@ -5,7 +5,7 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin
 from urllib.request import Request,urlopen
 from urllib.error import URLError
-from beijing_air_alerts import TZ,Document
+from beijing_air_alerts import TZ,Document,pollution_level
 
 TIANJIN={'key':'tianjin_air','code':'120000','source':'天津市生态环境局',
  'home':'https://sthj.tj.gov.cn/',
@@ -42,16 +42,16 @@ def get_page(url,spec):
     if len(raw)>300000:raise ValueError('ALERT_REGIONAL_SIZE')
     return raw.decode('utf8')
 
-def links(page,spec,now):
+def links(page,spec,now,skip=None):
     p=Document(spec['home']);p.feed(page);found={};valid=False
     for url,title in p.links:
         m=re.fullmatch(spec['article'],url)
-        if not m:continue
+        if not m or url==skip:continue
         valid=True
         if not re.search('重污染.*(?:预警|响应)',title) or re.search('预案|演练|解读|征求|绩效|评估|采购',title):continue
         day=datetime.strptime(m[2],'%Y%m%d').replace(tzinfo=TZ)
         if now-timedelta(days=14)<=day<=now:found[url]=(day,int(m[3]))
-    if not valid:raise ValueError('ALERT_REGIONAL_SCHEMA')
+    if not valid and not skip:raise ValueError('ALERT_REGIONAL_SCHEMA')
     return max(found,key=found.get) if found else None
 
 def parse_article(page,url,spec,now):
@@ -63,7 +63,7 @@ def parse_article(page,url,spec,now):
     body=Body();body.feed(page);text='\n'.join(x.strip() for x in ''.join(body.parts).splitlines() if x.strip())
     if not body.found or not 10<=len(text)<=9000 or '重污染' not in text:raise ValueError('ALERT_REGIONAL_SCHEMA')
     cancelled=bool(re.search('解除|终止|取消',title))
-    color=re.search('(蓝色|黄色|橙色|红色)预警',title)
+    color=pollution_level(title,text)
     if not color and not cancelled:raise ValueError('ALERT_REGIONAL_SCHEMA')
     color=color[1] if color else '未分色'
     # Preserve explicit effective time in the official full text; do not guess from a date-only title.
@@ -72,18 +72,27 @@ def parse_article(page,url,spec,now):
         if not re.match(r'(?:起)?(?:本市|我市|全市)?(?:启动|解除|取消|终止)',text[m.end():]):continue
         y,mo,d,h,mi=m.groups();y=int(y or issued.year)
         if issued.month==12 and int(mo)==1 and not m[1]:y+=1
-        effective=datetime(y,int(mo),int(d),int(h),int(mi or 0),tzinfo=TZ).isoformat();break
+        hour=int(h);minute=int(mi or 0)
+        if hour>24 or minute>59 or (hour==24 and minute):continue
+        effective=(datetime(y,int(mo),int(d),hour%24,minute,tzinfo=TZ)+timedelta(days=hour//24)).isoformat();break
     fp=hashlib.sha256((url+title+text+issued.isoformat()+effective).encode()).hexdigest()
     return {'id':spec['key']+':'+re.fullmatch(spec['article'],url)[3], 'series':spec['key']+':air-pollution',
       'fingerprint':fp,'code':spec['code'],'province':'天津市','issuer':spec['issuer'],'headline':title,'title':title,
       'description':text,'hazard':'重污染天气','color':color,'severity':{'蓝色':1,'黄色':2,'橙色':3,'红色':4}.get(color,0),
       'cancelled':cancelled,'publishedAt':issued.isoformat(),'effective':effective,'url':url,'source':spec['source'],'level':'省级'}
 
-def fetch_tianjin(now=None,getter=None):
+def fetch_tianjin(now=None,getter=None,*,timeline=False):
     now=now or datetime.now(TZ);getter=getter or (lambda u:get_page(u,TIANJIN))
-    url=links(getter(TIANJIN['home']),TIANJIN,now)
+    page=getter(TIANJIN['home']);url=links(page,TIANJIN,now)
     if not url:return []
     a=parse_article(getter(url),url,TIANJIN,now)
+    if timeline and a:
+        from outdoor_warnings import effective_time
+        if effective_time(a,datetime.fromisoformat(a['publishedAt']))>now:
+            prior=links(page,TIANJIN,now,skip=url)
+            if prior:
+                earlier=parse_article(getter(prior),prior,TIANJIN,now)
+                if earlier:return [earlier,a]
     return [a] if a else []
 
 def sources(codes):

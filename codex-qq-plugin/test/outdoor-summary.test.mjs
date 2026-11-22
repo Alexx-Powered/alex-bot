@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {summarizeOutdoor,validOutdoorIndex} from '../src/outdoor-summary.mjs';
 import {WeatherCommands} from '../src/weather-commands.mjs';
 import {MorningReportService} from '../src/morning-report.mjs';
+import {ScheduledMorningWeather} from '../src/morning-weather.mjs';
+import {WeatherAlertWorker} from '../src/weather-alert-worker.mjs';
 
 function sample(date='2026-11-03') {
   const city='beijing',start=Date.parse(date+'T00:00:00+08:00');
@@ -23,6 +25,25 @@ test('real LangChain bridge scores first day and rejects mismatched or incomplet
   assert.equal((await summarizeOutdoor(input)).status,'unknown');
   input.air.city.id='guangzhou';assert.equal((await summarizeOutdoor(input)).status,'unknown');
   assert.equal(validOutdoorIndex({...result,date:'2026-11-04'},input.date,input.city),false);
+});
+
+test('report applies official reds independently of forecasts and deduplicates the pollution reason',async t=>{
+  const input=sample();
+  input.air.hourly.forEach(row=>row.pm25=230);
+  t.mock.method(WeatherAlertWorker.prototype,'forReport',async(city,date)=>{
+    assert.equal(city,input.city);assert.equal(date,input.date);return {hazards:['空气重污染','冰雹'],partial:false};
+  });
+  const commands=new WeatherCommands({now:()=>Date.parse(input.date+'T09:00:00+08:00'),
+    weather:async()=>input.weather,air:async()=>input.air,radar:{}});
+  const {inputs}=await commands.briefing({cities:['北京'],includeData:true,renderImage:false});
+  assert.deepEqual(inputs.outdoorIndex.dailyDanger.reasons,['冰雹红色预警','重污染天气红色预警']);
+  assert.equal(inputs.outdoorIndex.score,0);
+  const morning=await new ScheduledMorningWeather(commands).briefing({cities:['北京'],renderImage:false,includeData:true,retrySources:false});
+  assert.deepEqual(morning.inputs.outdoorIndex.dailyDanger,inputs.outdoorIndex.dailyDanger);
+  const airOnly=await summarizeOutdoor({...input,weather:null,warning:{hazards:[]}});
+  assert.ok(airOnly.dailyDanger.reasons[0].includes('220'));
+  const redOnly=await summarizeOutdoor({...input,weather:null,air:null,warning:{hazards:['雷电'],partial:true}});
+  assert.equal(redOnly.score,0);assert.equal(redOnly.warningPartial,true);
 });
 
 test('normal tomorrow query and morning report use the new tool without the old exercise worker',async()=>{

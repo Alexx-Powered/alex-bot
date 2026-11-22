@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 RULES = {
-    "version": "outdoor-v4-20261122",
+    "version": "outdoor-v5-20261122",
     "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
     "pm25Knots": [[0, 0], [60, 5], [100, 45], [150, 100]],
     "windLoss": {"none": 0, "blue": 22, "yellow": 70, "orange": 100},
@@ -20,7 +20,7 @@ RULES = {
     "gold": {"scoreAtLeast": 95, "cloudMeanAtMost": 5, "pm25PeakAtMost": 25,
              "windPeakAtMostMs": 5.4, "gustPeakAtMostMs": 7.9, "requiresNoRain": True},
     "periods": [["上午", 6, 12], ["下午", 12, 18]],
-    "officialWarningQueried": False,
+    "dailyPm25Above": 220,
 }
 
 Cloud = Annotated[float, Field(ge=0, le=100, strict=True)]
@@ -44,6 +44,7 @@ class OutdoorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     date: str
     hours: Annotated[list[OutdoorHour], Field(max_length=48)]
+    red_hazards: Annotated[list[Annotated[str, Field(min_length=1, max_length=40, pattern=r'^[\u3400-\u9fffA-Za-z0-9（）()·、-]+$')]], Field(max_length=96)] = Field(default_factory=list)
 
 
 def interpolate(value, knots):
@@ -109,7 +110,7 @@ def assess_period(name, start, end, rows):
 
 
 @tool(args_schema=OutdoorInput)
-def outdoor_index(date: str, hours: list[OutdoorHour]) -> dict:
+def outdoor_index(date: str, hours: list[OutdoorHour], red_hazards: list[str] | None = None) -> dict:
     """Score two fixed daytime windows from bounded public forecast samples, without I/O or model calls."""
     if calendar_date.fromisoformat(date).isoformat() != date:
         raise ValueError("INVALID_REPORT_DATE")
@@ -126,6 +127,19 @@ def outdoor_index(date: str, hours: list[OutdoorHour]) -> dict:
         by_hour[stamp.hour] = row
     periods = [assess_period(name, start, end, [by_hour[h] for h in range(start, end) if h in by_hour])
                for name, start, end in RULES["periods"]]
+    polluted = len(by_hour) == 24 and all(row.pm25 is not None and row.pm25 > RULES["dailyPm25Above"] for row in by_hour.values())
+    pollution_names = {'重污染', '重污染天气', '空气重污染', '空气重污染天气'}
+    hazards = sorted({'重污染天气' if h in pollution_names else h for h in red_hazards or []})
+    if polluted or hazards:
+        reasons = [h+'红色预警' for h in hazards]
+        if polluted and '重污染天气' not in hazards:
+            reasons.append('重污染（全天24小时 PM2.5 均高于 220 μg/m³）')
+        for p in periods:
+            p.update(status='complete', score=0, displayScore=0, grade='poor', character='拉', gold=False, reason='应当避免外出')
+        return {'date':date, 'version':RULES['version'], 'status':'complete', 'periods':periods, 'score':0,
+                'displayScore':0, 'grade':'poor', 'character':'拉', 'gold':False,
+                'dailyDanger':{'reasons':reasons},
+                'recommendation':{'word':'全天', 'suffix':'应当避免外出'}}
     complete = all(p["status"] == "complete" for p in periods)
     if not complete:
         return {"date": date, "version": RULES["version"], "periods": periods, "status": "unknown",

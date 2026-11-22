@@ -34,12 +34,12 @@ async function loadOutdoorGlyph(index) {
   if (!key) return null;
   const glyph = new Image(); glyph.src = readFileSync(assets(`outdoor/${key}.png`));
   await glyph.decode();
-  if (!index.gold) return glyph;
+  if (!index.gold&&!index.dailyDanger) return glyph;
   const gold = createCanvas(glyph.width, glyph.height), c = gold.getContext('2d');
   c.drawImage(glyph, 0, 0); c.globalCompositeOperation = 'source-in';
   const color = c.createLinearGradient(0, 0, glyph.width, glyph.height);
   color.addColorStop(0, '#b67c12'); color.addColorStop(0.48, '#e6bf58'); color.addColorStop(1, '#9c6810');
-  c.fillStyle = color; c.fillRect(0, 0, glyph.width, glyph.height);
+  c.fillStyle = index.dailyDanger?'#c42336':color; c.fillRect(0, 0, glyph.width, glyph.height);
   await releaseOutdoorGlyph(glyph);
   return gold;
 }
@@ -198,6 +198,12 @@ function dates(c, model, y) {
 }
 const points = (values, offset = 0) => values.map((y, i) => ({ x: i + offset, y }));
 function dailyAdvice(c, analysis, firstDay) {
+  if(analysis.dailyDanger){
+    rect(c,40,357,360,42,'#fff0f0',12);
+    text(c,'0 分 · 拉',52,384,17,'#af1930',700);
+    text(c,'全天应当避免外出',143,383,15,'#922036',650);
+    return;
+  }
   const { word, suffix } = analysis.recommendation;
   c.save(); c.font = '600 12px ' + FONT;
   const width = Math.max(42, c.measureText(word).width + 16); c.restore();
@@ -228,7 +234,7 @@ function exercise(c, analysis, city, y) {
     text(c, String(row.startHour).padStart(2, '0') + ':00–' + String(row.endHour).padStart(2, '0') + ':00', 88, yy + 23, 10, S.muted, 400, { mono: true });
     text(c, row.status === 'complete' ? number(row.displayScore) + ' 分 · ' + (row.gold ? '夯中夯' : row.character) : '暂不评级', 392, yy + 24, 12, style.ink, 650, { mono: true, align: 'right' });
     text(c, d ? '云量 ' + Math.round(d.cloudMean) + '% · PM2.5 ' + number(d.pm25Peak) + ' μg/m³ · 雨量 ' + d.rainTotal.toFixed(1) + ' mm' : '不以缺测值推算户外指数', 48, yy + 46, 9.7, '#6f625d', 400, { maxWidth: 344 });
-    text(c, row.reason, 48, yy + 66, 10.5, style.ink, 500, { maxWidth: 344 });
+    text(c, row.reason, 48, yy + 66, 10.5, analysis.dailyDanger?'#b51d31':style.ink, 500, { maxWidth: 344 });
   });
   return y + 244;
 }
@@ -252,7 +258,9 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   const todayAir = air.values.slice(0, 24), todayPeak = limits(todayAir)[1];
   const extraHeight = 244;
   const footer = analysis ? 1410 + extraHeight + 24 : 1420;
-  const height = footer + 87 + 31;
+  const reasons=analysis.dailyDanger?.reasons||[];
+  const noticeHeight=reasons.length?57+20*reasons.length:0;
+  const height = footer + 87 + 31+noticeHeight;
   const widthPx=Math.round(S.width*S.scale),heightPx=Math.round(height*S.scale);
   function drawReport(c) {
   c.fillStyle = S.background; c.fillRect(0, 0, S.width, height);
@@ -292,6 +300,12 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   });
   // The advice helper paints the plate around a transparent opening.
   dailyAdvice(c, analysis, firstDay);
+  if(noticeHeight){
+    rect(c,20,435,400,noticeHeight-12,'#fff1f1',16,'#ecc0c5');
+    text(c,'全天清零原因',36,459,13,'#9e1e32',650);
+    reasons.forEach((reason,i)=>text(c,reason,36,481+20*i,12,'#922036',500,{maxWidth:368}));
+    c.translate(0,noticeHeight);
+  }
 
   card(c, 435, 308, '01', '温度趋势', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS / Open-Meteo');
   text(c, `${firstDay}最低`, 36, 497, 10, '#7b8983'); text(c, `${firstDay}最高`, 128, 497, 10, '#7b8983');
@@ -340,7 +354,8 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   }else{
     text(c, inputs.places?.some(p=>/^(osm-|landmark-)/.test(p.id)) ? '代表坐标 · 地名 © OpenStreetMap contributors / Wikimedia' : '模型预报，非实测 · 北京时间 · open-meteo.com', 20, footer + 58, 9, '#7b8983', {maxWidth:400});
   }
-  if (analysis) text(c, '户外指数为自定义评分 · 采用上午、下午中较高分', 20, footer + 76, 9, '#7b8983');
+  if (analysis) text(c, (analysis.dailyDanger?'户外指数 · 全天清零':'户外指数为自定义评分 · 采用上午、下午中较高分')+
+    (analysis.warningPartial?' · 官方红色预警覆盖不完整':''), 20, footer + 76, 9, '#7b8983');
   }
   // Draw into bounded pixel tiles; never allocate a full-height canvas or its
   // second encoding snapshot. Pixel offsets keep the approved layout unchanged.

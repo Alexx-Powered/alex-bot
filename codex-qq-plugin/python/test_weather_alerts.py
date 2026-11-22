@@ -13,6 +13,33 @@ def warning(code='110108', color='蓝色', stamp='20261108003000', body='预计�
 
 
 class Warnings(unittest.TestCase):
+    def test_report_matches_time_scope_and_uses_latest_effective_level(self):
+        from outdoor_warnings import report_red_hazards
+        area=areas()['110108']
+        def report(rows,day='2026-11-08'):
+            parsed=parse_feed({'data':rows,'code':0},[area['code']],now=NOW,timeline=True)
+            return report_red_hazards(parsed['alerts'],area,day,NOW)
+        red=warning(color='红色');red['effective']='2026/11/08 00:30'
+        self.assertEqual(report([red]),['大风'])
+        self.assertEqual(report([red],'2026-11-09'),[])
+        old=warning(color='红色',stamp='20261107170000',body='预计未来6小时有大风。')
+        old['effective']='2026/11/07 17:00'
+        self.assertEqual(report([old]),[])
+        self.assertEqual(report([dict(red,id=red['id'].replace('110108','110105'))]),[])
+        provincial=dict(red,id=red['id'].replace('110108','110000'),description='预计朝阳区风力较强。')
+        self.assertEqual(report([provincial]),[])
+        self.assertEqual(report([dict(provincial,description='全市将出现强风。')]),['大风'])
+        lower=warning(color='橙色',stamp='20261108005500')
+        lower['headline']='海淀区气象台将大风红色预警信号降级为大风橙色预警信号'
+        lower['effective']='2026/11/08 00:55'
+        self.assertEqual(report([red,lower]),[])
+        lifted=dict(red,id=red['id'].replace('003000','005500'),headline='海淀区气象台解除大风红色预警',effective=lower['effective'])
+        self.assertEqual(report([red,lifted]),[])
+        self.assertEqual(report([red,dict(lifted,effective='2026/11/08 02:00')]),['大风'])
+        self.assertEqual(report([dict(red,effective='2026/11/08 12:00'),lifted]),[])
+        labelled=dict(red,headline='海淀区气象台发布道路结冰预警（红色）',title='海淀区发布道路结冰预警（红色）')
+        self.assertEqual(report([labelled]),['道路结冰'])
+
     def parse(self, rows, codes=None, previous=None):
         return parse_feed({'code': 0, 'data': rows}, codes or ['110108'], previous, NOW)
 

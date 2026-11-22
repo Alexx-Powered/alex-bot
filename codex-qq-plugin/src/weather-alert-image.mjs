@@ -66,6 +66,7 @@ export async function renderWeatherAlert(alert){
   const regions=[...new Set(alert.matches.map(v=>v.area.name))].join(' / ');
   const regionLines=lines(m,regions,26,width-48,650);
   const {title,label,cleared}=weatherAlertHeading(alert);
+  const redNotice=alert.color==='红色'&&!alert.cancelled&&alert.change!=='解除';
   const heroColors=cleared?['#e8f2ec','#cfe3d8']:colors;
   const heroInk=cleared?'#234d3c':'#ffffff';
   const titleLines=lines(m,title,30,inner,650);
@@ -77,7 +78,8 @@ export async function renderWeatherAlert(alert){
   const parents=[...new Map((alert.provinceContext||[]).filter(p=>p.headline!==alert.headline).map(p=>[`${p.headline}|${p.publishedAt}`,p])).values()];
   const parentLines=parents.length?lines(m,parents.map(parentCopy).join('\n'),13,inner):[];
   const headerHeight=61+regionLines.length*36,heroHeight=75+extraLabelHeight+titleLines.length*39+issuerLines.length*19;
-  const bodyTop=headerHeight+heroHeight+16,bodyHeight=38+bodyLines.length*23;
+  const noticeTop=headerHeight+heroHeight+16;
+  const bodyTop=noticeTop+(redNotice?48:0),bodyHeight=38+bodyLines.length*23;
   const parentTop=bodyTop+bodyHeight+14,parentHeight=parentLines.length?51+parentLines.length*20:0;
   const height=(parentHeight?parentTop+parentHeight:bodyTop+bodyHeight)+47;
   const canvas=createCanvas(Math.round(width*W.scale),Math.ceil(height*W.scale)),c=canvas.getContext('2d');
@@ -95,6 +97,11 @@ export async function renderWeatherAlert(alert){
   labelLines.forEach((s,i)=>text(c,s,labelX,headerHeight+28+i*18,12,heroInk,500));
   let y=headerHeight+68+extraLabelHeight;for(const s of titleLines){text(c,s,40,y,30,heroInk,650);y+=39;}
   for(const s of issuerLines){text(c,s,40,y+1,12,heroInk,450);y+=19;}
+  if(redNotice){
+    box(c,24,noticeTop,width-48,36,'#fff0f0',12);
+    text(c,'0 分 · 拉',40,noticeTop+24,15,'#af1930',650);
+    text(c,'红色预警期间应当避免外出',132,noticeTop+24,13,'#922036',600);
+  }
   box(c,24,bodyTop,width-48,bodyHeight,'#ffffff');
   bodyLines.forEach((s,i)=>text(c,s,40,bodyTop+34+i*23,15,W.ink));
   if(parentHeight){

@@ -1,10 +1,9 @@
+import {WeatherAlertWorker} from './weather-alert-worker.mjs';
+export {WeatherAlertWorker};
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {fileURLToPath} from 'node:url';
 import {atomicJson} from './storage.mjs';
-import {pythonExecutable} from './runtime-paths.mjs';
 import {measureSpan} from './telemetry.mjs';
 import {renderWeatherAlert} from './weather-alert-image.mjs';
 
@@ -13,28 +12,6 @@ const validKey=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 const commands=/^\/?(?:(?:开启|关闭)\s*)?实时预警(?:\s|$)/u;
 const retryable=new Set(['PAUSED','NOT_CONNECTED','RATE_LIMIT_MINUTE','RATE_LIMIT_TARGET','RATE_LIMIT_DAY','REQUEST_EXPIRED']);
 const fail=code=>Object.assign(new Error(code),{code});
-
-/** Independent bounded subprocess: polling never joins the conversation/model worker queue. */
-export class WeatherAlertWorker {
-  #poll=null;#closed=false;#children=new Set();
-  run(packet) {
-    if(this.#closed)return Promise.reject(fail('ALERT_WORKER_CLOSED'));
-    if(packet.action==='poll'&&this.#poll)return this.#poll;
-    if(this.#children.size>=2)return Promise.reject(fail('ALERT_BUSY'));
-    const task=measureSpan(packet.action==='poll'?'warning_fetch':'warning_area',()=>new Promise((resolve,reject)=>{
-      const child=execFile(pythonExecutable(),['-B',fileURLToPath(new URL('../python/weather_alerts.py',import.meta.url))],
-        {windowsHide:true,timeout:20000,maxBuffer:6_000_000,env:{...process.env,PYTHONUTF8:'1'}},(error,stdout)=>{
-          this.#children.delete(child);
-          if(error)return reject(fail('ALERT_SOURCE_UNAVAILABLE'));
-          try{const result=JSON.parse(stdout);if(typeof result.ok!=='boolean')throw Error();resolve(result);}catch{reject(fail('ALERT_SOURCE_SCHEMA'));}
-        });
-      this.#children.add(child);child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify(packet));
-    }));
-    if(packet.action==='poll'){this.#poll=task;void task.finally(()=>{this.#poll=null;}).catch(()=>{});}
-    return task;
-  }
-  close(){this.#closed=true;for(const child of this.#children)child.kill();}
-}
 
 const initial=()=>({version:1,revision:0,targets:{},previous:[],history:[],pending:{}});
 function validate(value){

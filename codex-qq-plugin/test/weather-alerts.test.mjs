@@ -103,6 +103,14 @@ test('actual card produces valid PNG matching weather width',async()=>{
   const result=await renderWeatherAlert({...warning(),change:'升级',previousColor:'黄色',color:'橙色'});
   assert.equal(result.mimeType,'image/png');assert.deepEqual([...result.buffer.subarray(0,8)],[137,80,78,71,13,10,26,10]);assert.equal(result.buffer.readUInt32BE(16),1867);assert.ok(result.buffer.length<5*1024*1024);
 });
+test('a red bulletin includes the outdoor warning, while its lifting has the standard cleared layout',async()=>{
+  const bulletin={...warning(),color:'红色',effective:'2026/11/08 00:30'};
+  const red=await renderWeatherAlert(bulletin);
+  const lifted=await renderWeatherAlert({...bulletin,cancelled:true,change:'解除'});
+  const standard=await renderWeatherAlert({...bulletin,color:'黄色'});
+  assert.equal(lifted.buffer.readUInt32BE(20),standard.buffer.readUInt32BE(20));
+  assert.ok(red.buffer.readUInt32BE(20)>lifted.buffer.readUInt32BE(20));
+});
 test('a cancellation names the warning and turns light green only once effective',async()=>{
   async function header(fields){
     const card=await renderWeatherAlert({...warning(),...fields});

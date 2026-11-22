@@ -29,10 +29,14 @@ def compact(value):
 
 
 @lru_cache(maxsize=1)
+def catalogue_places():
+    return json.loads((Path(__file__).resolve().parent.parent / 'data/weather-locations.json').read_text('utf-8'))['places']
+
+
+@lru_cache(maxsize=1)
 def areas():
-    catalogue = json.loads((Path(__file__).resolve().parent.parent / 'data/weather-locations.json').read_text('utf-8'))
     result = {}
-    for place in catalogue['places']:
+    for place in catalogue_places():
         code = place.get('administrativeCode', '')
         if place.get('countryCode') != 'CN' or not re.fullmatch(r'[1-6]\d{5}', code):
             continue
@@ -118,13 +122,18 @@ def normalize(row, now):
     signal = str(row.get('type', ''))
     if not re.fullmatch(r'p\d{7}', signal):
         raise ValueError('ALERT_SOURCE_SCHEMA')
-    color_match = re.search(r'(白色|蓝色|黄色|橙色|红色)预警', headline + title)
-    color = color_match[1] if color_match else '未分色'
+    color_match = re.search(r'(白色|蓝色|黄色|橙色|红色)(?:灾害)?预警|预警(?:信号)?[（(【：:]\s*(白色|蓝色|黄色|橙色|红色)', headline+' '+title)
+    color = next((group for group in color_match.groups() if group),'未分色') if color_match else '未分色'
     hazard = re.search(r'(?:发布|继续发布|变更|升级为|升级|更新)([^\[：。]{1,30}?)(?:白色|蓝色|黄色|橙色|红色)预警', headline)
-    hazard_name = hazard[1].strip() if hazard else re.sub(r'^.*?(?:发布|解除)', '', title).split('预警')[0]
+    hazard_name = hazard[1].strip() if hazard else re.sub(r'^.*?(?:发布|解除|取消|终止)', '', title).split('预警')[0]
     for c in COLORS:
         hazard_name = hazard_name.replace(c, '')
-    cancelled = bool(re.search(r'解除.{0,35}预警|取消.{0,35}预警', headline))
+    transition = re.search(r'(?:变更|调整|升级|降级|下调|上调)(?:为|至)([\u3400-\u9fff]{0,24}?)(白色|蓝色|黄色|橙色|红色)(?:预警|信号|$)', headline)
+    if transition:
+        color = transition[2]
+        before = re.search(r'(?:发布|解除|将)([\u3400-\u9fff]{1,24}?)(?:白色|蓝色|黄色|橙色|红色)预警',headline)
+        hazard_name = transition[1] or (before[1] if before else hazard_name)
+    cancelled = bool(re.search(r'(?:解除|取消|终止).{0,35}预警', headline))
     issuer = re.split(r'发布|解除|取消|升级|变更|继续', headline)[0]
     issuer = re.sub(r'\d{4}年.*$', '', issuer).strip()
     published = issued
@@ -149,7 +158,7 @@ def normalize(row, now):
             'level': '省级' if code.endswith('0000') else '市级' if code.endswith('00') else '区县级'}
 
 
-def parse_feed(payload, codes, previous=None, now=None):
+def parse_feed(payload, codes, previous=None, now=None, *, timeline=False):
     now = now or datetime.now(TZ)
     if not isinstance(payload, dict) or payload.get('code') != 0 or not isinstance(payload.get('data'), list) or len(payload['data']) > 12000:
         raise ValueError('ALERT_SOURCE_SCHEMA')
@@ -161,9 +170,12 @@ def parse_feed(payload, codes, previous=None, now=None):
         # Validate the whole snapshot; never convert a malformed page into "no warnings".
         alert = normalize(row, now)
         if alert and any(relation(a, alert['code']) for a in requested):
-            if alert['series'] not in latest or alert['id'] > latest[alert['series']]['id']:
-                latest[alert['series']] = alert
+            key = (alert['id'],alert['series'],alert['hazard']) if timeline else alert['series']
+            if key not in latest or alert['id'] > latest[key]['id']:
+                latest[key] = alert
     values = list(latest.values())
+    if timeline:
+        return {'alerts':values,'sourceCount':len(payload['data'])}
     values=decorate(values,codes,previous)
     return {'ok': True, 'schema': 'weather.alerts.v1', 'source': SOURCE, 'checkedAt': now.isoformat(),
             'sourceCount': len(payload['data']), 'alerts': values}
@@ -200,19 +212,25 @@ def fetch_feed():
 
 class AlertArgs(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    action: Literal['search', 'command', 'poll']
+    action: Literal['search', 'command', 'poll', 'outdoor']
+    date: str = Field(default='', max_length=10)
     query: str = Field(default='', max_length=100)
     codes: list[str] = Field(default_factory=list, max_length=105)
     previous: list[dict] = Field(default_factory=list, max_length=3000)
 
 
 @tool(args_schema=AlertArgs)
-def weather_alerts(action: str, query: str = '', codes: list[str] | None = None, previous: list[dict] | None = None) -> dict:
+def weather_alerts(action: str, query: str = '', codes: list[str] | None = None, previous: list[dict] | None = None, date: str = '') -> dict:
     """Resolve administrative areas or read official CMA warnings. No recipients, URLs or model access."""
     if action == 'command':
         return parse_command(query)
     if action == 'search':
         return resolve(query, search=True)
+    if action == 'outdoor' and query:
+        fixed={'beijing':'110000','tianjin':'120000','guangzhou':'440100'}
+        code=fixed.get(query) or next((p.get('administrativeCode') for p in catalogue_places()
+                                      if p['id']==query and p.get('countryCode')=='CN'),None)
+        codes=[code] if code else []
     if not codes or any(c not in areas() for c in codes) or len(set(codes)) != len(codes):
         return {'ok': False, 'code': 'ALERT_AREA_INVALID'}
     try:
@@ -220,10 +238,10 @@ def weather_alerts(action: str, query: str = '', codes: list[str] | None = None,
         from regional_air_alerts import sources,coverage
         regional=sources(codes)
         with ThreadPoolExecutor(max_workers=3) as pool:
-            cma=pool.submit(fetch_feed);pending=[(key,pool.submit(fetch)) for key,fetch in regional]
+            cma=pool.submit(fetch_feed);pending=[(key,pool.submit(fetch,timeline=True) if action=='outdoor' else pool.submit(fetch)) for key,fetch in regional]
             failures=[];alerts=[];count=0
             try:
-                result=parse_feed(cma.result(),codes,previous);alerts=result['alerts'];count=result['sourceCount']
+                result=parse_feed(cma.result(),codes,previous,timeline=action=='outdoor');alerts=result['alerts'];count=result['sourceCount']
             except Exception:failures.append('cma')
             for key,future in pending:
                 try:
@@ -232,6 +250,12 @@ def weather_alerts(action: str, query: str = '', codes: list[str] | None = None,
                     alerts+=extra;count+=len(extra)
                 except Exception:failures.append(key)
         if len(failures)==len(regional)+1:return {'ok':False,'code':'ALERT_SOURCE_UNAVAILABLE'}
+        if action=='outdoor':
+            from outdoor_warnings import report_red_hazards
+            now=datetime.now(TZ)
+            return {'ok':True,'date':date,'placeId':query,'code':codes[0],'checkedAt':now.isoformat(),
+                    'hazards':report_red_hazards(alerts,areas()[codes[0]],date,now),
+                    'partial':bool(failures) or coverage(codes)[0]['heavyPollution']=='source_not_verified'}
         return {'ok':True,'schema':'weather.alerts.v1','source':SOURCE,'checkedAt':datetime.now(TZ).isoformat(),
                 'sourceCount':count,'alerts':decorate(alerts,codes,previous),'sourceFailures':failures,'coverage':coverage(codes)}
     except Exception as error:

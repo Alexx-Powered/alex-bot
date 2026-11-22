@@ -11,6 +11,24 @@ def sample(**changes):
 
 
 class OutdoorIndexTests(unittest.TestCase):
+    def test_daily_220_requires_every_local_hour_strictly_above_and_lists_independent_warnings(self):
+        template=sample()['hours'][0]
+        rows=[dict(template,time=f'2026-11-03T{h:02}:00:00+08:00',pm25=221.0) for h in range(24)]
+        def score(hours,red=()):
+            return outdoor_index.invoke({'date':'2026-11-03','hours':hours,'red_hazards':list(red)})
+        dirty=score(rows)
+        self.assertEqual(dirty['score'],0)
+        self.assertIn('220',dirty['dailyDanger']['reasons'][0])
+        for weaker in [rows[1:], [dict(rows[0],pm25=220.0),*rows[1:]], [dict(rows[0],pm25=None),*rows[1:]],
+                       [dict(rows[0],time=rows[0]['time'].replace('11-03','11-04')),*rows[1:]]]:
+            self.assertNotIn('dailyDanger',score(weaker))
+        combined=score(rows,['重污染天气','空气重污染','大风','暴雨','冰雹'])
+        self.assertCountEqual(combined['dailyDanger']['reasons'],['重污染天气红色预警','大风红色预警','暴雨红色预警','冰雹红色预警'])
+        self.assertEqual(len(score(rows,['大风'])['dailyDanger']['reasons']),2)
+        unknown_weather=score([],['道路结冰'])
+        self.assertEqual(unknown_weather['recommendation']['suffix'],'应当避免外出')
+        self.assertTrue(all(p['score']==0 and p['character']=='拉' for p in unknown_weather['periods']))
+
     def invoke(self, **changes):
         return outdoor_index.invoke(sample(**changes))
 
