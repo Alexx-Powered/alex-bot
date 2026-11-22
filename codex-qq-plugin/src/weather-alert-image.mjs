@@ -58,7 +58,7 @@ export function weatherAlertHeading(alert){
   return {title:`${alert.hazard}${alert.color==='未分色'?'':alert.color}预警`,label,cleared:false};
 }
 
-/** Color follows the official warning level. No model summarization. */
+/** Active warnings use their level color. The cleared notice uses a green header. */
 export async function renderWeatherAlert(alert){
   if(!alert||!Array.isArray(alert.matches)||!alert.matches.length||typeof alert.description!=='string'||alert.description.length>9000)throw Error('ALERT_IMAGE_INVALID');
   const measuring=createCanvas(2,2),m=measuring.getContext('2d');
@@ -66,6 +66,8 @@ export async function renderWeatherAlert(alert){
   const regions=[...new Set(alert.matches.map(v=>v.area.name))].join(' / ');
   const regionLines=lines(m,regions,26,width-48,650);
   const {title,label,cleared}=weatherAlertHeading(alert);
+  const heroColors=cleared?['#e8f2ec','#cfe3d8']:colors;
+  const heroInk=cleared?'#234d3c':'#ffffff';
   const titleLines=lines(m,title,30,inner,650);
   const labelX=cleared?65:40;
   const labelLines=lines(m,label,12,width-40-labelX,500);
@@ -82,7 +84,7 @@ export async function renderWeatherAlert(alert){
   c.scale(W.scale,W.scale);c.fillStyle=W.background;c.fillRect(0,0,width,height);
   text(c,'亚历克斯 · 实时气象预警',24,36,12,W.muted,500);
   regionLines.forEach((s,i)=>text(c,s,24,80+i*36,26,W.ink,650));
-  const gradient=c.createLinearGradient(24,headerHeight,width-24,headerHeight+heroHeight);gradient.addColorStop(0,colors[0]);gradient.addColorStop(1,colors[1]);
+  const gradient=c.createLinearGradient(24,headerHeight,width-24,headerHeight+heroHeight);gradient.addColorStop(0,heroColors[0]);gradient.addColorStop(1,heroColors[1]);
   box(c,24,headerHeight,width-48,heroHeight,gradient,22);
   if(cleared){
     const y=headerHeight+23;
@@ -90,15 +92,16 @@ export async function renderWeatherAlert(alert){
     c.strokeStyle='#ffffff';c.lineWidth=1.8;c.lineCap='round';c.lineJoin='round';
     c.beginPath();c.moveTo(45,y);c.lineTo(48,y+3);c.lineTo(53,y-3);c.stroke();
   }
-  labelLines.forEach((s,i)=>text(c,s,labelX,headerHeight+28+i*18,12,'#ffffff',500));
-  let y=headerHeight+68+extraLabelHeight;for(const s of titleLines){text(c,s,40,y,30,'#ffffff',650);y+=39;}
-  for(const s of issuerLines){text(c,s,40,y+1,12,'#ffffff',450);y+=19;}
+  labelLines.forEach((s,i)=>text(c,s,labelX,headerHeight+28+i*18,12,heroInk,500));
+  let y=headerHeight+68+extraLabelHeight;for(const s of titleLines){text(c,s,40,y,30,heroInk,650);y+=39;}
+  for(const s of issuerLines){text(c,s,40,y+1,12,heroInk,450);y+=19;}
   box(c,24,bodyTop,width-48,bodyHeight,'#ffffff');
   bodyLines.forEach((s,i)=>text(c,s,40,bodyTop+34+i*23,15,W.ink));
   if(parentHeight){
-    box(c,24,parentTop,width-48,parentHeight,colors[2]);
-    text(c,`${alert.province} · 省级预警`,40,parentTop+28,14,colors[0],650);
-    parentLines.forEach((s,i)=>text(c,s,40,parentTop+52+i*20,13,colors[0]));
+    const contextColors=cleared?palette.白色:colors;
+    box(c,24,parentTop,width-48,parentHeight,contextColors[2]);
+    text(c,`${alert.province} · 省级预警`,40,parentTop+28,14,contextColors[0],650);
+    parentLines.forEach((s,i)=>text(c,s,40,parentTop+52+i*20,13,contextColors[0]));
   }
   text(c,'来源：'+(['北京市应急管理局','天津市生态环境局'].includes(alert.source)?alert.source:'中国气象局'),24,height-20,11,W.muted);
   try{return {buffer:await encodePngTiles({width:canvas.width,height:canvas.height,

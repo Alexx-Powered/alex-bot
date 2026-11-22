@@ -103,7 +103,7 @@ test('actual card produces valid PNG matching weather width',async()=>{
   const result=await renderWeatherAlert({...warning(),change:'升级',previousColor:'黄色',color:'橙色'});
   assert.equal(result.mimeType,'image/png');assert.deepEqual([...result.buffer.subarray(0,8)],[137,80,78,71,13,10,26,10]);assert.equal(result.buffer.readUInt32BE(16),1867);assert.ok(result.buffer.length<5*1024*1024);
 });
-test('cancellation names the warning when effective and retains the issued card palette',async()=>{
+test('a cancellation names the warning and turns light green only once effective',async()=>{
   async function header(fields){
     const card=await renderWeatherAlert({...warning(),...fields});
     const image=await loadImage(card.buffer);
@@ -112,7 +112,11 @@ test('cancellation names the warning when effective and retains the issued card 
     return [...c.getImageData(0,0,1,1).data].slice(0,3);
   }
   const yellow={color:'黄色'},end={...warning(),cancelled:true,change:'解除',effective:'2026/11/08 01:00'};
-  assert.deepEqual(await header(yellow),await header({...end,...yellow}));
+  const active=await header(yellow),cleared=await header({...end,...yellow});
+  assert.notDeepEqual(cleared,active);
+  assert.ok(cleared[1]>cleared[0]&&Math.min(...cleared)>185);
+  assert.deepEqual(await header({...end,color:'红色'}),cleared);
+  assert.deepEqual(await header({...end,...yellow,effective:'2026-11-08T02:00:00+08:00'}),active);
   assert.deepEqual(weatherAlertHeading({...end,...yellow}),{title:'大风预警解除',label:'大风黄色预警：',cleared:true});
   assert.equal(weatherAlertHeading({...end,hazard:'暴雨',color:'未分色',previousColor:'红色'}).label,'暴雨红色预警：');
   assert.equal(weatherAlertHeading({...end,color:'未分色'}).label,'大风预警：');
