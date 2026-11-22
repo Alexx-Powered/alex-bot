@@ -30,6 +30,7 @@ import {RagHealthCheck} from './rag-health.mjs';
 import {ResearchHealthCheck} from './research-health.mjs';
 import {HikingHealthCheck,indexWhenIdle} from './hiking-health.mjs';
 import {WeatherAlertsService} from './weather-alerts.mjs';
+import {OrdinaryQQControl} from './ordinary-qq-control.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const maxBody = 16384;
@@ -110,6 +111,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const morningScheduleStatus=createGroupMorningStatus();
   if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   let configBusy = false;
+  const ordinaryQQ = new OrdinaryQQControl({roster:() =>
+    connections.live() && !connections.directoryUnavailable ? connections.lastRoster : 0});
   let connectionGeneration = 0;
   let boundPort = port;
   const server = http.createServer(async (req, res) => {
@@ -125,6 +128,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     try { pathname = new URL(req.url, expectedOrigin).pathname; } catch { return json(res, 400, { ok: false, code: 'INVALID_URL' }); }
     if (req.method === 'GET' && pathname === '/health') return json(res, 200, { ok: true, service: 'alex-codex-qq', version: '0.2.1' });
     const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/group-console.js': ['group-console.js','text/javascript'], '/style.css': ['style.css', 'text/css'], '/guide': ['guide.html', 'text/html'], '/guide.css': ['guide.css', 'text/css'], '/logo.png': ['logo.png', 'image/png'], '/social': ['social.html','text/html'], '/social.js':['social.js','text/javascript'], '/logo.svg': ['logo.svg', 'image/svg+xml'] };
+    assets['/ordinary-qq.js']=['ordinary-qq.js','text/javascript'];
     assets['/wake-words.js']=['wake-words.js','text/javascript'];
     assets['/weather-alerts.js']=['weather-alerts.js','text/javascript'];
     if (req.method === 'GET' && assets[pathname]) {
@@ -145,6 +149,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         groupMorning:{...await morningScheduleStatus(),preparation:groupMorning.status(),enabledGroups:core.captureMorningTargets().length,
           weatherGroups:core.captureMorningTargets('morningWeather').length,campusGroups:core.captureMorningTargets('morningCampus').length},
         ...(admin?{weatherAlerts:await weatherAlerts.status(),groupConnections:connections.summary()}:{} ) });
+      if (req.method === 'GET' && pathname === '/api/ordinary-qq/status') return json(res, 200, await ordinaryQQ.status());
       if(req.method==='GET'&&pathname==='/api/weather-alerts/status')return json(res,200,await weatherAlerts.status());
       if (req.method === 'GET' && pathname === '/api/monitoring/status') return json(res,200,{ok:true,config:await monitoringConfigStore.status(),telemetry:await monitoring.status(),transportDiagnostics:adapter.diagnostics?.()});
       if (req.method === 'GET' && pathname === '/api/social/status') return json(res,200,{ok:true,config:await socialConfigStore.status()});
@@ -156,6 +161,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       if (req.method === 'GET' && pathname === '/api/campus/status') return json(res,200,{ok:true,...await campus.status()});
       if (req.method !== 'POST') return json(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
       const data = await body(req);
+      if (pathname === '/api/ordinary-qq/login/start') {
+        if (Object.keys(data).length) throw Error('INVALID_INPUT');
+        return json(res, 200, await ordinaryQQ.startLogin());
+      }
       if(pathname.startsWith('/api/group/connection/')){
         const op=pathname.slice('/api/group/connection/'.length);
         const fields={open:['number','rosterKey'],verify:['groupKey','number'],probe:['groupKey'],detect:['groupKey'],confirm:['groupKey','command'],select:['groupKey','channel','revision']};

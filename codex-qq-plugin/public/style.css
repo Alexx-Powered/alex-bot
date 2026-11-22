@@ -62,3 +62,9 @@ input[type="checkbox"].ios-switch:checked{background:#34c759}input[type="checkbo
 #ordinaryGroupDirectory ul{padding-inline-start:18px;margin:6px 0}
 .group-editor-heading h3,.setting-copy,.groups-workspace>*,.group-savebar button{overflow-wrap:anywhere;min-width:0}
 @media(max-width:540px){.alert-region-controls{gap:10px}.alert-region-controls button{padding:10px}#alertRegions .setting-row{gap:8px}}
+
+.ordinary-account {border-bottom:1px solid var(--line,#d9dedc);padding-bottom:1.25rem;margin-bottom:1.25rem;min-width:0}
+.ordinary-account p,.ordinary-account figcaption {overflow-wrap:anywhere}
+.ordinary-account figure {margin:1rem 0 0}
+.ordinary-account canvas {display:block;width:min(16rem,100%);height:auto;box-sizing:border-box;padding:12px;background:white;image-rendering:pixelated}
+.ordinary-account figcaption {margin-top:.5rem}

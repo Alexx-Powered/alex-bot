@@ -111,6 +111,64 @@ def backup(target):
     return {'file':receipt['file'],'sha256':digest(Path(receipt['file']))}
 
 
+class OrdinaryConsoleUnits:
+    names = ('alexbot-ordinary-qq@.service', 'alexbot-ordinary-qq.socket')
+
+    def __init__(self, old, target):
+        self.changes = {}
+        self.applied = False
+        if prop(GROUP_CHANNEL, 'LoadState') != 'loaded' or prop('alex-yogurt-lab.service', 'LoadState') != 'loaded':
+            return
+        for name in self.names:
+            source = Path('codex-qq-plugin/ops') / name
+            file = Path('/etc/systemd/system') / name
+            previous = (old/source).read_bytes() if (old/source).is_file() else None
+            current = file.read_bytes() if file.is_file() else None
+            new = (target/source).read_bytes()
+            check(not file.is_symlink() and current in (previous, new), 'ORDINARY_CONSOLE_UNIT_CHANGED')
+            if current != new:
+                self.changes[file] = (current, new)
+        self.enabled = prop(self.names[1], 'UnitFileState') == 'enabled'
+        self.active = prop(self.names[1], 'ActiveState') == 'active'
+
+    def sync(self, restore=False):
+        if not hasattr(self, 'enabled') or (restore and not self.applied):
+            return
+        if not self.changes and self.enabled and self.active:
+            return
+        self.applied = True
+        socket = self.names[1]
+        if restore and not self.active and prop(socket, 'ActiveState') == 'active':
+            run('systemctl', 'stop', socket)
+        if restore and not self.enabled and prop(socket, 'UnitFileState') == 'enabled':
+            run('systemctl', 'disable', socket)
+        for file, versions in self.changes.items():
+            data = versions[0 if restore else 1]
+            if data is None:
+                file.unlink(missing_ok=True)
+            else:
+                with tempfile.TemporaryDirectory(dir=file.parent) as folder:
+                    temp = Path(folder)/file.name
+                    temp.write_bytes(data)
+                    temp.chmod(0o644)
+                    os.replace(temp, file)
+        run('systemctl', 'daemon-reload')
+        if not restore:
+            run('systemctl', 'enable', socket)
+        if not restore or self.active:
+            run('systemctl', 'restart', socket)
+            check(Path('/run/alexbot-ordinary-qq.sock').is_socket(), 'ORDINARY_CONSOLE_SOCKET_MISSING')
+
+    def verify(self):
+        if not hasattr(self, 'enabled'):
+            return
+        token = (HOME/'.private/admin-token').read_text().strip()
+        query = Request('http://127.0.0.1:19327/api/ordinary-qq/status', headers={'Authorization':'Bearer '+token})
+        with build_opener(ProxyHandler({})).open(query, timeout=16) as response:
+            status = json.load(response)
+        check(status.get('ok') and 'services' in status, 'ORDINARY_CONSOLE_STATUS_UNAVAILABLE')
+
+
 def activate(commit, base_name):
     check(re.fullmatch('[a-f0-9]{40}',commit), 'INVALID_COMMIT')
     old = CURRENT.resolve()
@@ -120,6 +178,7 @@ def activate(commit, base_name):
     check(manifest['commit'] == commit and manifest['release'] == target.name, 'CANDIDATE_CHANGED')
     check(all(digest(target/name) == value for name,value in manifest['files'].items()), 'HASH_MISMATCH')
     require_map_review(target/'codex-qq-plugin', old/'codex-qq-plugin')
+    ordinary_console = OrdinaryConsoleUnits(old, target)
     unit_name='alexbot-research.service'
     unit_file=Path('/etc/systemd/system')/unit_name
     unit_source=Path('codex-qq-plugin/ops')/unit_name
@@ -150,11 +209,13 @@ def activate(commit, base_name):
         frozen = snapshot()
         if old_unit!=new_unit:install_unit(new_unit)
         switch(target)
+        ordinary_console.sync()
         if restart_channel:
             run('systemctl','restart',GROUP_CHANNEL)
         run('systemctl','start',BOT)
         after = ready()
         actual = verify_process(target)
+        ordinary_console.verify()
         if restart_channel:
             check(prop(GROUP_CHANNEL,'ActiveState')=='active' and
                   Path('/run/alex-nonebot-milky/groups.sock').is_socket(), 'GROUP_CHANNEL_START_FAILED')
@@ -164,11 +225,14 @@ def activate(commit, base_name):
     except BaseException:
         run('systemctl','stop',BOT)
         switch(old)
-        if old_unit!=new_unit:install_unit(old_unit)
-        if restart_channel:run('systemctl','restart',GROUP_CHANNEL)
-        run('systemctl','start',BOT)
-        ready()
-        verify_process(old)
+        try:
+            ordinary_console.sync(restore=True)
+            if old_unit!=new_unit:install_unit(old_unit)
+            if restart_channel:run('systemctl','restart',GROUP_CHANNEL)
+        finally:
+            run('systemctl','start',BOT)
+            ready()
+            verify_process(old)
         raise
     print(json.dumps({'commit':commit,'base':old.name,'release':target.name,**actual,'connected':True,
                       'files':len(manifest['files']),'uncertain':after['core']['uncertainDeliveries'],

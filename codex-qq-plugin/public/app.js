@@ -9,6 +9,7 @@ let monitoringInitialized=false,monitoringDirty=false,monitoringBusy=false;
 const groupConsole=createGroupConsole({api,action});
 const weatherAlertsConsole=createWeatherAlertsConsole({api,refresh});
 const wakeWordConsole=createWakeWordEditor({container:$('globalWakeWords'),action});
+const ordinaryQQPanel = token ? createOrdinaryQQPanel(api) : null;
 const consoleTabs=[...document.querySelectorAll('[data-console-target]')];
 function selectConsolePanel(key) {
   if (!consoleTabs.some(tab=>tab.dataset.consoleTarget===key)) key='groups';
@@ -18,6 +19,7 @@ function selectConsolePanel(key) {
   }
   for (const panel of document.querySelectorAll('[data-console-panel]')) panel.classList.toggle('hidden',panel.dataset.consolePanel!==key);
   sessionStorage.setItem('qq-console-panel',key);
+  ordinaryQQPanel?.show(key === 'connection');
 }
 for (const tab of consoleTabs) {
   tab.onclick=()=>selectConsolePanel(tab.dataset.consoleTarget);

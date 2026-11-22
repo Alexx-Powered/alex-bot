@@ -68,6 +68,19 @@ test('loopback API rejects missing auth and cross-origin browser mutations',asyn
     assert.equal(health.service,'alex-codex-qq');assert.equal(JSON.stringify(health).includes('token'),false);
   }finally{await f.app.close()}
 });
+test('ordinary QQ controls require console credentials and accept no command parameters',async()=>{
+  const f=await fixture();
+  try {
+    f.store.integrationToken='b'.repeat(64);
+    for (const [route,payload] of [['/api/ordinary-qq/status',undefined],['/api/ordinary-qq/login/start',{}]]) {
+      assert.equal((await f.request(route,payload,{Authorization:''})).status,401);
+      assert.equal((await f.request(route,payload,{Authorization:'Bearer '+f.store.integrationToken})).status,403);
+    }
+    assert.equal((await f.request('/api/ordinary-qq/login/start',{unit:'anything'})).status,400);
+    assert.equal((await f.request('/api/ordinary-qq/login/start',{},{'Content-Type':'text/plain'})).status,400);
+  } finally { await f.app.close(); }
+});
+
 test('private credentials never appear in status and no connection is automatic',async()=>{
   const f=await fixture();try{
     const result=await (await f.request('/api/config',{appId:'123456789',appSecret:'dummy-secret-not-real'})).json();

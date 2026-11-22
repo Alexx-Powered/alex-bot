@@ -1,0 +1,19 @@
+[Unit]
+Description=Handle one ordinary QQ console request
+
+[Service]
+ExecStart=/usr/bin/python3 -IB /opt/alex-bot/current/codex-qq-plugin/ops/ordinary_qq_console.py
+StandardInput=socket
+StandardOutput=socket
+StandardError=null
+RuntimeMaxSec=15
+SupplementaryGroups=alexyogurt
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+MemoryMax=64M

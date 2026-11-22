@@ -1,0 +1,13 @@
+[Unit]
+Description=Owner console control of the ordinary QQ connection
+
+[Socket]
+ListenStream=/run/alexbot-ordinary-qq.sock
+SocketUser=alexbot
+SocketMode=0600
+Accept=yes
+MaxConnections=4
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
