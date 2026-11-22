@@ -18,7 +18,7 @@ class OutdoorIndexTests(unittest.TestCase):
             return outdoor_index.invoke({'date':'2026-11-03','hours':hours,'red_hazards':list(red)})
         dirty=score(rows)
         self.assertEqual(dirty['score'],0)
-        self.assertIn('220',dirty['dailyDanger']['reasons'][0])
+        self.assertEqual(dirty['dailyDanger']['reasons'],['全天PM2.5高于220ug/m3'])
         for weaker in [rows[1:], [dict(rows[0],pm25=220.0),*rows[1:]], [dict(rows[0],pm25=None),*rows[1:]],
                        [dict(rows[0],time=rows[0]['time'].replace('11-03','11-04')),*rows[1:]]]:
             self.assertNotIn('dailyDanger',score(weaker))
