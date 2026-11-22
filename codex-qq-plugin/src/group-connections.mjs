@@ -12,6 +12,8 @@ const pairCommand=/^\/group-link ([a-f0-9]{32})$/;
 const membershipTTL=90_000;
 const officialPollMs=120_000;
 const pairingTTL=300_000;
+const offlineNoticeTTL=15*60_000;
+const noticeTime=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 
 export class GroupConnections {
   constructor({core,official,onMessage,socketPath,now=Date.now}) {
@@ -51,7 +53,7 @@ export class GroupConnections {
     if(this.pair?.mode==='probe'&&!this.pair.ticket)this.finishProbe(this.pair,'GROUP_ROUTE_OFFLINE');
     for(const request of [...this.pending.values()])request.finish(error('QQ_SERVICE_UNAVAILABLE',true));
   }
-  close() {this.closed=true;clearTimeout(this.retry);clearInterval(this.profileTimer);this.socket?.terminate();this.reset();}
+  close() {this.closed=true;clearTimeout(this.retry);clearTimeout(this.noticeRetry);clearInterval(this.profileTimer);this.socket?.terminate();this.reset();}
   async refreshProfile() {
     if(this.closed||this.checkingProfile||this.official.status().state!=='connected')return;
     const routes=this.core.groupRoutes().filter(r=>!r.ordinaryOnly);
@@ -246,7 +248,30 @@ export class GroupConnections {
     clearTimeout(p.timeout);clearTimeout(p.settle);
     this.pair=null;this.sync();return this.core.linkGroupRoute(groupKey,p.account,peer,this.directory.get(peer));
   }
+  sendOfflineNotice() {
+    clearTimeout(this.noticeRetry);
+    const notice=this.offlineNotice;
+    if(!notice || notice.submitted || this.closed || this.now()-notice.at>offlineNoticeTTL)return;
+    if(this.official.status().state!=='connected' || !this.core.sendingEnabled()){
+      this.noticeRetry=setTimeout(()=>this.sendOfflineNotice(),15_000).unref();
+      return;
+    }
+    notice.submitted=true;
+    const text='普通 QQ 掉线提醒。北京时间 '+noticeTime.format(notice.at)+'，Milky 上报了账号下线。请在控制台「连接与账号 → 普通 QQ」查看当前状态。';
+    void this.core.notify({text,idempotencyKey:notice.key}).then(result=>{
+      if(!result.ok && result.code!=='DUPLICATE')console.warn('ordinary_qq_offline_notice',result.code);
+    }).catch(()=>console.warn('ordinary_qq_offline_notice','DELIVERY_ERROR'));
+  }
   receive(frame) {
+    if(frame.type==='account_offline'){
+      const now=this.now();
+      if(!decimal(frame.account)||!Number.isSafeInteger(frame.at)||frame.at<now-offlineNoticeTTL||frame.at>now+5000)return;
+      const key='ordinary-offline:'+frame.account+':'+frame.at;
+      if(this.offlineNotice && (this.offlineNotice.key===key || this.offlineNotice.at>frame.at))return;
+      this.offlineNotice={key,at:frame.at,submitted:false};
+      this.sendOfflineNotice();
+      return;
+    }
     if(frame.type==='roster_error'){
       this.directoryUnavailable=true;
       this.configSignature=null;

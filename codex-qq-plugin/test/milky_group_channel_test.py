@@ -27,14 +27,17 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
         bot = Bot(adapter, "70001", ClientInfo(host="127.0.0.1", port=1))
         channel = GroupChannel()
         nonebot.on_message(block=False).handle()(channel.incoming)
+        nonebot.on("meta", block=False).handle()(channel.account_offline)
         app = web.Application()
         app.router.add_get("/groups", channel.events)
         timestamp = int(time.time())
         sequence = 9007199254740993
         calls = []
+        requests = []
 
         async def request(req):
             api = str(req.url).split("/")[-1]
+            requests.append(api)
             if api == "get_group_list":
                 data = {"groups": [{"group_id": 80001, "group_name": "测试群",
                                     "member_count": 3, "max_member_count": 20}]}
@@ -75,6 +78,17 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
                     await asyncio.wait_for(bot.handle_event(sample), 3)
                     frame = await ws.receive_json(timeout=2)
                     self.assertEqual((frame["seq"], frame["text"], frame["mentioned"]), (str(sequence), "/ping", True))
+                    before = list(requests)
+                    event = {"time": timestamp, "self_id": 70001, "event_type": "bot_offline",
+                             "data": {"reason": "synthetic reason must stay private"}}
+                    await asyncio.wait_for(bot.handle_event(Adapter.json_to_event(event)), 2)
+                    notice = {"type": "account_offline", "account": "70001", "at": timestamp * 1000}
+                    self.assertEqual(await ws.receive_json(timeout=2), notice)
+                    await bot.handle_event(Adapter.json_to_event(dict(event, time=timestamp+1)))
+                    self.assertEqual(channel.last_offline, notice)
+                    self.assertEqual(requests, before)
+                async with client.ws_connect("/groups") as ws:
+                    self.assertEqual(await ws.receive_json(timeout=2), notice)
 
 
 if __name__ == "__main__":

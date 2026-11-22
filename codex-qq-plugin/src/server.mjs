@@ -87,7 +87,8 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       try { if(!connections?.observeOfficial(message,replyExpiresAt))await receive(message,replyExpiresAt,'official'); } catch { /* no text or credential logging */ }
     },
     onStatus: (status) => {
-      if(status.state!=='connected')connections?.officialDisconnected();
+      if(status.state==='connected')connections?.sendOfflineNotice();
+      else connections?.officialDisconnected();
       if (['blocked','error'].includes(status.state) &&
           ['QQ_BOT_BANNED','QQ_BOT_UNAVAILABLE','QQ_PERMISSION_DENIED'].includes(status.code)) {
         core?.setPaused(true).catch(() => {});

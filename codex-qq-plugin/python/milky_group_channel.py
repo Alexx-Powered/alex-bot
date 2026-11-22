@@ -8,13 +8,15 @@ import time
 import nonebot
 from aiohttp import WSMsgType, web
 from nonebot.adapters.milky import Adapter, Bot, MessageSegment
-from nonebot.adapters.milky.event import GroupMessageEvent
+from nonebot.adapters.milky.event import BotOfflineEvent, GroupMessageEvent
 from nonebot.adapters.milky.exception import ActionFailed
 
 
 class GroupChannel:
     def __init__(self):
         self.bot = self.ws = None
+        self.last_bot = self.offline_session = None
+        self.last_offline = None
         self.groups = {}
         self.peers = set()
         self.verification = None
@@ -27,11 +29,28 @@ class GroupChannel:
 
     async def set_bot(self, bot):
         self.bot = bot
+        if bot is not None:
+            self.last_bot = bot
         self.groups = {}
         self.clear_subscription()
         if self.ws is not None and not self.ws.closed:
             await self.ws.send_json({"type": "offline"})
         self.changed.set()
+
+    async def account_offline(self, bot: Bot, event: BotOfflineEvent):
+        if bot is not self.last_bot or str(event.self_id) != bot.self_id or self.offline_session is bot:
+            return
+        if not time.time() - 900 <= event.time <= time.time() + 5:
+            return
+        self.offline_session = bot
+        self.last_offline = {"type": "account_offline", "account": bot.self_id, "at": event.time * 1000}
+        await self.replay_offline()
+
+    async def replay_offline(self):
+        frame, ws = self.last_offline, self.ws
+        if frame and frame["at"] >= (time.time() - 900) * 1000 and ws and ws.prepared and not ws.closed:
+            with suppress(ConnectionError, RuntimeError):
+                await ws.send_json(frame)
 
     async def roster(self, ws):
         while not ws.closed:
@@ -61,6 +80,7 @@ class GroupChannel:
         poll = None
         try:
             await ws.prepare(request)
+            await self.replay_offline()
             poll = asyncio.create_task(self.roster(ws))
             async for packet in ws:
                 if packet.type != WSMsgType.TEXT:
@@ -120,6 +140,8 @@ class GroupChannel:
         ws = self.ws
         if self.bot is not bot or str(event.self_id) != bot.self_id or event.data.sender_id == event.self_id:
             return
+        if self.offline_session is bot and event.time * 1000 > self.last_offline["at"]:
+            self.offline_session = None
         if ws is None or ws.closed or peer not in self.groups:
             return
         segments = event.data.segments
@@ -167,6 +189,8 @@ def main():
     channel = GroupChannel()
     matcher = nonebot.on_message(block=False)
     matcher.handle()(channel.incoming)
+    # Milky 1.3.0 calls this event type "meta".
+    nonebot.on("meta", block=False).handle()(channel.account_offline)
     app = web.Application()
     app.router.add_get("/groups", channel.events)
     runner = web.AppRunner(app, access_log=None)

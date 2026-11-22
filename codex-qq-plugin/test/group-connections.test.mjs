@@ -30,6 +30,57 @@ async function fixture() {
   return {core,store,router,key,sent,wire,received,roster,officialEvent,milkyEvent,select};
 }
 
+test('only an explicit account-offline event sends one official owner DM, without ordinary QQ traffic',async()=>{
+  const {core,router,sent,wire,roster}=await fixture();
+  router.receive({type:'offline'});
+  router.receive({type:'roster_error'});
+  roster();
+  wire.length=0;
+  const at=Date.now(),event={type:'account_offline',account:'111',at};
+  router.receive({...event,at:at-16*60_000});
+  router.receive({...event,account:'invalid'});
+  assert.equal(sent.length,0);
+  router.receive(event);router.receive(event);
+  await core.waitForPendingOperations();
+  assert.equal(sent.length,1);
+  assert.equal(sent[0].ownerId,'OWNER');
+  assert.equal(sent[0].groupId,undefined);
+  assert.match(sent[0].text,/Milky 上报了账号下线/);
+  assert.deepEqual(wire,[]);
+  // A new receiver shares the persisted delivery ledger after a Node restart.
+  const restarted=new GroupConnections({core,official:router.official});
+  restarted.receive(event);
+  await core.waitForPendingOperations();
+  assert.equal(sent.length,1);
+});
+
+test('official reconnect delivers a recent offline report, honoring pause and expiry',async()=>{
+  const {core,router,sent,wire}=await fixture();
+  wire.length=0;
+  let connected=false,now=Date.now();
+  router.official.status=()=>({state:connected?'connected':'disconnected'});
+  router.now=()=>now;
+  const event={type:'account_offline',account:'111',at:now};
+  router.receive(event);
+  assert.equal(sent.length,0);
+  connected=true;
+  await core.setPaused(true);
+  router.sendOfflineNotice();
+  assert.equal(sent.length,0);
+  await core.setPaused(false);
+  router.sendOfflineNotice();
+  await core.waitForPendingOperations();
+  assert.equal(sent.length,1);
+  connected=false;
+  router.receive({...event,at:++now});
+  connected=true;
+  now+=16*60_000;
+  router.sendOfflineNotice();
+  await core.waitForPendingOperations();
+  assert.equal(sent.length,1);
+  assert.deepEqual(wire,[]);
+});
+
 test('opening a roster entry creates one disabled independent group, which can then receive and reply on Milky',async()=>{
   const {core,router,store,wire,sent,received,milkyEvent}=await fixture();
   const params={number:'222',rosterKey:router.summary().rosterKey};
