@@ -84,36 +84,45 @@ window.createGroupConsole = ({api,action}) => {
       input.dataset.changed='true';input.closest('label').querySelector('.partial-badge')?.remove();
     }
   }
+  let selectionVersion=0;
   function navigation() {
-    const oldDirectory=get('ordinaryGroupDirectory');
-    const expanded=oldDirectory?.open;
-    oldDirectory?.remove();
-    get('groupNavigation').replaceChildren();
-    for (const group of groups) {
+    const nav=get('groupNavigation');
+    const previousFocus=nav.contains(document.activeElement)?document.activeElement.dataset.navId:null;
+    nav.replaceChildren();
+    function add(id,title,description,pressed,onClick){
       const button=document.createElement('button');button.type='button';button.className='group-nav-item';
-      button.setAttribute('aria-pressed',String(selected===group.groupKey));
-      const name=document.createElement('strong');name.textContent=group.name;
-      const info=document.createElement('span');
+      button.dataset.navId=id;button.setAttribute('aria-pressed',String(pressed));
+      const name=document.createElement('strong');name.textContent=title;
+      const info=document.createElement('span');info.textContent=description;
+      button.append(name,info);button.onclick=onClick;nav.append(button);
+      if(id===previousFocus)button.focus({preventScroll:true});
+    }
+    for (const group of groups) {
       const route=routeFor(group);
       const both=route?.official==='present'&&route?.milky==='present';
-      info.textContent=(route?.active==='milky'?'普通 QQ':'官方 Bot')+'处理'+(both?' · 双端在群':'')+
+      const info=(route?.active==='milky'?'普通 QQ':'官方 Bot')+'处理'+(both?' · 双端在群':'')+
         (group.enabled===false?' · 已停用':'');
-      button.append(name,info);button.onclick=()=>select(group.groupKey);get('groupNavigation').append(button);
+      add(group.groupKey,group.name,info,selected===group.groupKey,()=>select(group.groupKey));
     }
-    get('groupCount').textContent=String(groups.length);
-    if(connections.directory.length){
-      const details=document.createElement('details'),summary=document.createElement('summary');
-      summary.textContent='普通 QQ 已加入、待关联（'+connections.directory.length+'）';
-      const list=document.createElement('ul');
-      for(const {name,number} of connections.directory){
-        const item=document.createElement('li');item.textContent=name+' · '+number;list.append(item);
-      }
-      details.id='ordinaryGroupDirectory';details.open=!!expanded;
-      details.append(summary,list);get('groupNavigation').after(details);
+    const discovered=connections.directory.filter(row=>!row.managed);
+    const rosterKey=connections.rosterKey;
+    for(const {name,number} of discovered){
+      add('roster-'+number,name||'QQ 群 '+number,'普通 QQ · '+number+' · 打开设置',false,async event=>{
+        const version=++selectionVersion;
+        const button=event.currentTarget;button.disabled=true;
+        try{
+          const result=await action('group/connection/open',{number,rosterKey});
+          if(result?.ok&&version===selectionVersion&&groups.some(g=>g.groupKey===result.groupKey)){
+            select(result.groupKey);
+            nav.querySelector('[aria-pressed="true"]')?.focus({preventScroll:true});
+          }
+        }finally{button.disabled=false;}
+      });
     }
+    get('groupCount').textContent=String(groups.length+discovered.length);
   }
   const presenceLabel={present:'已在群内',absent:'不在群内',offline:'账号离线',unknown:'暂未核实',
-    candidate:'发现同名群',unverified:'待核对群号',otherAccount:'当前登录了其他账号'};
+    candidate:'发现同名群',unverified:'待核对群号',unlinked:'未关联',otherAccount:'当前登录了其他账号'};
   function renderConnection(group) {
     const panel=get('groupConnection');
     if(!panel||!group)return;
@@ -322,6 +331,7 @@ window.createGroupConsole = ({api,action}) => {
     wakeEditor.update(lastCore,group);
   }
   function select(key) {
+    selectionVersion++;
     selected=key;
     get('groupEnrollment').classList.toggle('hidden',key!==null);get('groupList').classList.toggle('hidden',key===null);
     navigation();renderEditor();

@@ -158,9 +158,9 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       const data = await body(req);
       if(pathname.startsWith('/api/group/connection/')){
         const op=pathname.slice('/api/group/connection/'.length);
-        const fields={verify:['groupKey','number'],probe:['groupKey'],detect:['groupKey'],confirm:['groupKey','command'],select:['groupKey','channel','revision']};
+        const fields={open:['number','rosterKey'],verify:['groupKey','number'],probe:['groupKey'],detect:['groupKey'],confirm:['groupKey','command'],select:['groupKey','channel','revision']};
         if(!Object.hasOwn(fields,op)||Object.keys(data).length!==fields[op].length||Object.keys(data).some(k=>!fields[op].includes(k)))throw Error('INVALID_INPUT');
-        const result=op==='probe'?connections.startProbe(data):op==='detect'?connections.detect(data):
+        const result=op==='open'?await connections.open(data):op==='probe'?connections.startProbe(data):op==='detect'?connections.detect(data):
           op==='verify'?connections.startPair(data):op==='confirm'?await connections.confirm(data):
           await core.selectGroupRoute(data,(route,channel)=>connections.available(route,channel));
         return json(res,200,result);

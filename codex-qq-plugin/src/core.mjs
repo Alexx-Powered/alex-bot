@@ -55,6 +55,11 @@ const validDeliveryDeadline = value => value===undefined || (Number.isSafeIntege
 const groupKeyFor = (id) => hash(`group:${id}`);
 const discoveredName = id => '新加入群 · ' + groupKeyFor(id).slice(0,8);
 const validQQNumber = value => typeof value==='string' && /^[1-9]\d{0,18}$/.test(value) && BigInt(value)<=9223372036854775807n;
+const ordinaryGroupId = (account,peer) => 'milky-'+hash(account+'/'+peer);
+export const isOrdinaryGroupId = id => typeof id==='string' && /^milky-[a-f0-9]{64}$/.test(id);
+function disabledGroup(id) {
+  return {id,name:discoveredName(id),enabled:false,features:Object.fromEntries(GROUP_FEATURES.map(({key})=>[key,false]))};
+}
 function validGroupLink(link) {
   return link && validQQNumber(link.account) && validQQNumber(link.peer) &&
     ['official','milky'].includes(link.active) && Number.isSafeInteger(link.revision) && link.revision>=0;
@@ -159,6 +164,10 @@ function restoreState(raw) {
       !['official','milky'].includes(source)||!validGroupName(name))))throw Error('STATE_INVALID');
   if(links.some(([key,link])=>!groupKeys.has(key)||!validGroupLink(link)) ||
     new Set(links.map(([,link])=>link.account+'/'+link.peer)).size!==links.length)throw Error('STATE_INVALID');
+  for(const {id} of allGroups.filter(g=>isOrdinaryGroupId(g.id))){
+    const link=groupLinks[groupKeyFor(id)];
+    if(link?.active!=='milky'||ordinaryGroupId(link.account,link.peer)!==id)throw Error('STATE_INVALID');
+  }
   if(helpNotes.some(([key,note])=>!groupKeys.has(key)||typeof note!=='string'||normalizeGroupHelpNote(note)!==note))throw new Error('STATE_INVALID');
   const removedOfficialGroups=raw.removedOfficialGroups===undefined?[]:raw.removedOfficialGroups;
   if(!Array.isArray(removedOfficialGroups)||removedOfficialGroups.length>CORE_LIMITS.historySize||
@@ -386,7 +395,7 @@ export class BridgeCore {
   groupRoutes() {
     return [...this.#state.allowedGroups,...this.#state.grayGroups].map(({id})=>{
       const key=groupKeyFor(id), link=this.#state.groupLinks?.[key];
-      return {id,key,names:{...this.#state.groupNames?.[key]},...(link??{active:'official',revision:0})};
+      return {id,key,names:{...this.#state.groupNames?.[key]},...(link??{active:'official',revision:0}),ordinaryOnly:isOrdinaryGroupId(id)};
     });
   }
 
@@ -411,15 +420,43 @@ export class BridgeCore {
     return names?.official||names?.milky||group.name;
   }
 
+  async openOrdinaryGroup(account,peer,groupName,isCurrent) {
+    if(!validQQNumber(account)||!validQQNumber(peer))return result(false,'INVALID_INPUT');
+    return this.#enqueue(async()=>{
+      if(!this.#ready||!this.#state.ownerId)return result(false,'NOT_PAIRED');
+      if(!isCurrent())return result(false,'GROUP_ROUTE_OFFLINE');
+      const existing=this.groupRoutes().find(r=>r.account===account&&r.peer===peer);
+      if(existing)return result(true,'GROUP_OPENED',{groupKey:existing.key});
+      if(this.#state.allowedGroups.length>=CORE_LIMITS.allowedGroups)return result(false,'GROUP_LIMIT_REACHED');
+      const id=ordinaryGroupId(account,peer),key=groupKeyFor(id);
+      const next=structuredClone(this.#state);
+      next.allowedGroups.push(disabledGroup(id));
+      next.groupLinks={...next.groupLinks,[key]:{account,peer,active:'milky',revision:1,unconfigured:true}};
+      next.groupNames={...next.groupNames,[key]:{milky:validGroupName(groupName)?groupName:'QQ 群 '+peer}};
+      try{await this.#persist(next);}catch{return this.#storageFailed();}
+      return result(true,'GROUP_OPENED',{groupKey:key});
+    });
+  }
+
   async linkGroupRoute(groupKey,account,peer,groupName) {
     if(!validGroupKey(groupKey)||!validQQNumber(account)||!validQQNumber(peer))return result(false,'INVALID_INPUT');
     return this.#enqueue(async()=>{
       if(!this.#ready||!this.#state.ownerId)return result(false,'NOT_PAIRED');
       const routes=this.groupRoutes(), route=routes.find(r=>r.key===groupKey);
       if(!route)return result(false,'GROUP_NOT_FOUND');
-      if(route.peer||routes.some(r=>r.account===account&&r.peer===peer))return result(false,'GROUP_ROUTE_ALREADY_LINKED');
+      const existing=routes.find(r=>r.account===account&&r.peer===peer);
+      if(route.peer||(existing&&!existing.ordinaryOnly))return result(false,'GROUP_ROUTE_ALREADY_LINKED');
+      const next=structuredClone(this.#state);
+      if(existing){
+        const group=next.allowedGroups.find(g=>g.id===existing.id);
+        if(!existing.unconfigured||!group||group.enabled||group.disabledWakeWords?.length||
+          Object.values(group.features).some(Boolean)||next.groupHelpNotes?.[existing.key]!==undefined)return result(false,'GROUP_ROUTE_HAS_SETTINGS');
+        next.allowedGroups=next.allowedGroups.filter(g=>g.id!==existing.id);
+        delete next.groupLinks[existing.key];
+        delete next.groupNames[existing.key];
+      }
       const link={account,peer,active:'official',revision:1};
-      const next={...this.#state,groupLinks:{...this.#state.groupLinks,[groupKey]:link}};
+      next.groupLinks={...next.groupLinks,[groupKey]:link};
       if(validGroupName(groupName))next.groupNames={...next.groupNames,[groupKey]:{...next.groupNames?.[groupKey],milky:groupName}};
       try{await this.#persist(next);}
       catch{return this.#storageFailed();}
@@ -430,7 +467,7 @@ export class BridgeCore {
   async selectGroupRoute({groupKey,channel,revision},available) {
     if(!validGroupKey(groupKey)||!['official','milky'].includes(channel)||!Number.isSafeInteger(revision))return result(false,'INVALID_INPUT');
     const route=this.groupRoutes().find(r=>r.key===groupKey);
-    if(!route?.peer)return result(false,'GROUP_ROUTE_UNLINKED');
+    if(!route?.peer||(route.ordinaryOnly&&channel==='official'))return result(false,'GROUP_ROUTE_UNLINKED');
     if(route.revision!==revision)return result(false,'GROUP_ROUTE_CHANGED');
     if(!available(route,channel))return result(false,'GROUP_ROUTE_OFFLINE');
     if(route.active===channel)return result(true,'GROUP_ROUTE_SAVED');
@@ -737,7 +774,7 @@ export class BridgeCore {
   }
 
   async recordOfficialGroupJoin({groupId, joinedAt, messageId, isCurrent} = {}) {
-    if (!validGroupId(groupId) || !Number.isSafeInteger(joinedAt) || typeof isCurrent !== 'function' ||
+    if (!validGroupId(groupId) || isOrdinaryGroupId(groupId) || !Number.isSafeInteger(joinedAt) || typeof isCurrent !== 'function' ||
         (messageId !== undefined && !validId(messageId))) {
       return result(false, 'INVALID_INPUT');
     }
@@ -766,12 +803,7 @@ export class BridgeCore {
         next.incoming = [...next.incoming, eventKey].slice(-CORE_LIMITS.historySize);
         if (removal) next.removedOfficialGroups=next.removedOfficialGroups.filter(entry=>entry.key!==groupKey);
         if (!exists) {
-          next.allowedGroups.push({
-            id: groupId,
-            name: discoveredName(groupId),
-            enabled: false,
-            features: Object.fromEntries(GROUP_FEATURES.map(({key}) => [key, false])),
-          });
+          next.allowedGroups.push(disabledGroup(groupId));
         }
         try { await this.#persist(next); } catch { return this.#storageFailed(); }
         if (this.#groupCandidate?.id === groupId) this.#clearGroupPairing();
@@ -848,6 +880,7 @@ export class BridgeCore {
         const current=[...next.allowedGroups,...next.grayGroups].find(g=>g.id===group.id);
         if (!current) return result(false,'GROUP_NOT_FOUND');
         current.enabled=enabled;current.features=normalized;
+        if(next.groupLinks?.[groupKey]?.unconfigured)delete next.groupLinks[groupKey].unconfigured;
         if (normalizedNote!==undefined) next.groupHelpNotes={...next.groupHelpNotes,[groupKey]:normalizedNote};
         try {await this.#persist(next);} catch {return this.#storageFailed();}
         return result(true,'GROUP_FEATURES_SAVED',{status:this.status()});

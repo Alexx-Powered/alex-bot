@@ -1,5 +1,6 @@
 import {createConnection} from 'node:net';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
+import {isOrdinaryGroupId} from './core.mjs';
 import {WebSocket} from 'ws';
 import {imageBase64,QQAdapterError} from './qq-adapter.mjs';
 import {validVideo} from './video-media.mjs';
@@ -53,7 +54,7 @@ export class GroupConnections {
   close() {this.closed=true;clearTimeout(this.retry);clearInterval(this.profileTimer);this.socket?.terminate();this.reset();}
   async refreshProfile() {
     if(this.closed||this.checkingProfile||this.official.status().state!=='connected')return;
-    const routes=this.core.groupRoutes();
+    const routes=this.core.groupRoutes().filter(r=>!r.ordinaryOnly);
     for(const key of this.profileChecks.keys()){
       if(!routes.some(r=>r.key===key))this.profileChecks.delete(key);
     }
@@ -74,7 +75,7 @@ export class GroupConnections {
   }
   observePresence(id,state,at) {
     const now=this.now(),previous=this.memberships.get(id);
-    if(!this.core.groupRoutes().some(r=>r.id===id)||!Number.isSafeInteger(at)||at<now-300000||at>now+60000)return;
+    if(!this.core.groupRoutes().some(r=>r.id===id&&!r.ordinaryOnly)||!Number.isSafeInteger(at)||at<now-300000||at>now+60000)return;
     at=Math.min(at,now);
     if(previous&&(at<previous.at||(at===previous.at&&previous.state==='absent')))return;
     this.memberships.set(id,{state,at,source:'event',next:previous?.next??0,
@@ -82,7 +83,7 @@ export class GroupConnections {
   }
   async refreshMembership() {
     if(this.closed||this.readingMembership||!this.official.groupMembership||this.official.status().state!=='connected')return;
-    const routes=this.core.groupRoutes();
+    const routes=this.core.groupRoutes().filter(r=>!r.ordinaryOnly);
     for(const id of this.memberships.keys())if(!routes.some(r=>r.id===id))this.memberships.delete(id);
     const route=routes.find(r=>(this.memberships.get(r.id)?.next??0)<=this.now());
     if(!route)return;
@@ -100,6 +101,7 @@ export class GroupConnections {
     }finally{this.readingMembership=false;}
   }
   officialPresence(route) {
+    if(route.ordinaryOnly)return 'unlinked';
     if(this.official.status().state!=='connected')return 'offline';
     const record=this.memberships.get(route.id);
     return record&&this.now()-record.at<officialPollMs*2?record.state:'unknown';
@@ -134,11 +136,24 @@ export class GroupConnections {
       verification:pair&&pair.account===this.account?{peer:pair.peer,command:pair.command,probe:pair.mode==='probe'}:null});
     if(frame!==this.configSignature){this.socket.send(frame);this.configSignature=frame;}
   }
+  rosterKey() {
+    return this.account?createHash('sha256').update('milky-roster:'+this.account).digest('hex'):null;
+  }
+  open({number,rosterKey}) {
+    const account=this.account;
+    const current=()=>this.live()&&!this.directoryUnavailable&&this.account===account&&this.rosterKey()===rosterKey&&this.directory.has(number);
+    if(!current())return {ok:false,code:'GROUP_ROUTE_OFFLINE'};
+    return this.core.openOrdinaryGroup(account,number,this.directory.get(number),current);
+  }
   summary() {
     const routes=this.core.groupRoutes(),online=this.live();
     const pair=this.activePair();
-    const directory=online&&!this.directoryUnavailable?[...this.directory].filter(([id])=>!routes.some(r=>r.peer===id&&r.account===this.account))
-      .map(([number,name])=>({number,name})):[];
+    const byNumber=new Map(routes.filter(r=>r.account===this.account&&r.peer).map(r=>[r.peer,r]));
+    const directory=[];
+    if(online&&!this.directoryUnavailable)for(const [number,name] of this.directory){
+      const known=byNumber.get(number);
+      if(!known||known.ordinaryOnly)directory.push({number,name,...(known?{managed:true}:{})});
+    }
     return {online,officialOnline:this.official.status().state==='connected',
       groups:routes.map(r=>{
         const official=this.officialPresence(r);
@@ -151,7 +166,7 @@ export class GroupConnections {
         profileState:this.profileChecks.get(r.key)?.state,
         profileCode:this.profileChecks.get(r.key)?.bizCode,profileHttp:this.profileChecks.get(r.key)?.httpStatus,
         ...(r.peer?{number:r.peer,milkyOnline:this.available(r,'milky')}:{})};}),
-      directory,probeResult:this.probeResult,
+      directory,rosterKey:this.rosterKey(),probeResult:this.probeResult,
       pairing:pair?.mode==='probe'?{mode:'probe',groupKey:pair.key,matched:!!pair.ticket,
         ...(pair.ticket?{number:pair.observedPeer,name:this.directory.get(pair.observedPeer),command:pair.ticket}:{})}:pair?{groupKey:pair.key,number:pair.peer||pair.observedPeer,name:this.directory.get(pair.peer||pair.observedPeer),
         ambiguous:Boolean(pair.ambiguous),command:pair.command,official:pair.officialAt!=null,milky:pair.milkyAt!=null,
@@ -161,7 +176,7 @@ export class GroupConnections {
     if(this.activePair()?.mode==='probe')return {ok:false,code:'GROUP_PROBE_BUSY'};
     const route=this.core.groupRoutes().find(r=>r.key===groupKey);
     if(!route||(number!==''&&!decimal(number)))return {ok:false,code:'INVALID_INPUT'};
-    if(route.peer||this.core.groupRoutes().some(r=>r.account===this.account&&r.peer===number))return {ok:false,code:'GROUP_ROUTE_ALREADY_LINKED'};
+    if(route.peer||this.core.groupRoutes().some(r=>!r.ordinaryOnly&&r.account===this.account&&r.peer===number))return {ok:false,code:'GROUP_ROUTE_ALREADY_LINKED'};
     if(!this.live()||this.directoryUnavailable||!this.directory.size||(number&&!this.directory.has(number))||
       ['offline','absent'].includes(this.officialPresence(route)))return {ok:false,code:'GROUP_ROUTE_OFFLINE'};
     this.pair={key:groupKey,id:route.id,peer:number,account:this.account,command:'/group-link '+randomBytes(16).toString('hex'),
@@ -299,7 +314,10 @@ export class GroupConnections {
   }
   async send(request) {
     const route=request.groupId&&this.core.groupRoutes().find(r=>r.id===request.groupId);
-    if(!route)return this.official.send(request);
+    if(!route){
+      if(isOrdinaryGroupId(request.groupId))throw error('QQ_SEND_CANCELLED');
+      return this.official.send(request);
+    }
     if(route.active==='official'){
       try{return await this.official.send(request);}
       catch(failure){

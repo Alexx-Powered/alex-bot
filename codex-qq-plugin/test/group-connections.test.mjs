@@ -30,6 +30,52 @@ async function fixture() {
   return {core,store,router,key,sent,wire,received,roster,officialEvent,milkyEvent,select};
 }
 
+test('opening a roster entry creates one disabled independent group, which can then receive and reply on Milky',async()=>{
+  const {core,router,store,wire,sent,received,milkyEvent}=await fixture();
+  const params={number:'222',rosterKey:router.summary().rosterKey};
+  const [first,second]=await Promise.all([router.open(params),router.open(params)]);
+  assert.equal(first.ok,true);assert.deepEqual(first,second);
+  const group=core.status().allowedGroups.find(g=>g.groupKey===first.groupKey);
+  assert.equal(group.name,'同名群');assert.equal(group.enabled,false);
+  assert.ok(Object.values(group.features).every(value=>value===false));
+  const route=core.groupRoutes().find(r=>r.key===first.groupKey);
+  assert.equal(router.summary().groups.find(r=>r.groupKey===route.key).official,'unlinked');
+  assert.equal(router.summary().directory.filter(g=>g.managed).length,1);
+  assert.equal((await core.selectGroupRoute({groupKey:route.key,channel:'official',revision:route.revision},()=>true)).ok,false);
+  milkyEvent('/ping');assert.equal(received.length,0);
+  assert.equal((await core.setGroupFeatures({groupKey:route.key,enabled:true,features:{...group.features,conversion:true}})).ok,true);
+  router.sync();assert.deepEqual(wire.at(-1).peers,['222']);
+  milkyEvent('/ping');await Promise.all(received);
+  assert.equal(wire.filter(f=>f.type==='deliver'&&f.peer==='222').length,1);
+  assert.equal(sent.length,0);assert.equal(core.status().allowedGroups.length,3);
+  const restored=new BridgeCore({...store,send:async()=>{}});await restored.init();
+  assert.equal(restored.groupRoutes().find(r=>r.key===route.key).active,'milky');
+  assert.equal(restored.groupEnabled(route.id),true);
+  router.receive({type:'roster',account:'444',groups:[{number:'222',name:'同名群'}]});
+  assert.equal((await router.open(params)).code,'GROUP_ROUTE_OFFLINE');
+  assert.equal(router.summary().groups.find(r=>r.groupKey===route.key).milky,'otherAccount');
+  assert.equal((await router.open({number:'555',rosterKey:router.summary().rosterKey})).ok,false);
+  await core.removeAllowedGroup({groupKey:route.key});
+  await assert.rejects(router.send({groupId:route.id,text:'old'}),{code:'QQ_SEND_CANCELLED'});
+  assert.equal(sent.length,0);
+});
+
+test('verified pairing absorbs only an untouched ordinary entry and preserves independently configured groups',async()=>{
+  for(const edited of [false,true]){
+    const {core,router,key,officialEvent,milkyEvent}=await fixture();
+    const opened=await router.open({number:'222',rosterKey:router.summary().rosterKey});
+    const settings=core.status().allowedGroups.find(g=>g.groupKey===opened.groupKey);
+    if(edited)await core.setGroupFeatures({...settings,enabled:false,helpNote:'仅供本群'});
+    assert.equal(router.startPair({groupKey:key,number:'222'}).ok,true);
+    const {command}=router.summary().pairing;
+    router.observeOfficial(officialEvent(command),Date.now()+300000);milkyEvent(command);
+    const confirmed=await router.confirm({groupKey:key,command});
+    assert.equal(confirmed.code,edited?'GROUP_ROUTE_HAS_SETTINGS':'GROUP_ROUTE_LINKED');
+    assert.equal(core.groupRoutes().length,edited?3:2);
+    assert.equal(core.groupRoutes()[0].peer,edited?undefined:'222');
+  }
+});
+
 test('dual group proof, persisted selection, actual reply routing, media, scoped permissions and offline failure',async()=>{
   const f=await fixture(),{core,router,key}=f;
   assert.equal((await f.select('milky',0)).ok,false);

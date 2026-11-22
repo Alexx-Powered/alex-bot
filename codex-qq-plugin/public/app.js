@@ -72,7 +72,8 @@ Object.assign(descriptions,{
   GROUP_ROUTE_VERIFY:'匹配指令已生成。',GROUP_ROUTE_LINKED:'已核实两个账号连接到同一个群。',GROUP_ROUTE_SAVED:'本群工作通道已保存。',
   GROUP_ROUTE_OFFLINE:'目标通道离线或当前账号已不在该群。',GROUP_ROUTE_UNVERIFIED:'两个通道还未收到同一条有效匹配指令。',
   GROUP_ROUTE_ALREADY_LINKED:'此群已有通道关联，请刷新群设置。',GROUP_ROUTE_CHANGED:'工作通道已在其他页面更改，请核对最新状态。',
-  GROUP_ROUTE_UNLINKED:'请先完成两个通道的群匹配。'
+  GROUP_OPENED:'已打开群设置。',GROUP_ROUTE_HAS_SETTINGS:'这个普通 QQ 群已有独立设置。要改用官方群的设置，请先在普通 QQ 群设置中移除该记录，再到官方群确认关联。',
+  GROUP_ROUTE_UNLINKED:'切换到另一通道前，请先确认两个账号在同一群。'
 });
 function feedback(data) {
   const success = data?.ok === true;
