@@ -4,10 +4,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {createCanvas,loadImage} from '@napi-rs/canvas';
 import {BridgeCore} from '../src/core.mjs';
 import {WeatherAlertsService,WeatherAlertWorker} from '../src/weather-alerts.mjs';
 import {defaultGroupFeatures} from '../src/group-features.mjs';
-import {renderWeatherAlert} from '../src/weather-alert-image.mjs';
+import {renderWeatherAlert,weatherAlertHeading} from '../src/weather-alert-image.mjs';
 import {QQAdapter} from '../src/qq-adapter.mjs';
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const area={code:'110108',name:'北京市·海淀',province:'北京市',level:'district'};
@@ -101,6 +102,22 @@ test('stale console revision is rejected, pause retains subscriptions and suppre
 test('actual card produces valid PNG matching weather width',async()=>{
   const result=await renderWeatherAlert({...warning(),change:'升级',previousColor:'黄色',color:'橙色'});
   assert.equal(result.mimeType,'image/png');assert.deepEqual([...result.buffer.subarray(0,8)],[137,80,78,71,13,10,26,10]);assert.equal(result.buffer.readUInt32BE(16),1867);assert.ok(result.buffer.length<5*1024*1024);
+});
+test('cancellation names the warning when effective and retains the issued card palette',async()=>{
+  async function header(fields){
+    const card=await renderWeatherAlert({...warning(),...fields});
+    const image=await loadImage(card.buffer);
+    const c=createCanvas(1,1).getContext('2d');
+    c.drawImage(image,Math.round(image.width*.82),Math.round(image.width*.39),1,1,0,0,1,1);
+    return [...c.getImageData(0,0,1,1).data].slice(0,3);
+  }
+  const yellow={color:'黄色'},end={...warning(),cancelled:true,change:'解除',effective:'2026/11/08 01:00'};
+  assert.deepEqual(await header(yellow),await header({...end,...yellow}));
+  assert.deepEqual(weatherAlertHeading({...end,...yellow}),{title:'大风预警解除',label:'大风黄色预警：',cleared:true});
+  assert.equal(weatherAlertHeading({...end,hazard:'暴雨',color:'未分色',previousColor:'红色'}).label,'暴雨红色预警：');
+  assert.equal(weatherAlertHeading({...end,color:'未分色'}).label,'大风预警：');
+  const pending=weatherAlertHeading({...end,effective:'2026-11-08T02:00:00+08:00'});
+  assert.equal(pending.cleared,false);assert.equal(pending.title,'大风预警即将解除');
 });
 test('QQ adapter rechecks subscription after media upload and suppresses closed subscription',async()=>{
   let check=true,posted=0;const handlers=new Map();const bot={on:(n,f)=>handlers.set(n,f),start:()=>new Promise(()=>{}),stop(){},

@@ -1,4 +1,4 @@
-"""Deterministic outdoor index. User-approved v3 rules; no model or service calls."""
+"""Deterministic outdoor index based on hourly forecast data."""
 from __future__ import annotations
 
 from datetime import date as calendar_date, datetime
@@ -11,10 +11,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 RULES = {
-    "version": "outdoor-v3-20261103",
+    "version": "outdoor-v4-20261122",
     "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
     "pm25Knots": [[0, 0], [60, 5], [100, 45], [150, 100]],
-    "windLoss": {"none": 0, "blue": 25, "yellow": 55, "orange": 100},
+    "windLoss": {"none": 0, "blue": 22, "yellow": 70, "orange": 100},
     "rainLoss": {"none": 0, "brief": 20, "light": 35, "more": 50},
     "rainZero": {"hourlyAboveMm": 2.5, "periodAtLeastMm": 5},
     "gold": {"scoreAtLeast": 95, "cloudMeanAtMost": 5, "pm25PeakAtMost": 25,
@@ -88,7 +88,7 @@ def assess_period(name, start, end, rows):
     if pm >= 150:
         zero_reasons.append("PM2.5达到清零门槛")
     if wind_level == "orange":
-        zero_reasons.append("风速达到橙色以上预警风力门槛")
+        zero_reasons.append("预报风力达橙色大风门槛，本时段清零")
     if rain_zero:
         zero_reasons.append("中雨以上或雨量达到清零门槛")
     score = 0 if zero_reasons else max(0, 100 - sum(deductions.values()))
@@ -96,7 +96,11 @@ def assess_period(name, start, end, rows):
     grade = "gold" if gold else "excellent" if score >= 80 else "fair" if score >= 60 else "poor"
     character = {"gold": "夯", "excellent": "夯", "fair": "可", "poor": "拉"}[grade]
     rain_label = {"none": "无雨", "brief": "零星小雨", "light": "持续小雨" if wet_hours >= 3 else "小雨", "more": "小雨偏多", "zero": "中雨及以上"}[rain_level]
-    reason = " · ".join(zero_reasons) if zero_reasons else " · ".join(filter(None, [rain_label, "云量较多" if cloud >= 70 else "云量适中" if cloud >= 30 else "少云"]))
+    reasons = zero_reasons or [rain_label, "云量较多" if cloud >= 70 else "云量适中" if cloud >= 30 else "少云"]
+    if wind_level in {"blue", "yellow"} and not zero_reasons:
+        level = "蓝色" if wind_level == "blue" else "黄色"
+        reasons.append(f"预报风力达{level}大风门槛，扣{deductions['wind']}分")
+    reason = " · ".join(reasons)
     return {**result, "status": "complete", "score": score, "displayScore": round(score, 1), "grade": grade,
             "character": character, "gold": gold, "reason": reason, "deductions": deductions,
             "conditions": {"cloudMean": cloud, "pm25Peak": pm, "windPeak": wind, "gustPeak": gust,

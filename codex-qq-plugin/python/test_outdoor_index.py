@@ -27,10 +27,22 @@ class OutdoorIndexTests(unittest.TestCase):
         self.assertEqual(self.invoke(pm25=150.0)['score'], 0)
 
     def test_wind_thresholds_and_gusts(self):
-        for wind, gust, score in [(10.7,13.8,100),(10.8,13.8,75),(1,13.9,75),
-                                  (17.2,2,45),(1,20.8,45),(24.5,2,0),(1,28.5,0)]:
+        for wind, gust, score in [(10.7,13.8,100),(10.8,13.8,78),(1,13.9,78),
+                                  (17.1,20.7,78),(17.2,2,30),(1,20.8,30),(24.5,2,0),(1,28.5,0)]:
             with self.subTest(wind=wind,gust=gust):
                 self.assertEqual(self.invoke(wind=float(wind),gust=float(gust))['score'],score)
+
+    def test_clean_air_blue_is_fair_and_a_yellow_gust_penalizes_only_its_period(self):
+        data = sample(pm25=24.0, cloud=20.0, wind=11.0, gust=14.0)
+        data['hours'][-1]['gust'] = 20.8
+        result = outdoor_index.invoke(data)
+        morning, afternoon = result['periods']
+        self.assertEqual((morning['score'], morning['character'], morning['deductions']['wind']), (70, '可', 22))
+        self.assertIn('扣22分', morning['reason'])
+        self.assertEqual((afternoon['score'], afternoon['character'], afternoon['deductions']['wind']), (22, '拉', 70))
+        self.assertIn('扣70分', afternoon['reason'])
+        self.assertEqual(result['recommendation'], {'word': '上午', 'suffix': '户外条件尚可'})
+        self.assertEqual(self.invoke(pm25=100.0, wind=11.0)['grade'], 'poor')
 
     def test_three_rain_deductions_and_hard_zero(self):
         brief = sample()
