@@ -47,11 +47,12 @@ export class GroupConnections {
     };
     connect();
   }
-  reset() {
+  reset({socketClosed=true}={}) {
     this.account=null;this.directory.clear();this.observed.clear();this.configSignature=null;
     this.directoryUnavailable=false;
     if(this.pair?.mode==='probe'&&!this.pair.ticket)this.finishProbe(this.pair,'GROUP_ROUTE_OFFLINE');
-    for(const request of [...this.pending.values()])request.finish(error('QQ_SERVICE_UNAVAILABLE',true));
+    // HTTP sends already accepted by the gateway can finish across event-stream reconnects.
+    if(socketClosed)for(const request of [...this.pending.values()])request.finish(error('QQ_SERVICE_UNAVAILABLE',true));
   }
   close() {this.closed=true;clearTimeout(this.retry);clearTimeout(this.noticeRetry);clearInterval(this.profileTimer);this.socket?.terminate();this.reset();}
   async refreshProfile() {
@@ -278,7 +279,7 @@ export class GroupConnections {
       if(this.pair?.mode==='probe'&&!this.pair.ticket)this.finishProbe(this.pair,'GROUP_ROUTE_OFFLINE');
       return;
     }
-    if(frame.type==='offline'){this.reset();return;}
+    if(frame.type==='offline'){this.reset({socketClosed:false});return;}
     if(frame.type==='probe_ready'){
       const p=this.activePair();
       if(p?.mode==='probe'&&p.account===frame.account&&p.command===frame.command)void this.submitProbe(p);
@@ -291,7 +292,7 @@ export class GroupConnections {
         if(!decimal(g.number)||typeof g.name!=='string'||g.name.length>160)throw Error('INVALID_GROUP');
         directory.set(g.number,g.name);
       }
-      if(frame.account!==this.account)this.reset();
+      if(frame.account!==this.account)this.reset({socketClosed:false});
       this.account=frame.account;this.directory=directory;this.lastRoster=this.now();this.directoryUnavailable=false;this.sync();
       const updates=this.core.groupRoutes().filter(r=>r.account===this.account&&directory.has(r.peer)&&r.names.milky!==directory.get(r.peer));
       if(updates.length)void this.core.rememberGroupNames(updates.map(r=>({...r,name:directory.get(r.peer)})),'milky').catch(()=>{});
@@ -369,7 +370,7 @@ export class GroupConnections {
       const finish=(failure,value)=>{
         clearTimeout(timer);this.pending.delete(id);if(failure)reject(failure);else resolve(value);
       };
-      const timer=setTimeout(()=>finish(error('QQ_SERVICE_UNAVAILABLE',true)),120000);
+      const timer=setTimeout(()=>finish(error('QQ_SERVICE_UNAVAILABLE',true)),220000);
       this.pending.set(id,{finish});
       try{this.socket.send(JSON.stringify({type:'deliver',request:id,account:route.account,peer:route.peer,parts,
         deadline:request.deliveryDeadline??null}),err=>{if(err&&this.pending.has(id))finish(error('QQ_SERVICE_UNAVAILABLE',true));});}

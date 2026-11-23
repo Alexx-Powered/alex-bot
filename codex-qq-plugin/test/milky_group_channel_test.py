@@ -12,18 +12,21 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from nonebot.adapters.milky import Adapter, Bot
 from nonebot.adapters.milky.config import ClientInfo
-from nonebot.drivers import Response
+from nonebot.drivers import Request, Response
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
-from milky_group_channel import GroupChannel
+from milky_group_channel import GroupAdapter, GroupChannel
 
 
 class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
     async def test_subscription_dispatch_and_receipts(self):
         nonebot.init(driver="~aiohttp", log_level="CRITICAL")
         driver = nonebot.get_driver()
-        driver.register_adapter(Adapter)
+        driver.register_adapter(GroupAdapter)
         adapter = driver._adapters["Milky"]
+        setup = Request("GET", "ws://localhost/event", timeout=30)
+        adapter.websocket(setup)
+        self.assertIsNone(setup.timeout.read)
         bot = Bot(adapter, "70001", ClientInfo(host="127.0.0.1", port=1))
         channel = GroupChannel()
         nonebot.on_message(block=False).handle()(channel.incoming)
@@ -34,8 +37,9 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
         sequence = 9007199254740993
         calls = []
         requests = []
+        started, release = asyncio.Event(), asyncio.Event()
 
-        async def request(req):
+        async def request(_adapter, req):
             api = str(req.url).split("/")[-1]
             requests.append(api)
             if api == "get_group_list":
@@ -43,12 +47,15 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
                                     "member_count": 3, "max_member_count": 20}]}
             elif api == "send_group_message":
                 calls.append(json.loads(req.content))
+                self.assertEqual(req.timeout, 210)
+                started.set()
+                await release.wait()
                 data = {"message_seq": sequence + 1, "time": timestamp}
             else:
                 self.fail(api)
             return Response(200, content=json.dumps({"status": "ok", "retcode": 0, "data": data}).encode())
 
-        with patch.object(adapter, "request", new=request):
+        with patch.object(Adapter, "request", new=request):
             await channel.set_bot(bot)
             async with TestClient(TestServer(app)) as client:
                 async with client.ws_connect("/groups") as ws:
@@ -64,6 +71,10 @@ class GroupSocketTest(unittest.IsolatedAsyncioTestCase):
                     payload = {"type": "deliver", "request": "fixture", "account": "70001", "peer": "80001",
                                "parts": [{"type": "text", "text": "天气"}, {"type": "image", "base64": "AQID"}]}
                     await ws.send_json(payload)
+                    await asyncio.wait_for(started.wait(), 2)
+                    await ws.send_json({"type": "refresh"})
+                    self.assertEqual((await ws.receive_json(timeout=2))["groups"], [group])
+                    release.set()
                     self.assertEqual((await ws.receive_json(timeout=2))["seq"], str(sequence + 1))
                     self.assertEqual(calls[0]["group_id"], 80001)
                     self.assertEqual(calls[0]["message"][1]["data"]["uri"], "base64://AQID")

@@ -276,6 +276,7 @@ export class BridgeCore {
   #pendingIncoming = 0;
   #officialTail = Promise.resolve();
   #officialPending = 0;
+  #milkyReplyTails = new Map();
   #officialRequest = new AsyncLocalStorage();
   #policyChange = new AbortController();
   #pauseEpoch = 0;
@@ -349,7 +350,12 @@ export class BridgeCore {
     if (this.#officialPending >= MAX_OFFICIAL_COMMANDS) return result(false, 'BUSY');
     this.#officialPending++;
     const queuedAt = performance.now();
-    const run = this.#officialTail.then(async () => {
+    const schedule = () => {
+      const run = this.#officialTail.then(runCommand);
+      this.#officialTail = run.catch(() => {});
+      return run.then(outcome => outcome.pendingDelivery ?? outcome);
+    };
+    const runCommand = async () => {
       // Check the ledger under the same lock as sends. Wait outside that lock
       // so control operations and active notifications still get a turn.
       for (;;) {
@@ -370,9 +376,16 @@ export class BridgeCore {
           return result(false, this.#commandStop(ticket) || 'REQUEST_EXPIRED');
         }
       }
-    }).finally(() => { this.#officialPending--; });
-    this.#officialTail = run.catch(() => {});
-    return run;
+    };
+    const ordinaryGroup = ticket.channel === 'milky' && ticket.groupId;
+    const previous = ordinaryGroup && this.#milkyReplyTails.get(ordinaryGroup);
+    const run = previous ? previous.then(schedule) : schedule();
+    const tail = run.catch(() => {});
+    if (ordinaryGroup) this.#milkyReplyTails.set(ordinaryGroup, tail);
+    return run.finally(() => {
+      this.#officialPending--;
+      if (ordinaryGroup && this.#milkyReplyTails.get(ordinaryGroup) === tail) this.#milkyReplyTails.delete(ordinaryGroup);
+    });
   }
 
   #canRememberGroup(groupId) {
@@ -1108,7 +1121,7 @@ export class BridgeCore {
       }
       return result(true, 'IGNORED');
     };
-    if (official) return this.#queueOfficial({expiresAt:replyExpiresAt, epoch:this.#pauseEpoch,
+    if (official) return this.#queueOfficial({channel,expiresAt:replyExpiresAt, epoch:this.#pauseEpoch,
       groupId:message.groupId, revision:this.#groupRevisions.get(message.groupId)}, work);
     try { return await this.#enqueue(work); } finally { if (countedIncoming) this.#pendingIncoming--; }
   }
@@ -1428,16 +1441,29 @@ export class BridgeCore {
     // Persist the budget and key BEFORE any network call. A crash here favors
     // suppressing an uncertain notification over sending it twice.
     try { await this.#persist(next); } catch { return this.#storageFailed(); }
-    let failure = null, rejectedBizCode, groupDiagnostics;
+    const submission = this.#submitDelivery({input, replyTarget, groupId, proactiveGroup, text, image, video});
+    const record = error => this.#recordDelivery({error, input, replyTarget, groupId, proactiveGroup, text, image, video, key, target, ticket});
+    // Reserve the key and budget under the state lock. Waiting for an ordinary
+    // group's remote receipt must not occupy the command queue for every group.
+    if (ticket?.channel === 'milky' && groupId && replyTarget && !input.progress && !proactiveGroup) {
+      return {pendingDelivery: submission.then(error => this.#enqueue(() => record(error), false))};
+    }
+    return record(await submission);
+  }
+
+  async #submitDelivery({input, replyTarget, groupId, proactiveGroup, text, image, video}) {
     try {
       const response = await this.#send({ ownerId: this.#state.ownerId, text, ...(input?.weatherAlertPermit?{weatherAlertPermit:input.weatherAlertPermit}:{}), ...(input?.deliveryDeadline!==undefined?{deliveryDeadline:input.deliveryDeadline}:{}), ...(input?.richMedia===true?{richMedia:true}:{}), ...(groupId !== undefined ? { groupId,requiredAccess:proactiveGroup?'white':input?.requiredAccess||(image||video?'white':'chat'),...(input?.requiredFeature?{requiredFeature:input.requiredFeature}:{}) } : {}), ...(proactiveGroup ? { proactiveGroup: true } : {}), ...(replyTarget ? { replyTarget } : {}), ...(image ? { image } : {}),...(video?{video}:{}) });
       if (response?.ok === false) throw response;
-    } catch (error) {
-      failure = classifyError(error);
-      rejectedBizCode = error?.bizCode;
-      if (groupId) groupDiagnostics = groupReceiptFields({groupKey:groupKeyFor(groupId),failureCode:failure.code,
-        phase:error?.phase, bizCode:error?.bizCode, httpStatus:error?.httpStatus});
-    }
+      return null;
+    } catch (error) { return error || new Error('QQ_SEND_FAILED'); }
+  }
+
+  async #recordDelivery({error, input, replyTarget, groupId, proactiveGroup, text, image, video, key, target, ticket}) {
+    const failure = error && classifyError(error);
+    const rejectedBizCode = error?.bizCode;
+    const groupDiagnostics = error && groupId && groupReceiptFields({groupKey:groupKeyFor(groupId),failureCode:failure.code,
+      phase:error.phase, bizCode:error.bizCode, httpStatus:error.httpStatus});
     const finished = structuredClone(this.#state);
     const record = finished.deliveries.find((entry) => entry.key === key);
     if (groupDiagnostics) Object.assign(record, groupDiagnostics);
@@ -1471,7 +1497,8 @@ export class BridgeCore {
       recordTiming('qq_group_permission',0,{status:'error',error:detail});
       console.warn('[qq_group_permission] '+JSON.stringify({...detail,groupName:this.#displayName(group),reason:'请检查该群的 QQ 发送权限及机器人成员状态'}));
     }
-    if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress) this.#rememberGroup(groupId, {
+    if (!failure && groupId !== undefined && replyTarget && !proactiveGroup && !input?.progress &&
+        (!ticket || !this.#commandStop(ticket))) this.#rememberGroup(groupId, {
       key: `context:bot:${key}`, speaker: 'fish', role: 'assistant', text: video ? '[已发送动态天气视频]' : image ? '[已发送查询图片]' : input?.sensitive ? '[已查询账户余额]' : text,
     });
     if(failure?.timeoutText&&replyTarget&&(image||video)){

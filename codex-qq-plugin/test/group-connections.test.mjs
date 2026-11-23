@@ -174,6 +174,29 @@ test('dual group proof, persisted selection, actual reply routing, media, scoped
   await tick();
 });
 
+test('a stalled Milky receipt allows another group through, preserves same-group order and survives an event reconnect',async()=>{
+  const f=await fixture(),{core,router}=f;
+  for(const [route,peer] of core.groupRoutes().map((route,i)=>[route,['222','333'][i]])){
+    await core.linkGroupRoute(route.key,'111',peer,'test');
+    await core.selectGroupRoute({groupKey:route.key,channel:'milky',revision:1},()=>true);
+  }
+  const frames=[];
+  router.socket.send=raw=>{const frame=JSON.parse(raw);if(frame.type==='deliver')frames.push(frame);};
+  const ack=frame=>router.receive({type:'receipt',request:frame.request,outcome:'accepted',seq:'1111'});
+  const flush=async()=>{await tick();await tick();};
+  try{
+    f.milkyEvent('/ping');await flush();
+    f.milkyEvent('/ping',{seq:'2'});f.milkyEvent('/ping',{peer:'333',seq:'3'});await flush();
+    assert.deepEqual(frames.map(x=>x.peer),['222','333']);
+    ack(frames[1]);assert.equal((await f.received[2]).code,'SENT');
+    ack(frames[0]);assert.equal((await f.received[0]).code,'SENT');await flush();
+    assert.deepEqual(frames.map(x=>x.peer),['222','333','222']);
+    router.receive({type:'offline'});f.roster();ack(frames[2]);
+    assert.equal((await f.received[1]).code,'SENT');
+    assert.equal(core.status().uncertainDeliveries,0);
+  } finally {router.reset();}
+});
+
 test('automatic group identification requires one peer, preserves remarks, and remembers verified names offline',async()=>{
   const {core,router,key,store,officialEvent,milkyEvent}=await fixture();
   async function prove(peers){
