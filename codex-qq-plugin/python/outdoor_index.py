@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 RULES = {
-    "version": "outdoor-v5-20261122",
+    "version": "outdoor-v6-20261123",
     "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
     "pm25Knots": [[0, 0], [60, 5], [100, 45], [150, 100]],
     "windLoss": {"none": 0, "blue": 22, "yellow": 70, "orange": 100},
@@ -67,12 +67,16 @@ def assess_period(name, start, end, rows):
     result = {"name": name, "startHour": start, "endHour": end, "status": "unknown",
               "score": None, "grade": "unknown", "character": None, "gold": False}
     if len(rows) != end - start or any(any(getattr(row, field) is None for field in
-                                          ("cloud", "pm25", "wind", "gust", "rain", "code")) for row in rows):
+                                          ("cloud", "wind", "gust", "rain", "code")) for row in rows):
+        return {**result, "reason": "关键预报数据不足"}
+    scoring_pm25 = [30.0 if row.pm25 is None and row.wind >= 3.4 else row.pm25 for row in rows]
+    if None in scoring_pm25:
         return {**result, "reason": "关键预报数据不足"}
     if any(row.code in UNREVIEWED_CODES or row.code not in SUPPORTED_CODES for row in rows):
         return {**result, "reason": "该天气类型暂不评级"}
     cloud = sum(row.cloud for row in rows) / len(rows)
-    pm = max(row.pm25 for row in rows)
+    pm = max(scoring_pm25)
+    forecast_peak = max((row.pm25 for row in rows if row.pm25 is not None), default=None)
     wind, gust = max(row.wind for row in rows), max(row.gust for row in rows)
     rain, rain_peak = sum(row.rain for row in rows), max(row.rain for row in rows)
     wet_hours = sum(row.rain > 0 or row.code in RAIN_CODES for row in rows)
@@ -104,7 +108,7 @@ def assess_period(name, start, end, rows):
     reason = " · ".join(reasons)
     return {**result, "status": "complete", "score": score, "displayScore": round(score, 1), "grade": grade,
             "character": character, "gold": gold, "reason": reason, "deductions": deductions,
-            "conditions": {"cloudMean": cloud, "pm25Peak": pm, "windPeak": wind, "gustPeak": gust,
+            "conditions": {"cloudMean": cloud, "pm25Peak": forecast_peak, "windPeak": wind, "gustPeak": gust,
                            "rainTotal": rain, "rainPeak": rain_peak, "wetHours": wet_hours,
                            "rainLevel": rain_level, "rainLabel": rain_label, "windLevel": wind_level}}
 

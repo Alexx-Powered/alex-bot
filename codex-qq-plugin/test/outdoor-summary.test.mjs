@@ -27,6 +27,16 @@ test('real LangChain bridge scores first day and rejects mismatched or incomplet
   assert.equal(validOutdoorIndex({...result,date:'2026-11-04'},input.date,input.city),false);
 });
 
+test('a windy forecast with no air source reaches the card with a grade and no invented PM2.5 peak',async()=>{
+  const input=sample();
+  for(const row of input.weather.hourly)row.windSpeedMs=3.4;
+  const result=await summarizeOutdoor({...input,air:null,warning:{hazards:[]}});
+  assert.equal(result.grade,'excellent');
+  assert.equal(result.score,97.5);
+  assert.ok(result.periods.every(p=>p.conditions.pm25Peak===null));
+  assert.ok(validOutdoorIndex(result,input.date,input.city));
+});
+
 test('report applies official reds independently of forecasts and deduplicates the pollution reason',async t=>{
   const input=sample();
   input.air.hourly.forEach(row=>row.pm25=230);

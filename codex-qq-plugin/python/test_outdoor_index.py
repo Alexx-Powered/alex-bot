@@ -12,7 +12,7 @@ def sample(**changes):
 
 class OutdoorIndexTests(unittest.TestCase):
     def test_daily_220_requires_every_local_hour_strictly_above_and_lists_independent_warnings(self):
-        template=sample()['hours'][0]
+        template=sample(wind=4.0)['hours'][0]
         rows=[dict(template,time=f'2026-11-03T{h:02}:00:00+08:00',pm25=221.0) for h in range(24)]
         def score(hours,red=()):
             return outdoor_index.invoke({'date':'2026-11-03','hours':hours,'red_hazards':list(red)})
@@ -43,6 +43,20 @@ class OutdoorIndexTests(unittest.TestCase):
         self.assertEqual(self.invoke(pm25=60.0)['score'], 95)
         self.assertEqual(self.invoke(pm25=100.0)['score'], 55)
         self.assertEqual(self.invoke(pm25=150.0)['score'], 0)
+
+    def test_missing_pm_uses_hourly_sustained_wind_for_scoring(self):
+        for wind, grade in [(3.39, 'unknown'), (3.4, 'excellent'), (10.8, 'fair'), (17.2, 'poor')]:
+            with self.subTest(wind=wind):
+                period = self.invoke(pm25=None, wind=wind, gust=12.0)['periods'][0]
+                self.assertEqual(period['grade'], grade)
+                if grade != 'unknown':
+                    self.assertIsNone(period['conditions']['pm25Peak'])
+        packet = sample(wind=3.4, pm25=None)
+        packet['hours'][1].update(wind=3.3, pm25=100.0)
+        packet['hours'][7].update(wind=3.3)
+        morning, afternoon = outdoor_index.invoke(packet)['periods']
+        self.assertEqual((morning['score'], morning['conditions']['pm25Peak']), (55, 100))
+        self.assertEqual(afternoon['status'], 'unknown')
 
     def test_wind_thresholds_and_gusts(self):
         for wind, gust, score in [(10.7,13.8,100),(10.8,13.8,78),(1,13.9,78),

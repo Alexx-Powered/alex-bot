@@ -33,7 +33,8 @@ export function validOutdoorIndex(value,date,city) {
     if(danger&&(row.status!=='complete'||row.score!==0||row.grade!=='poor'||!rating(row)))return false;
     if(danger&&!d)return true;
     return row.status==='complete'&&rating(row)&&d&&finite(d.cloudMean)&&d.cloudMean>=0&&d.cloudMean<=100&&
-      ['pm25Peak','windPeak','gustPeak','rainTotal','rainPeak','wetHours'].every(k=>finite(d[k])&&d[k]>=0);
+      (d.pm25Peak===null||(finite(d.pm25Peak)&&d.pm25Peak>=0&&d.pm25Peak<=5000))&&
+      ['windPeak','gustPeak','rainTotal','rainPeak','wetHours'].every(k=>finite(d[k])&&d[k]>=0);
   })) return false;
   const recommendation=value.recommendation;
   if (value.status==='unknown') return recommendation?.word==='数据不足'&&recommendation.suffix==='暂不评级';
