@@ -4,7 +4,7 @@ import path from 'node:path';
 import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
 import {pythonEnvironment} from './python-agent.mjs';
 import {atomicJson} from './storage.mjs';
-import {CITIES,FORECAST_TIMEZONE,ForecastDataError,HOUR_MS,localDate} from './weather.mjs';
+import {CITIES,FORECAST_TIMEZONE,ForecastDataError,HOUR_MS,forecastDate,localDate} from './weather.mjs';
 import {measureSpan} from './telemetry.mjs';
 import {getAirQuality} from './air-quality.mjs';
 
@@ -53,14 +53,15 @@ export function completeMorningPm25(value,date,city){
 
 const cacheFile=(home,city)=>path.join(home,'.private','morning-gefs-'+city+'.json');
 
-function validatedForecast(data,city,date,now){
+function validatedForecast(data,city,date,now,partial=false){
   const run=Date.parse(data?.modelRunAt), start=Date.parse(date+'T00:00:00+08:00');
   const fetched=Date.parse(data?.fetchedAt);
   const forecast={kind:'air-quality',city:{...CITIES[city]},timezone:FORECAST_TIMEZONE,unit:'μg/m³',
     source:GEFS_SOURCE,hourly:data?.hourly,modelRunAt:data?.modelRunAt,fetchedAt:data?.fetchedAt};
   if(data?.city!==city||data.date!==date||!Number.isFinite(run)||run%(6*HOUR_MS)!==0||
      run>Math.min(start,now)||now-run>36*HOUR_MS||!Number.isFinite(fetched)||fetched>now+5*60_000||fetched<run||
-     !completeMorningPm25(forecast,date,city))throw failure();
+     !(partial?Array.isArray(forecast.hourly)&&forecast.hourly.length===48&&forecast.hourly.every((r,i)=>
+       Date.parse(r?.time)===start+i*HOUR_MS&&(r.pm25===null||(Number.isFinite(r.pm25)&&r.pm25>=0&&r.pm25<=5000))):completeMorningPm25(forecast,date,city)))throw failure();
   return forecast;
 }
 
@@ -105,11 +106,17 @@ export async function readCachedMorningGefs({home,city,date,now}){
 // report deadline and also refreshes the cache for that day's generation retries.
 export function createMorningGefs(home){
   let pending=null;
-  return async function getMorningGefs({city,date,now,fetchTimeoutMs}){
+  return async function getMorningGefs({city,date,now,fetchTimeoutMs,partialWindow}){
     if(!home||!allowedCities.has(city))throw failure();
     try{return await readCachedMorningGefs({home,city,date,now});}catch{}
     // The live downloader covers today's window. Tomorrow is served by the
     // calendar cache, without relabelling today's data.
+    if(partialWindow){
+      const raw=await invoke('dated',{city,date_iso:date,now_seconds:Math.floor(now/1000)},Math.max(fetchTimeoutMs,25_000));
+      const result=validatedForecast({...raw,fetchedAt:new Date(now).toISOString()},city,date,now,true);
+      if(result.hourly.every(row=>row.pm25===null))throw failure('FORECAST_OUTSIDE_WINDOW');
+      return result;
+    }
     if(date!==localDate(now))throw failure();
     const key=city+date;
     if(pending?.key===key)return pending.forecast;
@@ -125,6 +132,29 @@ export async function selectMorningPm25(args,{cams,gefs}){
   const fetchSource=(name,read)=>measureSpan(name,()=>read(args),value=>
     completeMorningPm25(value,args.date,args.city)?null:{code:'MORNING_SOURCE_FIELDS_MISSING',morningQuality:{missing:['air.pm25']}});
   const [a,b]=await Promise.allSettled([fetchSource('morning_air_cams',cams),fetchSource('morning_air_gefs',gefs)]);
+  if(args.partialWindow&&!(completeMorningPm25(a.value,args.date,args.city)&&completeMorningPm25(b.value,args.date,args.city))){
+    const start=Date.parse(args.date+'T00:00:00+08:00');
+    const acceptable=f=>f?.city?.id===args.city&&f.timezone===FORECAST_TIMEZONE&&f.hourly?.length===48&&
+      f.hourly.every((r,i)=>Date.parse(r?.time)===start+i*HOUR_MS&&(r.pm25===null||
+        (Number.isFinite(r.pm25)&&r.pm25>=0&&r.pm25<=5000)))&&f.hourly.some(r=>r.pm25!==null);
+    const forecasts=[a,b].map(r=>acceptable(r.value)?r.value:null);
+    const [camsData,gefsData]=forecasts;
+    if(!forecasts.some(Boolean)){
+      const error=[a,b].map(r=>r.reason??failure()).find(e=>e.code!=='FORECAST_OUTSIDE_WINDOW')??failure('FORECAST_OUTSIDE_WINDOW');
+      error.sources='CAMS / ECMWF、NOAA GEFS-Aerosols';
+      throw error;
+    }
+    if(!camsData||!gefsData)return camsData??gefsData;
+    const selected=await invoke('compare_partial',{cams:camsData.hourly.map(r=>r.pm25),gefs:gefsData.hourly.map(r=>r.pm25)},5000);
+    if(!Array.isArray(selected)||selected.length!==2||selected.some(s=>!['gefs_aerosols','cams_global'].includes(s)))throw failure();
+    const [first,second]=selected.map(model=>model==='gefs_aerosols'?gefsData:camsData);
+    if(first===second||!second.hourly.slice(24).some(r=>Number.isFinite(r.pm25)))return first;
+    if(!first.hourly.slice(0,24).some(r=>Number.isFinite(r.pm25)))return second;
+    return {kind:first.kind,city:first.city,timezone:first.timezone,unit:first.unit,fetchedAt:first.fetchedAt,
+      hourly:[...first.hourly.slice(0,24),...second.hourly.slice(24)],
+      source:{model:'daily_selection',name:selected.map(s=>s==='gefs_aerosols'?'NOAA GEFS-Aerosols':'CAMS / ECMWF').join(' → ')}};
+
+  }
   if(!completeMorningPm25(b.value,args.date,args.city)){
     if(a.status==='fulfilled')return a.value;
     throw a.reason;
@@ -142,7 +172,7 @@ export function createCalendarAirQuality(home,{cams=getAirQuality,gefs=createMor
   return args=>{
     if(args.window!=='calendar')return cams(args);
     const now=args.now??Date.now();
-    const date=localDate(now+(args.day==='tomorrow'?24*HOUR_MS:0));
+    const date=forecastDate(args.day??'today',now);
     return selectMorningPm25({...args,now,date,fetchTimeoutMs:args.fetchTimeoutMs??8000},{cams,gefs});
   };
 }

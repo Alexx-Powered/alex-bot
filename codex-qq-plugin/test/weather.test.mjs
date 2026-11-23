@@ -337,3 +337,15 @@ test('resolved locations outside compatibility cities use their coordinates and 
   for(const invalid of [{...place,latitude:91},{...place,longitude:Infinity},{...place,name:'bad\nlabel'}]) await assert.rejects(getWeatherBrief({place:invalid,now:NOW,fetchImpl}));
   assert.equal(fetched,0);
 });
+
+test('dated report keeps the final instantaneous hour and drops unobserved trailing intervals',async()=>{
+  const day='2026-11-01',start=Date.parse(day+'T00:00:00+08:00');
+  const data=weatherFixture(day,5);
+  delete data.hourly.relative_humidity_2m;
+  const options={day,days:2,partialWindow:true,now:NOW,fetchImpl:fixtureFetch(data,{meta:{...metadata(),data_end_time:(start+3*HOUR_MS)/1000}})};
+  const result=await getWeatherBrief(options);
+  assert.deepEqual(result.hourly.slice(0,4).map(r=>r.temperatureC),[10,11,12,null]);
+  assert.deepEqual(result.hourly.slice(0,3).map(r=>r.rainMm),[0,0,null]);
+  assert.equal(result.summary.humidity.validHours,0);
+  await assert.rejects(getWeatherBrief({...options,day:'2026-11-02'}),{code:'FORECAST_OUTSIDE_WINDOW'});
+});

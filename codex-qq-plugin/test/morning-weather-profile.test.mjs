@@ -232,3 +232,20 @@ test('morning readiness rejects wrong day, identity, hourly coverage and missing
   // current report's main data and custom outdoor index.
   assert.equal(morningDataQuality(inputs).complete,true);
 });
+
+test('partial winter comparison follows the source available at each calendar midnight',async()=>{
+  const cams=sample('air'),gefs=sample('air');
+  cams.source={model:'cams_global'};gefs.source={model:'gefs_aerosols'};
+  cams.hourly.forEach((r,i)=>{r.pm25=i===24?null:5;});
+  gefs.hourly.forEach((r,i)=>{r.pm25=i===0?null:10;});
+  const query={window:'calendar',city:'beijing',partialWindow:true,now};
+  const get=createCalendarAirQuality(undefined,{cams:async()=>cams,gefs:async()=>gefs});
+  const result=await get(query);
+  assert.equal(result.source.model,'daily_selection');
+  assert.deepEqual(result.hourly.map(r=>r.pm25),[...Array(24).fill(5),...Array(24).fill(10)]);
+  const outside=async()=>{throw Object.assign(Error(),{code:'FORECAST_OUTSIDE_WINDOW'});};
+  const empty=createCalendarAirQuality(undefined,{cams:outside,gefs:outside});
+  await assert.rejects(empty(query),{code:'FORECAST_OUTSIDE_WINDOW',sources:'CAMS / ECMWF、NOAA GEFS-Aerosols'});
+  const failed=createCalendarAirQuality(undefined,{cams:outside,gefs:async()=>{throw Object.assign(Error(),{code:'FORECAST_SOURCE_TIMEOUT'});}});
+  await assert.rejects(failed(query),{code:'FORECAST_SOURCE_TIMEOUT'});
+});

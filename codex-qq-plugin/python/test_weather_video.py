@@ -104,6 +104,20 @@ class VideoTests(unittest.TestCase):
     if abs(row['latitude']-23.1291)<.001 and abs(row['longitude']-113.2644)<.001:row['hourly']['temperature_2m'][0]=None
    return json.dumps(r).encode()
   with self.assertRaises(VideoFailure):forecast_frames('temperature',23.1291,113.2644,1793717999,corrupt)
+ def test_dated_grid_stops_at_last_source_hour(self):
+  from urllib.parse import urlsplit,parse_qs
+  start=1795708800
+  def fetch(url):
+   q=parse_qs(urlsplit(url).query)
+   self.assertEqual(q['start_hour'],['2026-11-26T16:00'])
+   times=[start+i*3600 for i in range(48)]
+   return json.dumps([{'latitude':float(a),'longitude':float(b),'utc_offset_seconds':0,
+       'hourly_units':{'pm2_5':'μg/m³'},'hourly':{'time':times,'pm2_5':[0]*7+[None]*41}}
+       for a,b in zip(q['latitude'][0].split(','),q['longitude'][0].split(','))]).encode()
+  _,times,grids=forecast_frames('pm25',41.245,115.420,start-4*86400,fetch,start=start,hours=48)
+  self.assertEqual(times,[start+i*3600 for i in range(7)])
+  self.assertEqual(len(grids),7)
+
  def test_no_key_no_arbitrary_url_or_path(self):
   tool=build_tool(Path('.'))
   with self.assertRaises(ValidationError):tool.invoke({'layer':'cloud','name':'北京','latitude':39.9,'longitude':116.4,'url':'http://localhost'})
@@ -121,6 +135,6 @@ class VideoTests(unittest.TestCase):
   r=runner.run(packet(context={'scope':'group','access':'white','currentSpeaker':'member-abcdef123456','groupContext':[],'features':{k:k=='weather' for k in FEATURE_KEYS}}));self.assertNotIn('pm25_video',model.bound[0]);self.assertIn('cloud_video',model.bound[0])
  def test_video_time_windows_are_not_silently_substituted(self):
   from agent_worker import _unsupported_time
-  for name,text,denied in [('cloud_video','过去6小时广州云图',True),('cloud_video','未来6小时广州云图',True),('cloud_video','近12小时广州云图',True),('temperature_video','未来24小时广州温度视频',False),('pm25_video','未来48小时广州PM2.5视频',False),('pm25_video','未来72小时广州PM2.5视频',True),('precipitation_video','明天广州降水视频',True)]:
+  for name,text,denied in [('cloud_video','过去6小时广州云图',True),('cloud_video','未来6小时广州云图',True),('cloud_video','近12小时广州云图',True),('temperature_video','未来24小时广州温度视频',False),('pm25_video','未来48小时广州PM2.5视频',False),('pm25_video','未来72小时广州PM2.5视频',True),('precipitation_video','明天广州降水视频',False)]:
    self.assertEqual(_unsupported_time(text,name,'2026-11-03'),denied,(name,text))
 if __name__=='__main__':unittest.main()

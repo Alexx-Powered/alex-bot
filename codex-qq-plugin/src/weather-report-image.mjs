@@ -176,7 +176,7 @@ function plot(c, { top, height = 147, min, max, percent = false, dual = false, d
     ticks: { color: '#728078', font: { family: MONO, size: 9 }, padding: 5, maxTicksLimit: 5,
       ...(percent ? { stepSize: 25, callback: v => `${v}%` } : {}) } };
   const chart = new Chart(surface.getContext('2d'), { type: 'line', data: { datasets: datasets.map(d => ({
-    type: 'line', pointRadius: 0, borderWidth: 2.5, spanGaps: false, cubicInterpolationMode: 'monotone', tension: 0.25, clip: 3, ...d,
+    type: 'line', pointRadius: ctx=>{const i=ctx.dataIndex,rows=ctx.dataset.data;return Number.isFinite(rows[i]?.y)&&!Number.isFinite(rows[i-1]?.y)&&!Number.isFinite(rows[i+1]?.y)?2:0;}, borderWidth: 2.5, spanGaps: false, cubicInterpolationMode: 'monotone', tension: 0.25, clip: 3, ...d,
   })) }, options: { responsive: false, animation: false, devicePixelRatio: S.scale,
     layout: { padding: { top: 11, bottom: 0 } }, plugins: { legend: { display: false }, tooltip: { enabled: false } },
     scales: {
@@ -193,8 +193,9 @@ function plot(c, { top, height = 147, min, max, percent = false, dual = false, d
   } finally { chart.destroy(); surface.width = 1; surface.height = 1; }
 }
 function dates(c, model, y) {
-  text(c, `${dayDate(model.date)} ${model.dayLabels[0]}`, 145, y, 9, S.muted, 400, { align: 'center' });
-  text(c, `${dayDate(model.nextDate)} ${model.dayLabels[1]}`, 297, y, 9, S.muted, 400, { align: 'center' });
+  const label=(date,day)=>day===date.slice(5)?dayDate(date):[dayDate(date),day].join(' ');
+  text(c,label(model.date,model.dayLabels[0]),145,y,9,S.muted,400,{align:'center'});
+  text(c,label(model.nextDate,model.dayLabels[1]),297,y,9,S.muted,400,{align:'center'});
 }
 const points = (values, offset = 0) => values.map((y, i) => ({ x: i + offset, y }));
 function dailyAdvice(c, analysis, firstDay) {
@@ -250,7 +251,7 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   const s = model.weatherSeries[0], air = model.airSeries, today = s.temperatureC.slice(0, 24);
   const weather = inputs.weather[0];
   const visualCrossing = weather?.source?.model==='ecmwf_2'&&weather.source.provider==='Visual Crossing';
-  const airSource = inputs.air?.source?.model==='gefs_aerosols'?'NOAA GEFS-Aerosols':'CAMS / ECMWF';
+  const airSource = inputs.air?.source?.model==='daily_selection'?inputs.air.source.name:inputs.air?.source?.model==='gefs_aerosols'?'NOAA GEFS-Aerosols':inputs.airSources??'CAMS / ECMWF';
   const archiveTime = Date.parse(weather?.archiveFetchedAt);
   const firstDay=model.dayLabels[0]==='今天'?'今日':model.dayLabels[0];
   const condition=weatherReportCondition(inputs.weather[0],model.date);
@@ -260,7 +261,17 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   const footer = analysis ? 1410 + extraHeight + 24 : 1420;
   const reasons=analysis.dailyDanger?.reasons||[];
   const noticeHeight=reasons.length?57+20*reasons.length:0;
-  const height = footer + 87 + 31+noticeHeight;
+  const emptyTemp=!s.temperatureC.some(Number.isFinite);
+  const emptyAir=!air.values.some(Number.isFinite);
+  const emptyRain=![...s.cloudCoverPct,...s.precipitationProbabilityPct].some(Number.isFinite);
+  const compact=48;
+  const saved=(emptyTemp?308-compact:0)+(emptyAir?311-compact:0)+(emptyRain?311-compact:0);
+  const height = footer + 87 + 31+noticeHeight-saved;
+  function emptyCard(c,y,title,source,unavailable){
+    rect(c,20,y,400,compact,'#ffffff',18,S.border);
+    text(c,title,36,y+30,15,S.ink,700);
+    text(c,source+(unavailable?'数据源暂不可用':'数据源无当日预报'),404,y+29,11,S.muted,400,{align:'right',maxWidth:248});
+  }
   const widthPx=Math.round(S.width*S.scale),heightPx=Math.round(height*S.scale);
   function drawReport(c) {
   c.fillStyle = S.background; c.fillRect(0, 0, S.width, height);
@@ -307,40 +318,55 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
     c.translate(0,noticeHeight);
   }
 
-  card(c, 435, 308, '01', '温度趋势', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS / Open-Meteo');
-  text(c, `${firstDay}最低`, 36, 497, 10, '#7b8983'); text(c, `${firstDay}最高`, 128, 497, 10, '#7b8983');
-  text(c, `${number(low)}°C`, 36, 523, 20, low === null ? S.muted : temperatureTextColor(low), 650, { mono: true });
-  text(c, `${number(high)}°C`, 128, 523, 20, high === null ? S.muted : temperatureTextColor(high), 650, { mono: true });
-  tempLegend(c); text(c, '气温 °C', 36, 553, 9.5, S.muted);
-  const [minT, maxT] = limits(s.temperatureC), margin = Math.max(2, ((maxT ?? 0) - (minT ?? 0)) * 0.16);
-  plot(c, { top: 557, height: 138, min: Math.floor(((minT ?? 0) - margin) / 5) * 5, max: Math.ceil(((maxT ?? 20) + margin) / 5) * 5,
-    datasets: [{ label: '气温', data: points(s.temperatureC), borderColor: ({ chart }) => gradient(chart, TEMPERATURE_STOPS), backgroundColor: '#247b7210', fill: 'origin' }], plugins: [extrema('temperature')] });
-  dates(c, model, 707);
-  text(c, `${model.dayLabels[0]} ${range(today, '°C')}  /  ${model.dayLabels[1]} ${range(s.temperatureC.slice(24), '°C')}${s.temperatureC.includes(null) ? ' · 有数据缺失' : ''}`, 36, 729, 10, S.muted, 400, { maxWidth: 368 });
+  if(emptyTemp){
+    emptyCard(c,435,'温度趋势','ECMWF IFS',inputs.weatherUnavailable);
+    c.translate(0,compact-308);
+  }else{
+    card(c, 435, 308, '01', '温度趋势', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS / Open-Meteo');
+    text(c, `${firstDay}最低`, 36, 497, 10, '#7b8983'); text(c, `${firstDay}最高`, 128, 497, 10, '#7b8983');
+    text(c, `${number(low)}°C`, 36, 523, 20, low === null ? S.muted : temperatureTextColor(low), 650, { mono: true });
+    text(c, `${number(high)}°C`, 128, 523, 20, high === null ? S.muted : temperatureTextColor(high), 650, { mono: true });
+    tempLegend(c); text(c, '气温 °C', 36, 553, 9.5, S.muted);
+    const [minT, maxT] = limits(s.temperatureC), margin = Math.max(2, ((maxT ?? 0) - (minT ?? 0)) * 0.16);
+    plot(c, { top: 557, height: 138, min: Math.floor(((minT ?? 0) - margin) / 5) * 5, max: Math.ceil(((maxT ?? 20) + margin) / 5) * 5,
+      datasets: [{ label: '气温', data: points(s.temperatureC), borderColor: ({ chart }) => gradient(chart, TEMPERATURE_STOPS), backgroundColor: '#247b7210', fill: 'origin' }], plugins: [extrema('temperature')] });
+    dates(c, model, 707);
+    text(c, `${model.dayLabels[0]} ${range(today, '°C')}  /  ${model.dayLabels[1]} ${range(s.temperatureC.slice(24), '°C')}${s.temperatureC.includes(null) ? ' · 有数据缺失' : ''}`, 36, 729, 10, S.muted, 400, { maxWidth: 368 });
+  }
 
-  card(c, 759, 311, '02', '空气质量', airSource, '#9b4155');
-  text(c, `PM2.5 · ${firstDay}峰值`, 36, 830, 12, S.muted);
-  text(c, `${number(todayPeak)} μg/m³`, 404, 830, 20, pm25Band(todayPeak)?.lineColor || S.muted, 650, { mono: true, align: 'right' });
-  airLegend(c, 847); text(c, 'PM2.5 μg/m³', 36, 891, 9.5, S.muted);
-  const maxAir = limits(air.values)[1] || 20;
-  plot(c, { top: 896, height: 129, min: 0, max: Math.max(20, Math.ceil(maxAir / 20) * 20),
-    datasets: [{ label: 'PM2.5', data: points(air.values), borderColor: ({ chart }) => airGradient(chart), backgroundColor: '#9b41550b', fill: 'origin' }], plugins: [extrema('air')] });
-  dates(c, model, 1036);
-  text(c, `48 小时浓度 ${range(air.values, ' μg/m³')} · 浓度色阶，非综合 AQI${air.values.includes(null) ? ' · 有缺失' : ''}`, 36, 1056, 9.6, S.muted, 400, { maxWidth: 368 });
+  if(emptyAir){
+    emptyCard(c,759,'空气质量',airSource,inputs.airUnavailable);
+    c.translate(0,compact-311);
+  }else{
+    card(c, 759, 311, '02', '空气质量', airSource, '#9b4155');
+    text(c, `PM2.5 · ${firstDay}峰值`, 36, 830, 12, S.muted);
+    text(c, `${number(todayPeak)} μg/m³`, 404, 830, 20, pm25Band(todayPeak)?.lineColor || S.muted, 650, { mono: true, align: 'right' });
+    airLegend(c, 847); text(c, 'PM2.5 μg/m³', 36, 891, 9.5, S.muted);
+    const maxAir = limits(air.values)[1] || 20;
+    plot(c, { top: 896, height: 129, min: 0, max: Math.max(20, Math.ceil(maxAir / 20) * 20),
+      datasets: [{ label: 'PM2.5', data: points(air.values), borderColor: ({ chart }) => airGradient(chart), backgroundColor: '#9b41550b', fill: 'origin' }], plugins: [extrema('air')] });
+    dates(c, model, 1036);
+    text(c, `48 小时浓度 ${range(air.values, ' μg/m³')} · 浓度色阶，非综合 AQI${air.values.includes(null) ? ' · 有缺失' : ''}`, 36, 1056, 9.6, S.muted, 400, { maxWidth: 368 });
+  }
 
-  card(c, 1086, 311, '03', '降水与云量', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS');
-  rect(c, 36, 1138, 368, 211, '#ffffff', 14, S.border);
-  rect(c, 51, 1156, 15, 3, S.cloud, 1); text(c, '云量', 74, 1162, 11, '#6b6b6b');
-  rect(c, 155, 1152, 6, 10, S.rain, 2); text(c, '降水概率', 169, 1162, 11, '#356f9f');
-  text(c, '降水概率 %', 50, 1187, 9, '#356f9f'); text(c, '云量 %', 390, 1187, 9, '#707070', 400, { align: 'right' });
-  plot(c, { top: 1191, height: 137, min: 0, max: 100, percent: true, dual: true,
-    datasets: [
-      { label: '云量', data: points(s.cloudCoverPct), yAxisID: 'yRight', borderColor: S.cloud, backgroundColor: S.cloudFill, fill: 'origin', borderWidth: 1.6, order: 2 },
-      { type: 'bar', label: '降水概率', data: points(s.precipitationProbabilityPct, 0.5), yAxisID: 'y', backgroundColor: S.rain, borderWidth: 0, borderRadius: 1.3, barPercentage: 0.72, categoryPercentage: 1, order: 1 },
-    ] });
-  dates(c, model, 1341);
-  text(c, `${model.dayLabels[0]}降水 ${number(todayRain)} mm  /  ${model.dayLabels[1]} ${number(tomorrowRain)} mm`, 36, 1371, 10, S.muted);
-  text(c, `最高小时降水概率 ${number(limits(s.precipitationProbabilityPct)[1])}%${s.cloudCoverPct.includes(null) || s.precipitationProbabilityPct.includes(null) ? ' · 部分数据缺失' : ''}`, 36, 1387, 9.5, S.muted);
+  if(emptyRain){
+    emptyCard(c,1086,'降水与云量','ECMWF IFS',inputs.weatherUnavailable);
+    c.translate(0,compact-311);
+  }else{
+    card(c, 1086, 311, '03', '降水与云量', visualCrossing?'ECMWF / Visual Crossing':'ECMWF IFS');
+    rect(c, 36, 1138, 368, 211, '#ffffff', 14, S.border);
+    rect(c, 51, 1156, 15, 3, S.cloud, 1); text(c, '云量', 74, 1162, 11, '#6b6b6b');
+    rect(c, 155, 1152, 6, 10, S.rain, 2); text(c, '降水概率', 169, 1162, 11, '#356f9f');
+    text(c, '降水概率 %', 50, 1187, 9, '#356f9f'); text(c, '云量 %', 390, 1187, 9, '#707070', 400, { align: 'right' });
+    plot(c, { top: 1191, height: 137, min: 0, max: 100, percent: true, dual: true,
+      datasets: [
+        { label: '云量', data: points(s.cloudCoverPct), yAxisID: 'yRight', borderColor: S.cloud, backgroundColor: S.cloudFill, fill: 'origin', borderWidth: 1.6, order: 2 },
+        { type: 'bar', label: '降水概率', data: points(s.precipitationProbabilityPct, 0.5), yAxisID: 'y', backgroundColor: S.rain, borderWidth: 0, borderRadius: 1.3, barPercentage: 0.72, categoryPercentage: 1, order: 1 },
+      ] });
+    dates(c, model, 1341);
+    text(c, `${model.dayLabels[0]}降水 ${number(todayRain)} mm  /  ${model.dayLabels[1]} ${number(tomorrowRain)} mm`, 36, 1371, 10, S.muted);
+    text(c, `最高小时降水概率 ${number(limits(s.precipitationProbabilityPct)[1])}%${s.cloudCoverPct.includes(null) || s.precipitationProbabilityPct.includes(null) ? ' · 部分数据缺失' : ''}`, 36, 1387, 9.5, S.muted);
+  }
 
   if (analysis) exercise(c, analysis, s.name, 1410);
   c.strokeStyle = S.border; c.lineWidth = 1; c.beginPath(); c.moveTo(20, footer); c.lineTo(420, footer); c.stroke();

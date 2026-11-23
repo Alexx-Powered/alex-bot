@@ -1,7 +1,7 @@
 import {videoOperation,videoRegion,WeatherVideoService} from './weather-video.mjs';
 import {measureSpan,setTraceOperation} from './telemetry.mjs';
 import { RadarRouter } from './global-radar.mjs';
-import { CITIES, getWeatherBrief } from './weather.mjs';
+import { CITIES, forecastDate, getWeatherBrief } from './weather.mjs';
 import { getAirQuality } from './air-quality.mjs';
 import { renderAirChart } from './air-chart.mjs';
 import { renderWeatherChart } from './weather-chart.mjs';
@@ -16,13 +16,32 @@ const names = Object.fromEntries(Object.entries(CITIES).map(([id, city]) => [id,
 const cityIds = new Map(Object.entries(names).map(([id, name]) => [name, id]));
 export const isCityQuery = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 60 && /^[\p{Script=Han}\p{Script=Latin}\d ·（）()，,.'-]+$/u.test(value) && !['__proto__','constructor','toString'].includes(value);
 const cityQuery = value => cityIds.get(value.trim().replace(/市$/, '')) ?? value.trim();
-export function parseWeatherCommand(text) {
+const dateToken = /(?<!上)(?:这|本|下)?(?:周|星期)(?:[一二三四五六日]|天(?!气))|后天|明天|今天|\d{4}-\d{2}-\d{2}/u;
+function resolveDay(token, now) {
+  if(token==='明天')return 'tomorrow';
+  if(token==='今天')return 'today';
+  if(/^\d/.test(token))return token;
+  const weekday=(new Date(beijingDay(now)).getUTCDay()+6)%7;
+  const offset=token==='后天'?2:'一二三四五六日'.indexOf(token.at(-1).replace('天','日'))-weekday+(token.startsWith('下')?7:0);
+  return beijingDay(now+offset*86400000);
+}
+export function parseWeatherCommand(text, now=Date.now()) {
   if (typeof text !== 'string' || text.length > 100) return null;
   const input=text.trim();
   const history=/^发\s*历史云图\s+(.+)$/u.exec(input);
   if(history&&isCityQuery(history[1]))return {type:'video',layer:'cloud',city:history[1].trim()};
-  const normalized=input.normalize('NFKC');
-  const forecast=/^(?:发\s*)?(?:(?<hours>\d+)\s*(?:h|小时)\s*)?(?:动态|预报)\s*(?<kind>云图|PM2\.?5|降水|温度)(?<rest>.*)$/iu.exec(normalized)
+  let normalized=input.normalize('NFKC').replace(/^发一下/u,'发').replace(/(?:PM2\.?5\s*\/\s*雾霾|雾霾\s*\/\s*PM2\.?5)/ig,'PM2.5');
+  if(/上(?:周|星期)|昨天|前天/u.test(normalized))return null;
+  const token=normalized.match(dateToken)?.[0];
+  let day;
+  if(token){
+    day=resolveDay(token,now);
+    const body=normalized.replace(token,'').replace(/^(发)?\s*的/u,'$1').trim();
+    const report=/^(?:请|发|查一下|看看)?\s*(.+?)(?:的)?天气(?:预报|图)?(?:咋样|怎么样|如何)?[?？。]?$/u.exec(body);
+    if(report&&isCityQuery(report[1]))return {type:'weather',city:cityQuery(report[1]),day};
+    if(/动态|预报(?:云图|PM|雾霾|降水|温度)/iu.test(body))normalized=body;
+  }
+  const forecast=/^(?:发\s*)?(?:(?<hours>\d+)\s*(?:h|小时)\s*)?(?:动态|预报)\s*(?<kind>云图|PM2\.?5|雾霾|降水|温度)(?<rest>.*)$/iu.exec(normalized)
     ?? /^发\s*(?<kind>云图|PM2\.?5|降水|温度)\s+(?<rest>.+)$/iu.exec(normalized);
   if(forecast){
     const {kind,hours,rest}=forecast.groups;
@@ -34,8 +53,9 @@ export function parseWeatherCommand(text) {
     if(afterPlace)city=city.slice(0,afterPlace.index).trim();
     const windows=[hours,afterKind?.[1],afterPlace?.[1]].filter(Boolean).map(Number);
     if(windows.some(n=>n!==24&&n!==48)||new Set(windows).size>1)return {type:'video',layer,error:'duration'};
+    if(!city&&day)return {type:'video',layer,day,...(windows[0]===48?{hours:48}:{})};
     if(!city&&windows.length)return {type:'video',layer,error:'place'};
-    if(isCityQuery(city))return {type:'video',layer,city,...(windows[0]===48?{hours:48}:{})};
+    if(isCityQuery(city))return {type:'video',layer,city,...(day?{day}:{}),...(windows[0]===48?{hours:48}:{})};
     return null;
   }
   const global=/^(?:发\s*)?全球雷达(?:图)?(?:\s*(.*))?$/u.exec(input);
@@ -57,16 +77,17 @@ export class WeatherCommands {
   constructor({home,videos=new WeatherVideoService({home}),radar=new RadarRouter({home}),locations=new LocationService(),weather=getWeatherBrief,air=getAirQuality,chart=renderAirChart,weatherChart=input=>input.cities.length===1?renderWeatherReportImage({inputs:input}):renderWeatherChart(input),now=Date.now}={}) {
     this.videos=videos;this.radar=radar; this.locations=locations; this.weather=weather; this.air=air; this.chart=chart; this.weatherChart=weatherChart; this.now=now;
   }
-  async handle(text) {
-    const command=parseWeatherCommand(text); if(!command)return null;
+  async handle(text, previousCity) {
+    const command=parseWeatherCommand(text,this.now()); if(!command)return null;
     if(command.type==='help')return {text:'发 天气 城市或区县\n发 雾霾 城市或区县\n发 雷达 站名或区域\n雷达目录 [省名] [页码]\n换算 0.6 HU$ 人民币（也支持马里、马时）\n同名地点请加省市，例如：辽宁 朝阳。\n/pause 暂停；/status 状态\n每天08:00发送北京天气合成图。'};
     try {
       if(command.type==='video'){
         setTraceOperation(videoOperation(command.layer));
         if(command.error==='duration')return {text:'预报视频请选择 24 或 48 小时，例如「发 动态云图48h 北京」。'};
-        if(command.error==='place')return {text:'请补充地点，例如「发 动态云图48h 华北」。'};
-        const target=await measureSpan('resolve_location',()=>videoRegion(command.city)??this.locations.resolve(command.city));
-        return await this.videos.get(command.layer,target,command.hours);
+        if(command.error==='place'||(!command.city&&!previousCity))return {text:'请补充地点，例如「发 动态云图48h 华北」。'};
+        const target=await measureSpan('resolve_location',()=>videoRegion(command.city??previousCity)??this.locations.resolve(command.city??previousCity,{preferBest:true}));
+        const start=command.day?Date.parse(forecastDate(command.day,this.now())+'T00:00:00+08:00')/1000:undefined;
+        return await this.videos.get(command.layer,target,command.hours,start);
       }
       if(command.type==='radar-list') return {text:(await this.radar.list(command.query)).text};
       if(command.type==='radar') {
@@ -80,7 +101,7 @@ export class WeatherCommands {
         const result=await measureSpan('air_fetch',()=>this.air({city:place.id,place,now:this.now()}));
         return {text:'',image:await measureSpan('weather_render',()=>this.chart(result))};
       }
-      const result=await this.briefing({cities:[command.city]});
+      const result=await this.briefing({cities:[command.city],day:command.day});
       return {text:'',image:result.image};
     } catch(error) {
       if(error?.code?.startsWith('VIDEO_'))return {text:error.message};
@@ -98,31 +119,31 @@ export class WeatherCommands {
     }
   }
   async briefing({cities=['beijing'],renderImage=true,includeData=false,day='today'}={}) {
-    if(!['today','tomorrow'].includes(day))throw new Error('INVALID_WEATHER_DAY');
     if(!Array.isArray(cities)||cities.length<1||cities.length>2||cities.some(c=>!isCityQuery(c))||new Set(cities).size!==cities.length)throw new Error('INVALID_CITY');
     setTraceOperation('weather.report');
     const places=await measureSpan('resolve_location',()=>Promise.all(cities.map(city=>this.locations.resolve(city,{preferBest:true}))));
     if(new Set(places.map(place=>place.id)).size!==places.length)throw new Error('INVALID_CITY');
-    const now=this.now(), date=beijingDay(now+(day==='tomorrow'?86400000:0));
-    const queries=places.map(place=>measureSpan('weather_fetch',()=>this.weather({city:place.id,place,day,days:2,now,...(includeData||places.length===1?{exerciseFields:true}:{})})));
+    const now=this.now(), date=forecastDate(day,now);
+    const queries=places.map(place=>measureSpan('weather_fetch',()=>this.weather({city:place.id,place,day,days:2,now,partialWindow:true,...(includeData||places.length===1?{exerciseFields:true}:{})})));
     const airPlace=places.find(place=>place.id==='beijing')??places[0];
-    queries.push(measureSpan('air_fetch',()=>this.air({city:airPlace.id,place:airPlace,window:'calendar',day,now})));
+    queries.push(measureSpan('air_fetch',()=>this.air({city:airPlace.id,place:airPlace,window:'calendar',day,now,partialWindow:true})));
     const results=await Promise.allSettled(queries);
     const weather=cities.map((_,i)=>results[i].status==='fulfilled'?results[i].value:null);
     const airResult=results.at(-1);
     const air=airResult?.status==='fulfilled'?airResult.value:null;
-    if(!weather.some(Boolean)&&!air){
+    const outside=r=>r.status==='rejected'&&r.reason?.code==='FORECAST_OUTSIDE_WINDOW';
+    if(!weather.some(Boolean)&&!air&&!results.some(outside)){
       const timed=results.find(r=>r.status==='rejected'&&timeoutNotice(r.reason));
       if(timed)throw timed.reason;
       throw new Error('WEATHER_DATA_UNAVAILABLE');
     }
     const timeoutMessages=results.flatMap((r,i)=>r.status==='rejected'&&timeoutNotice(r.reason)?[`${i<places.length?places[i].name+'天气':'PM2.5'}：${timeoutNotice(r.reason)}`]:[]);
     const missing=places.filter((_,i)=>!weather[i]).map(place=>place.name+'天气缺数据');
-    if(!air)missing.push(airPlace.name+'CAMS缺数据');
+    if(!air)missing.push(airPlace.name+(airResult.reason?.sources??'CAMS')+'缺数据');
     weather.forEach((result,i)=>{if(result?.timeoutNotice)timeoutMessages.push(places[i].name+'：'+result.timeoutNotice);});
     const ids=places.map(place=>place.id);
-    const text=`${date} ${places.map(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)?p.name+'（纬度 '+p.latitude.toFixed(4)+'，经度 '+p.longitude.toFixed(4)+'）':p.name).join('/')}天气图：${day==='tomorrow'?'明天00:00至后天24:00':'今天00:00至明天24:00'}，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
-    const inputs={date,cities:ids,places,weather,air,now};
+    const text=`${date} ${places.map(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)?p.name+'（纬度 '+p.latitude.toFixed(4)+'，经度 '+p.longitude.toFixed(4)+'）':p.name).join('/')}天气图：${day==='tomorrow'?'明天00:00至后天24:00':day==='today'?'今天00:00至明天24:00':date+' 00:00 起两天'}，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
+    const inputs={date,cities:ids,places,weather,air,now,weatherUnavailable:results[0].status==='rejected'&&!outside(results[0]),airUnavailable:airResult.status==='rejected'&&!outside(airResult),airSources:airResult.reason?.sources};
     if(ids.length===1)inputs.outdoorIndex=await summarizeOutdoor({date,city:ids[0],weather:weather[0],air},
       {onTimeout:()=>timeoutMessages.push('户外指数计算超时（10秒时限），其余预报正常展示')});
     const image=renderImage?await withHeavyWork(()=>measureSpan('weather_render',()=>this.weatherChart(inputs))):undefined;

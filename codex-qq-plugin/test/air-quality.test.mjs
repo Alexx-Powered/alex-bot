@@ -181,3 +181,14 @@ test('arbitrary resolved locations query local CAMS; legacy Beijing wrapper cann
   await assert.rejects(getAirQuality({place,city:'beijing',now:NOW,fetchImpl}),{code:'AIR_CITY_MISMATCH'});
   await assert.rejects(getAirQuality({place:{...place,latitude:NaN},now:NOW,fetchImpl}));assert.equal(fetched,0);
 });
+
+test('a single CAMS hour remains valid in a dated panel',async()=>{
+  const day='2026-11-01',start=Date.parse(day+'T00:00:00+08:00');
+  const data=dataset();data.hourly.time=data.hourly.time.map((_,i)=>localTime(start+i*HOUR_MS));
+  const meta={...metadata(),data_end_time:(start+HOUR_MS)/1000};
+  const args={window:'calendar',day,partialWindow:true,now:NOW,fetchImpl:fakeFetch(data,meta)};
+  const result=await getAirQuality(args);
+  assert.equal(result.summary.validHours,1);
+  assert.deepEqual(result.hourly.slice(0,2).map(r=>r.pm25),[20,null]);
+  await assert.rejects(getAirQuality({...args,day:'2026-11-02'}),{code:'FORECAST_OUTSIDE_WINDOW'});
+});

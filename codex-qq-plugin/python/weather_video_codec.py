@@ -101,7 +101,7 @@ def finish_video(frame_directory, metadata, directory, deadline):
     import imageio_ffmpeg
     count=metadata['frames']
     files=sorted(frame_directory.glob('frame-*'))
-    if not isinstance(count,int) or not 2<=count<=145 or len(files)!=count:raise VideoFailure('VIDEO_ENCODING_FAILED')
+    if not isinstance(count,int) or not 1<=count<=145 or len(files)!=count:raise VideoFailure('VIDEO_ENCODING_FAILED')
     extension=files[0].suffix
     if extension not in ('.tga','.png'):raise VideoFailure('VIDEO_ENCODING_FAILED')
     total=0
@@ -113,7 +113,14 @@ def finish_video(frame_directory, metadata, directory, deadline):
     # FFmpeg decodes TGA as BGR24. Give the YUV conversion exactly the RGB24
     # input it previously received from PNG to preserve the encoded colours.
     rgb_filter=['-vf','format=rgb24'] if extension=='.tga' else []
-    command=[imageio_ffmpeg.get_ffmpeg_exe(),'-hide_banner','-loglevel','error','-y','-f','image2','-pattern_type','sequence',
+    # On Windows the wheel includes this encoder. Platform auto-detection can
+    # block in WMI before FFmpeg even starts, outside the encoding deadline.
+    import sysconfig
+    bundled = []
+    if os.name=="nt" and sysconfig.get_platform()=="win-amd64" and not os.environ.get("IMAGEIO_FFMPEG_EXE"):
+        bundled = list((Path(imageio_ffmpeg.__file__).parent / "binaries").glob("ffmpeg-win-x86_64-v*.exe"))
+    encoder = str(bundled[0]) if len(bundled)==1 else imageio_ffmpeg.get_ffmpeg_exe()
+    command=[encoder,'-hide_banner','-loglevel','error','-y','-f','image2','-pattern_type','sequence',
              '-framerate',str(FPS),'-start_number','0','-threads','1','-thread_queue_size','1','-i',str(frame_directory/('frame-%03d'+extension)),
              '-frames:v',str(count),'-an','-fps_mode','passthrough',*rgb_filter,'-c:v','libx264','-preset','superfast','-tune','zerolatency',
              '-x264-params','threads=1:ref=1:bframes=0:rc-lookahead=0:sync-lookahead=0','-crf','19','-threads','1',

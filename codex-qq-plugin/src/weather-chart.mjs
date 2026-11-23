@@ -91,11 +91,6 @@ function panel(ctx, top, height, title, right) {
   fitText(ctx, title, 68, top + 48, 1064 - (right ? rightWidth + 28 : 0), 31, COLORS.ink, 'bold');
   if (right) fitText(ctx, right, 1132, top + 46, 460, 20, COLORS.muted, 'normal', 'right');
 }
-function placeholder(ctx, centerY, title, subtitle) {
-  write(ctx, '—', WIDTH / 2, centerY - 48, 52, '#b5c0cf', 'bold', 'center');
-  fitText(ctx, title, WIDTH / 2, centerY, 1064, 29, COLORS.muted, 'bold', 'center');
-  write(ctx, subtitle, WIDTH / 2, centerY + 42, 22, COLORS.muted, 'normal', 'center');
-}
 function rangeLabel(values, unit) {
   const valid = values.filter(value => value !== null);
   if (!valid.length) return '缺数据';
@@ -270,8 +265,9 @@ function extremaPlugin() {
 function missingProbabilityPlugin() {
   return { id: 'missingProbability', afterDatasetsDraw(chart) {
     chart.data.datasets.forEach((dataset, datasetIndex) => {
+      const last=dataset.data.findLastIndex(p=>p.y!==null);
       dataset.data.forEach((point, index) => {
-        if (point.y !== null) return;
+        if (point.y !== null||index>last) return;
         const element = chart.getDatasetMeta(datasetIndex).data[index];
         const x = element?.x;
         if (!Number.isFinite(x)) return;
@@ -288,8 +284,24 @@ export function renderWeatherChart(input) {
   const model = prepareWeatherChart(input);
   const { weatherSeries, airSeries } = model;
   const gefs = input.air?.source?.model === 'gefs_aerosols';
-  const airSource = gefs ? 'NOAA GEFS-Aerosols' : 'CAMS / ECMWF';
-  const canvas = createCanvas(WIDTH, HEIGHT), ctx = canvas.getContext('2d');
+  const airSource = gefs ? 'NOAA GEFS-Aerosols' : input.air?.source?.model==='daily_selection'?input.air.source.name:input.airSources??'CAMS / ECMWF';
+  const temperatures = weatherSeries.flatMap(series => [...series.temperatureC, ...series.apparentTemperatureC]).filter(value => value !== null);
+  const validAir = airSeries.values.filter(value => value !== null);
+  const probability = weatherSeries.flatMap(series => series.precipitationProbabilityPct).filter(value => value !== null);
+  const clouds = weatherSeries.flatMap(series => series.cloudCoverPct).filter(value => value !== null);
+  const compact=74;
+  const saved=[temperatures,validAir,probability,clouds].reduce((sum,values,i)=>
+    sum+(values.length?0:[460,450,440,420][i]-compact),0);
+  const canvas=createCanvas(WIDTH,HEIGHT-saved),ctx=canvas.getContext('2d');
+  function section(top,height,title,source,values,unavailable,draw){
+    if(values.length){
+      panel(ctx,top,height,title,source);
+      draw();
+    }else{
+      panel(ctx,top,compact,title,source+(unavailable?'数据源暂不可用':'数据源无当日预报'));
+      ctx.translate(0,compact-height);
+    }
+  }
   ctx.fillStyle = '#f1f5fa'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
   write(ctx, '亚历克斯 · 天气', 48, 49, 24, '#38627a', 'bold');
   fitText(ctx, `${model.places.map(place => shortLabel(ctx, place.name, 200, 30)).join(' / ')}天气`, 48, 107, 255, 44, COLORS.ink, 'bold');
@@ -302,11 +314,9 @@ export function renderWeatherChart(input) {
   write(ctx, `${model.dayLabels[0]} 00:00 → ${model.dayLabels[1]} 24:00 · 48 小时`, 48, 154, 23, COLORS.muted);
   write(ctx, '模型预报 · 北京时间 UTC+8', 1152, 154, 23, COLORS.muted, 'normal', 'right');
 
-  panel(ctx, 190, 460, '01  温度', 'ECMWF IFS / Open-Meteo · °C');
-  temperatureLegend(ctx, weatherSeries);
-  write(ctx, '淡虚线：体感温度', 68, 300, 18, '#8293a6');
-  const temperatures = weatherSeries.flatMap(series => [...series.temperatureC, ...series.apparentTemperatureC]).filter(value => value !== null);
-  if (temperatures.length) {
+  section(190, 460, '01  温度', 'ECMWF IFS / Open-Meteo',temperatures,input.weatherUnavailable,()=>{
+    temperatureLegend(ctx, weatherSeries);
+    write(ctx, '淡虚线：体感温度', 68, 300, 18, '#8293a6');
     const minimum = Math.min(...temperatures), maximum = Math.max(...temperatures);
     const margin = Math.max(3, (maximum - minimum) * 0.28);
     const options = standardOptions({ yMin: Math.floor((minimum - margin) / 5) * 5, yMax: Math.ceil((maximum + margin) / 5) * 5 });
@@ -317,55 +327,49 @@ export function renderWeatherChart(input) {
       ...weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.temperatureC), borderColor: temperatureGradient,
         borderDash: series.lineDash,
         borderWidth: 4.5, pointRadius: 0, tension: 0.2, spanGaps: false, order: 0 }))] }, options, plugins: [extremaPlugin(), calendarBoundary(model)] });
-  } else placeholder(ctx, 420, '温度数据暂不可用', '稍后刷新重试');
-  weatherSeries.forEach((series, i) => {
-    const dayTotal = day => {
-      const values = series.precipitationMm.slice(day * 24, (day + 1) * 24);
-      return values.every(value => value !== null) ? `${number(values.reduce((a, b) => a + b, 0))} mm` : '缺数据';
-    };
-    const missing = series.temperatureC.filter(value => value === null).length;
-    const line = `${series.name}  湿度 ${rangeLabel(series.humidityPct, '%')}   ·   降水 ${model.dayLabels[0]} ${dayTotal(0)} / ${model.dayLabels[1]} ${dayTotal(1)}${missing ? `   ·   温度缺 ${missing} 小时` : ''}`;
-    fitText(ctx, line, 68, 592 + i * 33, 1064, 23, COLORS.muted);
+    weatherSeries.forEach((series, i) => {
+      const dayTotal = day => {
+        const values = series.precipitationMm.slice(day * 24, (day + 1) * 24);
+        return values.every(value => value !== null) ? `${number(values.reduce((a, b) => a + b, 0))} mm` : '缺数据';
+      };
+      const missing = series.temperatureC.filter(value => value === null).length;
+      const line = `${series.name}  湿度 ${rangeLabel(series.humidityPct, '%')}   ·   降水 ${model.dayLabels[0]} ${dayTotal(0)} / ${model.dayLabels[1]} ${dayTotal(1)}${missing ? `   ·   温度缺 ${missing} 小时` : ''}`;
+      fitText(ctx, line, 68, 592 + i * 33, 1064, 23, COLORS.muted);
+    });
   });
 
-  panel(ctx, 680, 450, `02  PM2.5 · ${airSeries.name}`, gefs ? `${airSource} · μg/m³` : 'CAMS / ECMWF / Open-Meteo · μg/m³');
-  airLegend(ctx);
-  const validAir = airSeries.values.filter(value => value !== null);
-  if (validAir.length) {
+  section(680, 450, `02  PM2.5 · ${airSeries.name}`, airSource,validAir,input.airUnavailable,()=>{
+    airLegend(ctx);
     const options = standardOptions({ yMin: 0, yMax: Math.max(20, Math.ceil(Math.max(...validAir) / 20) * 20), inset: true });
     drawChart(ctx, { y: 803, height: 229, type: 'line', data: { datasets: [{ label: `${airSeries.name} PM2.5`, data: hourlyPoints(airSeries.values),
       borderColor: pm25Gradient, fill: false, borderWidth: 4.5, pointRadius: 0,
       tension: 0.15, spanGaps: false }] }, options, plugins: [pm25Background(), calendarBoundary(model)] });
-  } else placeholder(ctx, 905, `${airSeries.name} PM2.5 暂无有效数据`, '稍后刷新重试');
-  const missingAir = airSeries.values.filter(value => value === null).length;
-  fitText(ctx, 'PM2.5 浓度色阶', 68, 1072, 1064, 22);
-  const airNote = `空气质量预报。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
-  fitText(ctx, airNote, 68, 1105, 1064, 22);
+    const missingAir = airSeries.values.filter(value => value === null).length;
+    fitText(ctx, 'PM2.5 浓度色阶', 68, 1072, 1064, 22);
+    const airNote = `空气质量预报。${model.cities.length === 2 ? `仅显示${airSeries.name} PM2.5。` : ''}${missingAir ? `缺 ${missingAir} 小时。` : ''}`;
+    fitText(ctx, airNote, 68, 1105, 1064, 22);
+  });
 
-  panel(ctx, 1160, 440, '03  逐小时降水概率', 'ECMWF IFS / Open-Meteo · %');
-  precipitationLegend(ctx, weatherSeries);
-  const probability = weatherSeries.flatMap(series => series.precipitationProbabilityPct).filter(value => value !== null);
-  if (probability.length) {
+  section(1160, 440, '03  逐小时降水概率', 'ECMWF IFS / Open-Meteo',probability,input.weatherUnavailable,()=>{
+    precipitationLegend(ctx, weatherSeries);
     const options = standardOptions({ yMin: 0, yMax: 100, inset: true });
     options.scales.y.ticks.stepSize = 25;
     drawChart(ctx, { y: 1250, height: 258, type: 'bar', data: {
       datasets: weatherSeries.map(series => ({ label: series.name, data: hourlyPoints(series.precipitationProbabilityPct, 0.5),
         backgroundColor: series.color, borderRadius: 2, categoryPercentage: 0.8, barPercentage: 0.86 })) },
       options, plugins: [missingProbabilityPlugin(), calendarBoundary(model)] });
-  } else placeholder(ctx, 1372, '逐小时降水概率暂不可用', '稍后刷新重试');
-  const peaks = weatherSeries.map(series => {
-    const values = series.precipitationProbabilityPct.filter(value => value !== null);
-    return `${series.name} ${values.length ? number(Math.max(...values)) + '%' : '缺数据'}${values.length > 0 && values.length < FORECAST_HOURS ? '（部分）' : ''}`;
-  }).join(' / ');
-  fitText(ctx, `最高小时概率：${peaks}`, 68, 1545, 1064, 23);
-  if (weatherSeries.some(series => series.precipitationProbabilityPct.includes(null))) {
-    fitText(ctx, '× 数据缺失', 68, 1578, 1064, 21);
-  }
+    const peaks = weatherSeries.map(series => {
+      const values = series.precipitationProbabilityPct.filter(value => value !== null);
+      return `${series.name} ${values.length ? number(Math.max(...values)) + '%' : '缺数据'}${values.length > 0 && values.length < FORECAST_HOURS ? '（部分）' : ''}`;
+    }).join(' / ');
+    fitText(ctx, `最高小时概率：${peaks}`, 68, 1545, 1064, 23);
+    if (weatherSeries.some(series => series.precipitationProbabilityPct.includes(null))) {
+      fitText(ctx, '× 数据缺失', 68, 1578, 1064, 21);
+    }
+  });
 
-  panel(ctx, 1630, 420, '04  云量', 'ECMWF IFS / Open-Meteo · %');
-  precipitationLegend(ctx, weatherSeries, 1693);
-  const clouds = weatherSeries.flatMap(series => series.cloudCoverPct).filter(value => value !== null);
-  if (clouds.length) {
+  section(1630, 420, '04  云量', 'ECMWF IFS / Open-Meteo',clouds,input.weatherUnavailable,()=>{
+    precipitationLegend(ctx, weatherSeries, 1693);
     const options = standardOptions({ yMin: 0, yMax: 100, inset: true });
     options.scales.y.ticks.stepSize = 25;
     drawChart(ctx, { y: 1720, height: 250, type: 'line', data: {
@@ -373,8 +377,8 @@ export function renderWeatherChart(input) {
         borderColor: series.color, backgroundColor: `${series.color}15`, borderDash: series.lineDash,
         borderWidth: 3, fill: true, pointRadius: 0, tension: 0.15, spanGaps: false })) },
       options, plugins: [calendarBoundary(model)] });
-  } else placeholder(ctx, 1840, '云量数据暂不可用', '稍后刷新重试');
-  fitText(ctx, weatherSeries.map(series => `${series.name}  总云量 ${rangeLabel(series.cloudCoverPct, '%')}`).join(' / '), 68, 2010, 1064, 23);
+    fitText(ctx, weatherSeries.map(series => `${series.name}  总云量 ${rangeLabel(series.cloudCoverPct, '%')}`).join(' / '), 68, 2010, 1064, 23);
+  });
 
   const acquisition = [...weatherSeries.map(series => ({ name: shortLabel(ctx, series.name, 150, 22), value: series.fetchedAt })),
     { name: `空气（${shortLabel(ctx, airSeries.name, 110, 22)}）`, value: airSeries.fetchedAt }].map(item => {

@@ -342,10 +342,15 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None):
                     if units.read_scalar() != unit or ref.read_scalar() != run_at:
                         raise ValueError('inconsistent metadata')
                 with root.get_child_by_name('time') as axis:
-                    if axis.shape != (root.shape[-1],) or not (len(times) <= axis.shape[0] <= 400):
+                    if axis.shape != (root.shape[-1],) or not (1 <= axis.shape[0] <= 400):
                         raise ValueError('invalid time dimension')
                     stamps = axis[:]
                 k = int(np.searchsorted(stamps, times[0]))
+                if np.any(np.diff(stamps)<=0):
+                    raise ValueError('invalid forecast time axis')
+                if times[0]>stamps[-1]:
+                    raise VideoFailure('VIDEO_OUTSIDE_WINDOW')
+                times=[t for t in times if t<=stamps[-1]]
                 if not np.array_equal(stamps[k:k+len(times)], times):
                     raise ValueError('incomplete hourly forecast')
                 # Each compressed chunk already contains the time series. Reuse it for a 48h follow-up.
@@ -353,7 +358,7 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None):
                 if prefix and count==24 and np.array_equal(stamps[k:k+48], times[0]+np.arange(48)*3600):
                     count = 48
                 frames = projected_frames(root, domain, view, slice(k,k+count), (low, high), workers=workers)
-                if prefix:
+                if prefix and len(frames) in (24,48):
                     store_frames(prefix,frames,updated_at)
                 for frame in frames[len(times):]:
                     frame.close()

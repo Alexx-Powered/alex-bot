@@ -12,6 +12,7 @@ import {parseHikingCommand,renderHikingCard} from './hiking-card-image.mjs';
 const opaque=value=>createHash('sha256').update(value).digest('hex');
 export class ConversationAgent{
   #limitNotices=new Map();
+  #weatherPlaces=new Map();
   constructor({toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader=loadChatPolicy,modelBudget,socialService,ragEnabled=Boolean(process.env.QQ_RAG_CONFIG)}){
     if(!modelBudget||typeof modelBudget.acquire!=='function')throw new TypeError('MODEL_BUDGET_REQUIRED');
     Object.assign(this,{toolbox,conversionTools,campusTools,statusTools,worker,configStore,policyFile,policyLoader,modelBudget,socialService,ragEnabled});
@@ -85,7 +86,19 @@ export class ConversationAgent{
     const weather=parseWeatherCommand(text);
     const weatherFeature=weather?.type==='air'||(weather?.type==='video'&&weather.layer==='pm25')?'air':weather?.type?.startsWith('radar')?'radar':'weather';
     if (weather && !featureEnabled(context,weatherFeature)) return denied();
-    if(!gray){const fixed=await this.toolbox.handle(text);if(fixed)return decorate(fixed,'white',false,weatherFeature);}
+    if(!gray){
+      const key=JSON.stringify([sessionKey,context.userKey??context.currentSpeaker??'']);
+      const previous=this.#weatherPlaces.get(key);
+      const fixed=await this.toolbox.handle(text,previous?.until>Date.now()?previous.city:undefined);
+      if(fixed){
+        if(weather?.city&&(fixed.image||fixed.video)){
+          this.#weatherPlaces.delete(key);
+          this.#weatherPlaces.set(key,{city:weather.city,until:Date.now()+30*60_000});
+          if(this.#weatherPlaces.size>256)this.#weatherPlaces.delete(this.#weatherPlaces.keys().next().value);
+        }
+        return decorate(fixed,'white',false,weatherFeature);
+      }
+    }
     if(!basicAccess(context))return null;
     let config,policy;
     try{config=await this.configStore.read();}catch{recordRequestFailure({code:'MODEL_CONFIG_UNAVAILABLE'});return {text:'模型配置暂不可用，请在本机设置中检查。'};}

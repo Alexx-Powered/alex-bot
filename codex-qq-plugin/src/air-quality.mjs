@@ -2,22 +2,22 @@
 // https://open-meteo.com/en/docs/air-quality-api
 // Direct ADS downloads require an ECMWF account, token and accepted data terms:
 // https://ads.atmosphere.copernicus.eu/how-to-api
-import { CITIES, FORECAST_TIMEZONE, HOUR_MS, ForecastDataError, forecastNow, localDate, localIso, localTime,
+import { CITIES, FORECAST_TIMEZONE, HOUR_MS, ForecastDataError, forecastNow, forecastDate, localDate, localIso, localTime,
   finiteValue, fetchForecastJson, validateModelMetadata, hourlyIndex } from './weather.mjs';
 import { validatePlace } from './locations.mjs';
 
 const ENDPOINT = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 export const PM25_FORECAST_HOURS = 48;
 
-export async function getAirQuality({ city, place: resolvedPlace, window = 'rolling', day='today', now: nowInput = Date.now(), fetchImpl = globalThis.fetch, scheduledMorning = false, fetchTimeoutMs = 45_000 } = {}) {
+export async function getAirQuality({ partialWindow = false, city, place: resolvedPlace, window = 'rolling', day='today', now: nowInput = Date.now(), fetchImpl = globalThis.fetch, scheduledMorning = false, fetchTimeoutMs = 45_000 } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('AIR_CITY_UNSUPPORTED');
   if (resolvedPlace !== undefined && city !== undefined && city !== place.id) throw new ForecastDataError('AIR_CITY_MISMATCH');
   if (!['rolling', 'calendar'].includes(window)) throw new ForecastDataError('AIR_WINDOW_UNSUPPORTED');
-  if(!['today','tomorrow'].includes(day)||(window==='rolling'&&day!=='today'))throw new ForecastDataError('AIR_DAY_UNSUPPORTED');
+  if(window==='rolling'&&day!=='today')throw new ForecastDataError('AIR_DAY_UNSUPPORTED');
   const now = forecastNow(nowInput);
-  const start = window === 'calendar' ? Date.parse(`${localDate(now+(day==='tomorrow'?24*HOUR_MS:0))}T00:00:00+08:00`) : Math.floor(now / HOUR_MS) * HOUR_MS;
+  const start = window === 'calendar' ? Date.parse(`${forecastDate(day,now,'AIR_DAY_UNSUPPORTED')}T00:00:00+08:00`) : Math.floor(now / HOUR_MS) * HOUR_MS;
   const end = start + (PM25_FORECAST_HOURS - 1) * HOUR_MS;
   const europe = place.longitude >= -24.95 && place.longitude <= 44.95 && place.latitude >= 30.05 && place.latitude <= 71.95;
   const domain = europe ? 'cams_europe' : 'cams_global';
@@ -26,20 +26,30 @@ export async function getAirQuality({ city, place: resolvedPlace, window = 'roll
     hourly: 'pm2_5', domains: domain, timezone: FORECAST_TIMEZONE,
     ...(window === 'calendar' ? { start_date: localDate(start), end_date: localDate(end) }
       : { forecast_hours: String(PM25_FORECAST_HOURS) }) }).toString();
-  const [forecast, metadata] = await Promise.all([
-    fetchForecastJson(url.href, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }), fetchForecastJson(`https://air-quality-api.open-meteo.com/data/${domain}/static/meta.json`, { fetchImpl, now, timeoutMs: scheduledMorning === true ? fetchTimeoutMs : 15_000 }),
-  ]);
-  const freshness = validateModelMetadata(metadata.data, { now, requiredEnd: end, maxRunAgeHours: europe ? 48 : 36 });
+  const request=address=>fetchForecastJson(address,{fetchImpl,now,timeoutMs:scheduledMorning?fetchTimeoutMs:15_000});
+  const getMeta=()=>request(`https://air-quality-api.open-meteo.com/data/${domain}/static/meta.json`);
+  const validate=meta=>validateModelMetadata(meta.data,{now,requiredEnd:partialWindow?now:end,maxRunAgeHours:europe?48:36});
+  let forecast,freshness;
+  if(partialWindow){
+    freshness=validate(await getMeta());
+    if(freshness.dataEndTime<=start)throw new ForecastDataError('FORECAST_OUTSIDE_WINDOW');
+    url.searchParams.set('end_date',localDate(Math.min(end,freshness.dataEndTime)));
+    forecast=await request(url.href);
+  }else{
+    const [data,meta]=await Promise.all([request(url.href),getMeta()]);
+    forecast=data;freshness=validate(meta);
+  }
   const index = hourlyIndex(forecast.data, { pm2_5: 'μg/m³' });
   const hourly = [];
   for (let hour = 0; hour < PM25_FORECAST_HOURS; ++hour) {
     const stamp = start + hour * HOUR_MS;
-    const position = index.get(stamp);
-    if (position === undefined) throw new ForecastDataError('FORECAST_COVERAGE_INCOMPLETE');
+    const position = !partialWindow||stamp<freshness.dataEndTime?index.get(stamp):undefined;
+    if (!partialWindow && position === undefined) throw new ForecastDataError('FORECAST_COVERAGE_INCOMPLETE');
     hourly.push({ time: localIso(stamp), pm25: finiteValue(forecast.data.hourly.pm2_5[position], 0, 5000) });
   }
   const valid = hourly.filter((p) => p.pm25 !== null);
-  if (valid.length < 24) throw new ForecastDataError('FORECAST_DATA_MISSING');
+  if(partialWindow&&!valid.length)throw new ForecastDataError('FORECAST_OUTSIDE_WINDOW');
+  if (!partialWindow && valid.length < 24) throw new ForecastDataError('FORECAST_DATA_MISSING');
   const peak = valid.reduce((a, b) => a.pm25 >= b.pm25 ? a : b);
   const summary = { minPm25: Math.min(...valid.map((p) => p.pm25)), maxPm25: peak.pm25,
     // Never represent a partial-series average as a complete 48-hour mean.

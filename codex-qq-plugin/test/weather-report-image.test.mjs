@@ -88,3 +88,13 @@ test('weather artwork accepts only the first-day fixed summary, never other date
   weather.weatherSummary.icon='../sunny';assert.equal(weatherReportCondition(weather,inputs.date),null);
   assert.equal(weatherReportCondition(null,inputs.date),null);
 });
+
+test('empty PM2.5 collapses to a single row while a single sample keeps the chart',async()=>{
+  const inputs=sample();
+  inputs.air.hourly.forEach((r,i)=>{r.pm25=i===0?0:null;});
+  const partial=await capture({inputs});
+  const empty=await capture({inputs:{...inputs,air:null}});
+  assert.equal(partial.charts.length,3);assert.equal(empty.charts.length,2);
+  assert.equal(partial.image.buffer.readUInt32BE(20)-empty.image.buffer.readUInt32BE(20),
+    Math.round((311-48)*WEATHER_REPORT_STYLE.scale));
+});

@@ -26,6 +26,12 @@ export function forecastNow(value = Date.now()) {
 export function localTime(time) { return new Date(time + 8 * HOUR_MS).toISOString().slice(0, 16); }
 export function localIso(time) { return localTime(time) + ':00+08:00'; }
 export function localDate(time) { return localTime(time).slice(0, 10); }
+export function forecastDate(day, now, code = 'WEATHER_DAY_UNSUPPORTED') {
+  if (day === 'today' || day === 'tomorrow') return localDate(now + (day === 'tomorrow' ? 24 * HOUR_MS : 0));
+  const start = Date.parse(day + 'T00:00:00+08:00');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(start) || localDate(start) !== day || day < localDate(now)) throw new ForecastDataError(code);
+  return day;
+}
 export function finiteValue(value, minimum, maximum) {
   return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
 }
@@ -90,6 +96,7 @@ export function validateModelMetadata(data, { now, requiredEnd, maxRunAgeHours }
   return {
     // Metadata describes the provider's latest run, not a run identifier bound
     // to this particular API response (the provider is eventually consistent).
+    dataEndTime: end,
     latestModelRunAt: new Date(run).toISOString(),
     lastAvailabilityAt: new Date(available).toISOString(),
     modelAgeHours: Math.round((now - run) / HOUR_MS * 10) / 10,
@@ -168,15 +175,14 @@ export async function getWeatherBrief(options={}) {
   }
 }
 
-async function fetchWeatherBrief({ city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch, fetchTimeoutMs = 45_000, backupSource = false, scheduledMorning = false } = {}) {
+async function fetchWeatherBrief({ partialWindow = false, city, place: resolvedPlace, day = 'today', days = 1, exerciseFields = false, now: nowInput = Date.now(), fetchImpl = globalThis.fetch, fetchTimeoutMs = 45_000, backupSource = false, scheduledMorning = false } = {}) {
   const cityKey=city===undefined?'beijing':city;
   const place = resolvedPlace === undefined ? (typeof cityKey === 'string' && Object.hasOwn(CITIES, cityKey) ? CITIES[cityKey] : null) : validatePlace(resolvedPlace);
   if (!place) throw new ForecastDataError('WEATHER_CITY_UNSUPPORTED');
   if (resolvedPlace !== undefined && city !== undefined && city !== place.id) throw new ForecastDataError('WEATHER_CITY_MISMATCH');
-  if (!['today', 'tomorrow'].includes(day)) throw new ForecastDataError('WEATHER_DAY_UNSUPPORTED');
   if (![1, 2].includes(days)) throw new ForecastDataError('WEATHER_DAYS_UNSUPPORTED');
   const now = forecastNow(nowInput);
-  const date = localDate(now + (day === 'tomorrow' ? 24 * HOUR_MS : 0));
+  const date = forecastDate(day, now);
   const midnight = Date.parse(date + 'T00:00:00+08:00');
   const nextMidnight = midnight + days * 24 * HOUR_MS;
   const backup=backupSource===true;
@@ -188,17 +194,26 @@ async function fetchWeatherBrief({ city, place: resolvedPlace, day = 'today', da
   const request=address=>fetchForecastJson(address,{fetchImpl,now,timeoutMs:fetchTimeoutMs});
   const getForecast=()=>request(url.href);
   const getMetadata=()=>request(backup?WEATHER_BACKUP_METADATA:WEATHER_METADATA);
-  const validateMetadata=metadata=>validateModelMetadata(metadata.data,{now,requiredEnd:nextMidnight,maxRunAgeHours:24});
-  // Retain both stages in the trace, including when one host fails.
-  const results=await Promise.allSettled([
-    measureSpan(backup?'weather_forecast_backup':'weather_forecast_primary',getForecast),
-    measureSpan(backup?'weather_metadata_backup':'weather_metadata_primary',async()=>validateMetadata(await getMetadata())),
-  ]);
-  const failed=results.find(item=>item.status==='rejected');
-  if(failed)throw failed.reason;
-  const [forecast,freshness]=results.map(item=>item.value);
+  const metaSpan=backup?'weather_metadata_backup':'weather_metadata_primary';
+  const dataSpan=backup?'weather_forecast_backup':'weather_forecast_primary';
+  const getFreshness=async()=>validateModelMetadata((await getMetadata()).data,{now,requiredEnd:partialWindow?now:nextMidnight,maxRunAgeHours:24});
+  let forecast,freshness;
+  if(partialWindow){
+    freshness=await measureSpan(metaSpan,getFreshness);
+    if(freshness.dataEndTime <= midnight)throw new ForecastDataError('FORECAST_OUTSIDE_WINDOW');
+    url.searchParams.set('end_date',localDate(Math.min(nextMidnight,freshness.dataEndTime)));
+    forecast=await measureSpan(dataSpan,getForecast);
+  }else{
+    const results=await Promise.allSettled([measureSpan(dataSpan,getForecast),measureSpan(metaSpan,getFreshness)]);
+    const failed=results.find(item=>item.status==='rejected');
+    if(failed)throw failed.reason;
+    [forecast,freshness]=results.map(item=>item.value);
+  }
   const data = forecast.data;
-  const index = hourlyIndex(data, { temperature_2m: '°C', relative_humidity_2m: '%', precipitation: 'mm', precipitation_probability: '%', rain: 'mm', snowfall: 'cm' });
+  const units={temperature_2m:'°C',relative_humidity_2m:'%',precipitation:'mm',precipitation_probability:'%',rain:'mm',snowfall:'cm'};
+  const present=partialWindow?Object.fromEntries(Object.entries(units).filter(([key])=>data.hourly?.[key]!==undefined)):units;
+  const index=hourlyIndex(data,present);
+  if(partialWindow)for(const stamp of index.keys())if(stamp>=freshness.dataEndTime)index.delete(stamp);
   // Optional daily code must belong to the requested first day, never the fetch day or the second day.
   const dailyTimes=data.daily?.time,dailyCodes=data.daily?.weather_code;
   const dailyIndex=Array.isArray(dailyTimes)?dailyTimes.indexOf(date):-1;
@@ -214,28 +229,28 @@ async function fetchWeatherBrief({ city, place: resolvedPlace, day = 'today', da
   for (let h = 0; h < days * 24; ++h) {
     const stamp = midnight + h * HOUR_MS;
     const instant = index.get(stamp), following = index.get(stamp + HOUR_MS);
-    if (instant === undefined || following === undefined) throw new ForecastDataError('FORECAST_COVERAGE_INCOMPLETE');
+    if (!partialWindow && (instant === undefined || following === undefined)) throw new ForecastDataError('FORECAST_COVERAGE_INCOMPLETE');
     // The API's precipitation/probability are for the PRECEDING hour. Shift
     // these only so each row describes [time, periodEnd), including 23-24h.
     hourly.push({ time: localIso(stamp), periodEnd: localIso(stamp + HOUR_MS),
-      temperatureC: finiteValue(data.hourly.temperature_2m[instant], -90, 65),
+      temperatureC: finiteValue(data.hourly.temperature_2m?.[instant], -90, 65),
       apparentTemperatureC: extra('apparent_temperature', '°C', instant, -120, 100),
-      humidityPct: finiteValue(data.hourly.relative_humidity_2m[instant], 0, 100),
+      humidityPct: finiteValue(data.hourly.relative_humidity_2m?.[instant], 0, 100),
       cloudCoverPct: extra('cloud_cover', '%', instant, 0, 100),
       windSpeedMs: extra('wind_speed_10m', 'm/s', instant, 0, 150),
       windDirectionDeg: extra('wind_direction_10m', '°', instant, 0, 360),
       // ECMWF gusts are preceding 3-hour maxima: use the closed block covering this hour.
       windGustMs: extra('wind_gusts_10m', 'm/s', index.get(midnight + (Math.floor(h / 3) * 3 + 3) * HOUR_MS), 0, 150),
-      precipitationMm: finiteValue(data.hourly.precipitation[following], 0, 1000),
-      precipitationProbabilityPct: finiteValue(data.hourly.precipitation_probability[following], 0, 100),
-      rainMm: finiteValue(data.hourly.rain[following], 0, 1000),
-      snowfallCm: finiteValue(data.hourly.snowfall[following], 0, 1000),
+      precipitationMm: finiteValue(data.hourly.precipitation?.[following], 0, 1000),
+      precipitationProbabilityPct: finiteValue(data.hourly.precipitation_probability?.[following], 0, 100),
+      rainMm: finiteValue(data.hourly.rain?.[following], 0, 1000),
+      snowfallCm: finiteValue(data.hourly.snowfall?.[following], 0, 1000),
       ...(exerciseFields?{windSpeedMs:extra('wind_speed_10m','m/s',instant,0,150),solarRadiationWm2:extra('shortwave_radiation','W/m²',following,0,2000),weatherCode:extra('weather_code','wmo code',instant,0,99)}:{}),
     });
   }
   const temperature = range(hourly.map((p) => p.temperatureC));
   const humidity = range(hourly.map((p) => p.humidityPct));
-  if (!temperature.validHours || !humidity.validHours) throw new ForecastDataError('FORECAST_DATA_MISSING');
+  if (!partialWindow && (!temperature.validHours || !humidity.validHours)) throw new ForecastDataError('FORECAST_DATA_MISSING');
   const probability = range(hourly.map((p) => p.precipitationProbabilityPct));
   const missingValues = hourly.some((p) => Object.values(p).includes(null));
   const warnings = ['MODEL_RUN_NOT_BOUND_TO_RESPONSE', ...(missingValues ? ['MISSING_VALUES'] : []), ...(freshness.recentUpdate ? ['MODEL_UPDATE_PROPAGATING'] : [])];

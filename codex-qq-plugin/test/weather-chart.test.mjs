@@ -230,7 +230,7 @@ test('dynamic and long administrative names render bounded single and dual-city 
     const input = { date: '2026-10-28', cities, places, weather, air: places.length === 2 ? null : airForecast(cities[0]), now: NOW };
     const rendered = renderWeatherChart(input), image = await loadImage(rendered.buffer);
     assert.equal(rendered.mimeType, 'image/png'); assert.ok(rendered.buffer.length < 5 * 1024 * 1024);
-    assert.equal(image.width, 1200); assert.equal(image.height, 2250);
+    assert.equal(image.width, 1200); assert.equal(image.height, places.length===2?1874:2250);
   }
 });
 
@@ -241,7 +241,7 @@ test('renderer supports unavailable and partly missing panels without fabricatin
   assert.ok(model.weatherSeries[1].temperatureC.every(value => value === null));
   assert.ok(model.weatherSeries[1].precipitationProbabilityPct.every(value => value === null));
   const image = await loadImage(renderWeatherChart(input).buffer);
-  assert.equal(image.height, 2250);
+  assert.equal(image.height, 1874);
   const tianjinImage = await loadImage(renderWeatherChart({ date: '2026-10-28', cities: ['tianjin'], weather: [forecast('tianjin')], air: null, now: NOW }).buffer);
   assert.equal(tianjinImage.width, 1200);
   const guangzhou = forecast('guangzhou');
@@ -254,5 +254,5 @@ test('renderer supports unavailable and partly missing panels without fabricatin
   assert.deepEqual(missingAir.weatherSeries[0].temperatureC.slice(0, 2), [null, 0]);
   assert.deepEqual(missingAir.weatherSeries[0].precipitationProbabilityPct.slice(0, 2), [null, 0]);
   const guangzhouImage = await loadImage(renderWeatherChart({ date: '2026-10-28', cities: ['guangzhou'], weather: [guangzhou], air: null, now: NOW }).buffer);
-  assert.equal(guangzhouImage.width, 1200); assert.equal(guangzhouImage.height, 2250);
+  assert.equal(guangzhouImage.width, 1200); assert.equal(guangzhouImage.height, 1874);
 });

@@ -32,11 +32,13 @@ class Args(BaseModel):
     latitude:float|None=Field(default=None,ge=-80,le=80,allow_inf_nan=False)
     longitude:float|None=Field(default=None,ge=-180,le=180,allow_inf_nan=False)
     hours:Literal[24,48]=24
+    start:int|None=Field(default=None,ge=0,le=253402214400)
     region_id:str|None=Field(default=None,max_length=24)
 
     @model_validator(mode='after')
     def target_is_valid(self):
-        if self.layer=='cloud' and self.hours!=24:raise ValueError('Cloud uses observations')
+        if self.start is not None and self.start%3600:raise ValueError('Invalid forecast hour')
+        if self.layer=='cloud' and (self.hours!=24 or self.start is not None):raise ValueError('Cloud uses observations')
         if self.region_id is None:
             if self.latitude is None or self.longitude is None:raise ValueError('Missing location')
         elif self.region_id not in REGIONS or self.latitude is not None or self.longitude is not None:
@@ -52,7 +54,7 @@ def area(lat,lon,cloud=False):
     cx,cy=xy(lat,lon,world)
     return {'world':world,'size':size,'left':cx-size/2,'top':cy-size/2}
 
-def latest_source_availability(layer, view, now, fetch):
+def forecast_metadata(layer, view, now, fetch):
     host = ENDPOINTS[layer].split('/v1/', 1)[0]
     domain = domain_for(layer, view)
     try:
@@ -61,12 +63,17 @@ def latest_source_availability(layer, view, now, fetch):
         return None
     if not isinstance(metadata, dict):
         return None
-    return valid_update_time(metadata.get('last_run_availability_time'), metadata.get('last_run_initialisation_time'), now)
+    run=metadata.get('last_run_initialisation_time')
+    updated=valid_update_time(metadata.get('last_run_availability_time'),run,now)
+    if not updated or now-run>{'ecmwf_ifs':24,'cams_global':36,'cams_europe':48}[domain]*3600:
+        return None
+    end=metadata.get('data_end_time')
+    return updated,end if type(end) is int and end>=run else None
 
-def forecast_frames(layer,lat,lon,now,fetch=request,*,viewport=None,hours=24):
+def forecast_frames(layer,lat,lon,now,fetch=request,*,viewport=None,hours=24,start=None):
     a=viewport if viewport is not None else area(lat,lon)
     points=[latlon(a['left']+j*a['size']/(N-1),a['top']+i*a['size']/(N-1),a['world']) for i in range(N) for j in range(N)]
-    start=int(math.ceil(now/3600)*3600);times=[start+i*3600 for i in range(hours)];v=VARIABLES[layer]
+    start=int(math.ceil(now/3600)*3600) if start is None else start;times=[start+i*3600 for i in range(hours)];v=VARIABLES[layer]
     params={'hourly':v,'timezone':'GMT','timeformat':'unixtime','start_hour':utc(times[0]).strftime('%Y-%m-%dT%H:00'),'end_hour':utc(times[-1]).strftime('%Y-%m-%dT%H:00')}
     params.update({'domains':domain_for(layer,a)} if layer=='pm25' else {'models':'ecmwf_ifs'})
     def read_batch(offset):
@@ -99,6 +106,9 @@ def forecast_frames(layer,lat,lon,now,fetch=request,*,viewport=None,hours=24):
             if val is None:continue
             if type(val) not in (int,float) or not math.isfinite(val) or not bounds[0]<=val<=bounds[1]:raise VideoFailure('VIDEO_SOURCE_INVALID')
             grids[k][n]=val
+    while grids and all(value is None for value in grids[-1]):
+        grids.pop();times.pop()
+    if not times:raise VideoFailure('VIDEO_OUTSIDE_WINDOW')
     if any(sum(v is not None for v in g)<N*N*.8 or g[(N*N)//2] is None for g in grids):raise VideoFailure('VIDEO_DATA_MISSING')
     return a,times,grids
 
@@ -316,7 +326,7 @@ def render_sequence(spool, layer, name, area, times, sources, deadline):
             draw=ImageDraw.Draw(frame)
             draw.text((round(24*ratio),round(622*ratio)),caption,font=time_font,fill='white')
             y=round(662*ratio);left=round(24*ratio);right=size-left;r=round(4*ratio)
-            x=left+round((right-left)*(timestamp-times[0])/(times[-1]-times[0]))
+            x=left+round((right-left)*(timestamp-times[0])/max(1,times[-1]-times[0]))
             draw.line((left,y,right,y),fill='#83999c',width=round(3*ratio));draw.line((left,y,x,y),fill='white',width=round(3*ratio))
             draw.ellipse((x-r,y-r,x+r,y+r),fill='white')
             spool.append(frame)
@@ -324,7 +334,7 @@ def render_sequence(spool, layer, name, area, times, sources, deadline):
     try:
         previous=load(0)
         for i,(start,end) in enumerate(zip(times,times[1:])):
-            following=load(i+1);steps=3 if layer!='cloud' and len(times)==48 else transition_steps(layer,start,end)
+            following=load(i+1);steps=3 if layer!='cloud' and area.get('requested_hours',len(times))==48 else transition_steps(layer,start,end)
             caption=clock_text(layer,start,end if steps>1 else None)
             for j in range(steps):
                 fraction=j/steps
@@ -365,23 +375,31 @@ def prepare_video(args,spool,now=None,fetch=None):
                 times,frames=cloud_sequence(region,selection,download,started+100,now)
         else:
             region=viewport or area(lat,lon)
-            start=math.ceil(now/3600)*3600
+            start=args.get('start')
+            if start is None:start=math.ceil(now/3600)*3600
+            elif start<datetime.fromtimestamp(now,TZ).replace(hour=0,minute=0,second=0,microsecond=0).timestamp():
+                raise VideoFailure('VIDEO_INPUT_INVALID')
             times=[start+i*3600 for i in range(args.get('hours',24))]
             detail='native'
             try:
                 with stage('video_fetch_cams' if layer=='pm25' else 'video_fetch_ifs',fallback_on=VideoFailure):
                     cache_dir=spool.directory.parent if isinstance(spool,FrameFiles) else None
                     frames,source,updated_at=native_forecast(layer,region,times,now,started+25,cache_dir)
-            except VideoFailure:
+                times=times[:len(frames)]
+            except VideoFailure as error:
+                if error.code=='VIDEO_OUTSIDE_WINDOW':raise
                 # The whole forecast comes from the same model through its point API.
-                with stage('video_fetch_forecast'), ThreadPoolExecutor(max_workers=1) as pool:
-                    metadata_fetch=fetch if fetch is not None else partial(request,timeout=2)
-                    availability=pool.submit(latest_source_availability,layer,region,now,metadata_fetch)
-                    region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times))
-                    updated_at=availability.result()
+                with stage('video_fetch_forecast'):
+                    metadata_fetch=fetch if fetch is not None else partial(request,timeout=4)
+                    meta=forecast_metadata(layer,region,now,metadata_fetch)
+                    updated_at,end=meta or (None,None)
+                    if end is not None:
+                        times=[t for t in times if t<end]
+                        if not times:raise VideoFailure('VIDEO_OUTSIDE_WINDOW')
+                    region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times),start=start)
                 source=DOMAINS[domain_for(layer,region)]+' · Open-Meteo'
                 detail='sampled'
-            region={**region,'forecast_source':source,'forecast_detail':detail,'forecast_updated_at':updated_at}
+            region={**region,'requested_hours':args.get('hours',24),'forecast_source':source,'forecast_detail':detail,'forecast_updated_at':updated_at}
     try:
         with stage('video_render_frames'):count=render_sequence(spool,layer,name,region,times,frames,started+165)
         metadata={'ok':True,'format_version':2,'layer':layer,'start':times[0],'end':times[-1],
@@ -406,10 +424,10 @@ def build_video(args,private,now=None,fetch=None):
 
 def build_tool(private, *, frame_output=None):
     @tool(args_schema=Args)
-    def weather_video(layer:str,name:str,latitude:float|None=None,longitude:float|None=None,region_id:str|None=None,hours:int=24)->dict:
+    def weather_video(layer:str,name:str,latitude:float|None=None,longitude:float|None=None,region_id:str|None=None,hours:int=24,start:int|None=None)->dict:
         """Create a timestamped satellite or forecast map video from fixed public sources, no recipients or user URLs."""
         try:
-            args={'layer':layer,'name':name,'latitude':latitude,'longitude':longitude,'region_id':region_id,'hours':hours}
+            args={'layer':layer,'name':name,'latitude':latitude,'longitude':longitude,'region_id':region_id,'hours':hours,'start':start}
             if frame_output is not None:return prepare_video(args,frame_output)
             return build_video(args,private)
         except VideoFailure as e:return {'ok':False,'code':e.code}

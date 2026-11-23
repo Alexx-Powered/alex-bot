@@ -20,19 +20,19 @@ function matchesTarget(data,place){
 }
 const messages={VIDEO_NO_COVERAGE:'该地点不在当前葵花卫星云图覆盖内（主要为东亚及西太平洋）。',VIDEO_SOURCE_STALE:'卫星云图更新时间过旧，暂不发送。',VIDEO_DATA_MISSING:'时间轴或区域数据有缺测，暂时无法生成完整视频。',VIDEO_TIMEOUT:'动态天气视频生成超时，请稍后再试。',VIDEO_ENCODING_FAILED:'视频生成暂不可用。'};
 export const videoOperation=layer=>'video.'+({cloud_cover:'cloud_forecast',cloud:'satellite'}[layer]??layer);
-export function validVideoTimeline(data,layer,hours=24){
+export function validVideoTimeline(data,layer,hours=24,start){
   if(data.forecast_detail!==undefined&&(layer==='cloud'||!['native','sampled'].includes(data.forecast_detail)))return false;
   if(!Number.isSafeInteger(data.start)||!Number.isSafeInteger(data.end)||!Number.isSafeInteger(data.frames))return false;
   const cloud=layer==='cloud';
   if(data.format_version===undefined){
-    return hours===24&&data.width===720&&data.height===720&&data.frames===(cloud?13:24)&&data.end-data.start===(cloud?21600:82800);
+    return start===undefined&&hours===24&&data.width===720&&data.height===720&&data.frames===(cloud?13:24)&&data.end-data.start===(cloud?21600:82800);
   }
   const times=data.source_times;
   if(data.format_version!==2||data.width!==1080||data.height!==1080||data.fps!==12||!Array.isArray(times))return false;
-  if(cloud?(times.length<2||times.length>37):times.length!==hours)return false;
+  if(cloud?(times.length<2||times.length>37):(times.length<1||times.length>hours))return false;
   if(times[0]!==data.start||times.at(-1)!==data.end||!times.every(t=>Number.isSafeInteger(t)&&t%(cloud?600:3600)===0))return false;
   if(cloud&&(data.end-data.start<=0||data.end-data.start>21600||data.end>data.generated_at+60||data.generated_at-data.end>5400))return false;
-  if(!cloud&&(data.start<data.generated_at||data.start-data.generated_at>3600))return false;
+  if(!cloud&&(start===undefined?(data.start<data.generated_at||data.start-data.generated_at>3600):data.start!==start))return false;
   let encoded=1;
   for(let i=1;i<times.length;i++){
     const gap=times[i]-times[i-1];
@@ -44,10 +44,11 @@ export function validVideoTimeline(data,layer,hours=24){
 export class WeatherVideoService{
   #cache=new Map();
   constructor({home=process.env.QQ_BRIDGE_HOME||APP_ROOT,worker,now=Date.now}={}){Object.assign(this,{home,now});this.worker=worker||new PythonAgentWorker({home,workerPath:path.join(APP_ROOT,'python/weather_video_worker.py'),timeoutMs:180000,idleMs:1000});}
-  async get(layer,place,hours=24){
+  async get(layer,place,hours=24,start){
     if(![24,48].includes(hours)||(layer==='cloud'&&hours===48))throw Error('INVALID_VIDEO_WINDOW');
     if(!['cloud','cloud_cover','pm25','precipitation','temperature'].includes(layer))throw Error('INVALID_VIDEO_LAYER');
-    const key=[layer,place.id,hours].join(':');
+    if(start!==undefined&&(!Number.isSafeInteger(start)||start%3600!==0||layer==='cloud'))throw Error('INVALID_VIDEO_START');
+    const key=[layer,place.id,hours,start].join(':');
     setTraceOperation(videoOperation(layer));
     return measureSpan('weather_video',()=>withHeavyWork(async()=>{
       const now=this.now();
@@ -58,9 +59,10 @@ export class WeatherVideoService{
         return measureSpan('video_cache_hit',()=>({text:'',video:{...cached.video,buffer:Buffer.from(cached.video.buffer)}}));
       }
       const target=place.regionId?{region_id:place.regionId}:{latitude:place.latitude,longitude:place.longitude};
-      const data=await this.worker.run({type:'weather_video',name:'weather_video',args:{layer,name:place.name,...target,...(hours===48?{hours}: {})}},()=>{throw Error('VIDEO_RPC_DENIED')},v=>v.data);
+      const data=await this.worker.run({type:'weather_video',name:'weather_video',args:{layer,name:place.name,...target,...(start===undefined?{}:{start}),...(hours===48?{hours}: {})}},()=>{throw Error('VIDEO_RPC_DENIED')},v=>v.data);
+      if(data?.code==='VIDEO_OUTSIDE_WINDOW')return {text:(layer==='pm25'?'CAMS':'ECMWF IFS')+'数据源无当日预报'};
       if(!data?.ok)throw Object.assign(Error(messages[data?.code]||'动态天气数据源暂不可用，请稍后重试。'),{code:data?.code||'VIDEO_SOURCE_UNAVAILABLE'});
-      if(!/^[a-f0-9]{32}$/.test(data.artifact_id)||data.layer!==layer||!Number.isSafeInteger(data.generated_at)||Math.abs(this.now()-data.generated_at*1000)>300000||!validVideoTimeline(data,layer,hours)||!matchesTarget(data,place))throw Error('VIDEO_RESULT_INVALID');
+      if(!/^[a-f0-9]{32}$/.test(data.artifact_id)||data.layer!==layer||!Number.isSafeInteger(data.generated_at)||Math.abs(this.now()-data.generated_at*1000)>300000||!validVideoTimeline(data,layer,hours,start)||!matchesTarget(data,place))throw Error('VIDEO_RESULT_INVALID');
       const file=path.join(this.home,'.private/weather-video',data.artifact_id+'.mp4');
       try{
         const buffer=await measureSpan('video_read_mp4',async()=>{

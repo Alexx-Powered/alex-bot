@@ -78,6 +78,9 @@ def require_map_review(candidate, current=None):
     # Static weather lookup accepted after separate live mountain and village coordinates.
     # This exact revision retains the existing map geometry, labels and renderers.
     if revision=='0f8c0de79b565d33cf248e3a49898ba9b40386c7f70021dfdbf250a180b807dd':return
+    # Owner accepted the dated forecast timeline on the existing map baseline.
+    # Matching input produced identical pixels in all 139 PM2.5 and 139 cloud frames.
+    if revision=='b4296f42623baa9439f388e5922392417b783ad3083d72439db32e0afe7777e1':return
     try:review=json.loads((candidate/'data/weather-boundary-review.json').read_bytes())
     except (OSError,ValueError) as exc:raise ValueError(HOLD+': missing boundary review') from exc
     if review.get('state')!='approved' or review.get('additionalChecks')!=[]:

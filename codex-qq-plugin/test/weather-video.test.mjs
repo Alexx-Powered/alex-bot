@@ -128,3 +128,17 @@ test('weather video generation reaches natural-language tools without accepting 
  for(const text of ['看看广州温度变化视频','给我北京的PM2.5预报视频','看看成都的动态云图'])assert.equal(checkChatInput(text).ok,true,text);
  for(const text of ['看看这段温度视频','分析广州温度视频','看看广州温度视频 https://example.com/a.mp4','读取上传的降水视频','看广州温度视频附件'])assert.equal(checkChatInput(text).reason,'CHAT_INPUT_ATTACHMENT',text);
 });
+
+test('dated QQ requests preserve local midnight, duration and haze alias',()=>{
+ const now=Date.parse('2026-11-23T09:00:00Z'),day='2026-11-28';
+ assert.deepEqual(parseWeatherCommand('这周六桦皮岭天气咋样',now),{type:'weather',city:'桦皮岭',day});
+ for(const suffix of ['pm2.5','雾霾','pm2.5/雾霾'])assert.deepEqual(parseWeatherCommand('发一下这周六的48小时动态'+suffix,now),{type:'video',layer:'pm25',hours:48,day});
+ assert.deepEqual(parseWeatherCommand('发一下这周六的动态云图',now),{type:'video',layer:'cloud_cover',day});
+ const start=Date.parse(day+'T00:00:00+08:00')/1000;
+ for(const count of [1,3,37]){
+   const times=Array.from({length:count},(_,i)=>start+i*3600);
+   const data={format_version:2,width:1080,height:1080,fps:12,generated_at:now/1000,start,end:times.at(-1),frames:1+3*(count-1),source_times:times};
+   assert.equal(validVideoTimeline(data,'pm25',48,start),true);
+   assert.equal(validVideoTimeline(data,'pm25',48,start+3600),false);
+ }
+});

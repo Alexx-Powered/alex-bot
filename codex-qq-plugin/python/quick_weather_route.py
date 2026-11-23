@@ -25,7 +25,7 @@ NON_PLACE_PHRASE = re.compile(
     r'怎么|什么|哪里|哪儿|那[里边儿]|这[里边儿]|附近|当地|本地|家里|'
     r'如果|假如|不要|不用|不想|别发|顺便|以及|或者|还有|(?<=..)[和与及](?=..)'
 )
-VIDEO_KIND = r'(?P<dynamic>动态)?(?P<layer>卫星云图|云图|PM2\.?5|降水|温度|气温)(?:预报)?(?P<video>(?:变化)?(?:视频|动画|动图))?'
+VIDEO_KIND = r'(?P<dynamic>动态)?(?P<layer>卫星云图|云图|PM2\.?5|雾霾|降水|温度|气温)(?:预报)?(?P<video>(?:变化)?(?:视频|动画|动图))?'
 VIDEO_TIME = r'(?P<window>(?:未来|近|最近|过去)\s*(?:48|四十八|24|二十四|6|六)\s*(?:个)?小时|未来(?:两|2)天|(?:24|48)\s*(?:h|小时))?'
 VIDEO_PREFIX = r'(?:请\s*)?(?:帮我|给我|我想|想)?\s*(?:看看|看一下|看|查询一下|查询|查一下|发一下|发|来一段)?\s*'
 VIDEO_PATTERNS = (
@@ -34,7 +34,7 @@ VIDEO_PATTERNS = (
     re.compile(rf'^{VIDEO_PREFIX}{VIDEO_KIND}\s*{VIDEO_TIME}\s*(?P<place>.+?)(?:吧)?$',re.I),
     re.compile(rf'^{VIDEO_PREFIX}(?P<place>.+?)(?:的)?\s*{VIDEO_KIND}\s*{VIDEO_TIME}(?:吧)?$',re.I),
 )
-VIDEO_TOOLS = {'卫星云图':'cloud_video','云图':'cloud_video','pm2.5':'pm25_video','pm25':'pm25_video',
+VIDEO_TOOLS = {'卫星云图':'cloud_video','云图':'cloud_video','pm2.5':'pm25_video','pm25':'pm25_video','雾霾':'pm25_video',
                '降水':'precipitation_video','温度':'temperature_video','气温':'temperature_video'}
 
 

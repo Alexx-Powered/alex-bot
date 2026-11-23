@@ -4,6 +4,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date, datetime, time, timedelta, timezone
 import json
 from itertools import islice
+from xml.etree import ElementTree
 import math
 import os
 from pathlib import Path
@@ -38,7 +39,25 @@ def choose_morning_pm25(cams: HourlyPm25, gefs: HourlyPm25) -> dict:
             "camsMean": cams_mean, "gefsMean": gefs_mean}
 
 
-def forecast_window(day: date, now: datetime, hours: int = 48) -> tuple[datetime, datetime, range]:
+@tool
+def choose_partial_pm25(cams: list[Pm25 | None], gefs: list[Pm25 | None]) -> list[str]:
+    """Select each calendar day's available source, comparing only coincident hours."""
+    if len(cams) != 48 or len(gefs) != 48:
+        raise ValueError("Expected aligned calendar hours")
+    result = []
+    for start in (0, 24):
+        a, b = cams[start:start+24], gefs[start:start+24]
+        pairs = [(x,y) for x,y in zip(a,b) if x is not None and y is not None]
+        if (a[0] is None) != (b[0] is None):
+            prefer_gefs = b[0] is not None
+        else:
+            delta = math.fsum(x-y for x,y in pairs)
+            prefer_gefs = delta > 0 if delta else b.count(None) < a.count(None)
+        result.append("gefs_aerosols" if prefer_gefs else "cams_global")
+    return result
+
+
+def forecast_window(day: date, now: datetime, hours: int = 48, partial: bool = False) -> tuple[datetime, datetime, range]:
     start = datetime.combine(day, time(), BEIJING).astimezone(UTC)
     first_native = start.replace(hour=start.hour // 3 * 3)
     # A single cycle must cover the first native point as well as the last.
@@ -46,7 +65,7 @@ def forecast_window(day: date, now: datetime, hours: int = 48) -> tuple[datetime
     run = latest_ready.replace(hour=latest_ready.hour // 6 * 6, minute=0, second=0, microsecond=0)
     first = (first_native - run) // HOUR
     last = math.ceil(((start + (hours - 1) * HOUR - run) // HOUR) / 3) * 3
-    if not 0 <= first <= last <= 120 or now - run > 36 * HOUR:
+    if not 0 <= first <= last or (not partial and last > 120) or now - run > 36 * HOUR:
         raise ValueError("GEFS forecast cycle does not cover the report window")
     return start, run, range(first, last + 1, 3)
 
@@ -130,27 +149,39 @@ def interpolate_hourly(start: datetime, run: datetime, native: dict[int, float],
         hour = (stamp - run) // HOUR
         lo, remainder = divmod(hour, 3)
         lo *= 3
-        value = native[lo]
-        if remainder:
+        value = native.get(lo)
+        if remainder and lo + 3 not in native:
+            value = None
+        if remainder and value is not None:
             value += (native[lo + 3] - value) * remainder / 3
         result.append({"time": stamp.astimezone(BEIJING).isoformat(), "pm25": value})
     return result
 
 
-def forecast_cities(cities: tuple[str, ...], day: date, now: datetime, hours: int) -> dict:
+def forecast_cities(cities: tuple[str, ...], day: date, now: datetime, hours: int, partial: bool = False) -> dict:
     # Keep the optional decoder out of the main Agent and map runtimes.
     runtime = Path(__file__).resolve().parent / ".pm25-runtime"
     if runtime.is_dir():
         sys.path.insert(0, str(runtime))
     import eccodes
 
-    start, run, leads = forecast_window(day, now, hours)
+    start, run, leads = forecast_window(day, now, hours, partial)
     native = {city: {} for city in cities}
-    leads = iter(leads)
     workers = 5
     with httpx.Client(timeout=httpx.Timeout(9, connect=4, pool=4), trust_env=False,
                       headers={"Accept-Encoding": "identity", "User-Agent": "AlexBot morning GEFS forecast"},
                       limits=httpx.Limits(max_connections=workers, max_keepalive_connections=workers)) as client:
+        if partial:
+            prefix = f"gefs.{run:%Y%m%d}/{run:%H}/chem/pgrb2ap25/gefs.chem.t{run:%H}z.a2d_0p25.f"
+            listing = ElementTree.fromstring(download(client, f"{GEFS_BUCKET}/?list-type=2&prefix={prefix}", 512 * 1024))
+            if listing.findtext("{*}IsTruncated") != "false":
+                raise ValueError("incomplete GEFS inventory")
+            available = {int(key.text[len(prefix):][:3]) for key in listing.findall(".//{*}Key")
+                         if key.text and re.fullmatch(re.escape(prefix) + r"\d{3}\.grib2\.idx", key.text)}
+            if not available:
+                raise ValueError("GEFS inventory unavailable")
+            leads = [lead for lead in leads if lead in available]
+        leads = iter(leads)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             pending = {pool.submit(load_frame, client, run, hour): hour for hour in islice(leads, workers)}
             while pending:
@@ -175,6 +206,16 @@ def forecast_morning_gefs(city: Literal["beijing", "tianjin"], date_iso: str, no
     if day != now.astimezone(BEIJING).date() or day.month not in {11, 12, 1, 2, 3}:
         raise ValueError("GEFS request is outside the morning report's winter window")
     return forecast_cities((city,), day, now, 48)[city]
+
+
+@tool
+def forecast_dated_gefs(city: Literal["beijing", "tianjin"], date_iso: str, now_seconds: int) -> dict:
+    """Fetch the published GEFS PM2.5 leads overlapping a winter calendar request."""
+    now = datetime.fromtimestamp(now_seconds, UTC)
+    day = date.fromisoformat(date_iso)
+    if day < now.astimezone(BEIJING).date() or day.month not in {11, 12, 1, 2, 3}:
+        raise ValueError("invalid winter forecast date")
+    return forecast_cities((city,), day, now, 48, partial=True)[city]
 
 
 @tool
@@ -222,7 +263,7 @@ def main() -> int:
             _, city, date_iso, now_seconds = sys.argv[1:]
             result = prepare_cache(city, date_iso, int(now_seconds))
         else:
-            actions = {"forecast": forecast_morning_gefs, "choose": choose_morning_pm25}
+            actions = {"forecast": forecast_morning_gefs, "dated": forecast_dated_gefs, "choose": choose_morning_pm25, "compare_partial": choose_partial_pm25}
             packet = json.loads(sys.stdin.buffer.readline(16385))
             result = actions[packet["action"]].invoke(packet["data"])
     except ImportError:
