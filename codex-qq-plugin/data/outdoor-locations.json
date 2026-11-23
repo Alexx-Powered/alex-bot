@@ -6,6 +6,16 @@
   },
   "places": [
     {
+      "id": "huapiling",
+      "name": "河北·张家口·桦皮岭",
+      "latitude": 41.245,
+      "longitude": 115.42,
+      "aliases": ["桦皮岭", "张家口桦皮岭", "崇礼桦皮岭", "张北桦皮岭", "草原天路桦皮岭"],
+      "source": "https://ditu.amap.com/place/B013902BVG",
+      "coordinateMeaning": "Approximate forecast point near the Huapiling scenic area on eastern Grassland Sky Road",
+      "checkedAt": "2026-11-23"
+    },
+    {
       "id": "osm-n-164979149",
       "name": "珠穆朗玛峰（峰顶）",
       "latitude": 27.9880614,
