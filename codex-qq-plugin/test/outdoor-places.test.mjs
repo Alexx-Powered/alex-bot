@@ -4,6 +4,12 @@ import {fileURLToPath} from 'node:url';
 import {LocationService} from '../src/locations.mjs';
 import {searchOutdoorPlaces} from '../src/outdoor-places.mjs';
 const fail=()=>{throw Error('must not query')};
+test('weather selects the exact attraction ahead of a partial match and preserves its coordinates',async()=>{
+ const rows=[{id:'osm-n-100',name:'样本峰步道',latitude:30,longitude:110},{id:'osm-n-101',name:'河北·样本峰',latitude:41.1,longitude:115.2}];
+ const service=new LocationService({preferBest:true,fetchImpl:fail,outdoorLookup:async()=>rows});
+ assert.deepEqual(await service.resolve('样本峰'),rows[1]);
+ assert.deepEqual(await service.resolve('样本峰'),rows[1]);
+});
 test('known mountains and trail use explicitly labelled local representative coordinates',async()=>{
  const service=new LocationService({fetchImpl:fail,outdoorLookup:fail});
  for(const q of ['珠峰','武功山','华山','四姑娘山','北京 香山','麦理浩径']){

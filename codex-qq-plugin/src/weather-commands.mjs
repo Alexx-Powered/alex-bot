@@ -49,6 +49,8 @@ export function parseWeatherCommand(text) {
   if(m && (!m[1] || isCityQuery(m[1]))) return {type:'air',city:m[1]?cityQuery(m[1]):'beijing'};
   m=/^发\s*天气\s*(.+)$/u.exec(input);
   if(m && isCityQuery(m[1])) return {type:'weather',city:cityQuery(m[1])};
+  m=/^([\p{Script=Han}A-Za-z· ]+?)(?:的)?天气(?:预报)?[？?]?$/u.exec(input);
+  if(m && isCityQuery(m[1]) && !/今天|明天|后天|下周|查|看看|帮我|最近|未来/.test(m[1]))return {type:'weather',city:cityQuery(m[1])};
   return null;
 }
 export class WeatherCommands {
@@ -99,7 +101,7 @@ export class WeatherCommands {
     if(!['today','tomorrow'].includes(day))throw new Error('INVALID_WEATHER_DAY');
     if(!Array.isArray(cities)||cities.length<1||cities.length>2||cities.some(c=>!isCityQuery(c))||new Set(cities).size!==cities.length)throw new Error('INVALID_CITY');
     setTraceOperation('weather.report');
-    const places=await measureSpan('resolve_location',()=>Promise.all(cities.map(city=>this.locations.resolve(city))));
+    const places=await measureSpan('resolve_location',()=>Promise.all(cities.map(city=>this.locations.resolve(city,{preferBest:true}))));
     if(new Set(places.map(place=>place.id)).size!==places.length)throw new Error('INVALID_CITY');
     const now=this.now(), date=beijingDay(now+(day==='tomorrow'?86400000:0));
     const queries=places.map(place=>measureSpan('weather_fetch',()=>this.weather({city:place.id,place,day,days:2,now,...(includeData||places.length===1?{exerciseFields:true}:{})})));
@@ -119,7 +121,7 @@ export class WeatherCommands {
     if(!air)missing.push(airPlace.name+'CAMS缺数据');
     weather.forEach((result,i)=>{if(result?.timeoutNotice)timeoutMessages.push(places[i].name+'：'+result.timeoutNotice);});
     const ids=places.map(place=>place.id);
-    const text=`${date} ${places.map(place=>place.name).join('/')}天气图：${day==='tomorrow'?'明天00:00至后天24:00':'今天00:00至明天24:00'}，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
+    const text=`${date} ${places.map(p=>Number.isFinite(p.latitude)&&Number.isFinite(p.longitude)?p.name+'（纬度 '+p.latitude.toFixed(4)+'，经度 '+p.longitude.toFixed(4)+'）':p.name).join('/')}天气图：${day==='tomorrow'?'明天00:00至后天24:00':'今天00:00至明天24:00'}，温度、PM2.5、逐小时降水概率、云量。${missing.length?' '+missing.join('；')+'。':''}`;
     const inputs={date,cities:ids,places,weather,air,now};
     if(ids.length===1)inputs.outdoorIndex=await summarizeOutdoor({date,city:ids[0],weather:weather[0],air},
       {onTimeout:()=>timeoutMessages.push('户外指数计算超时（10秒时限），其余预报正常展示')});

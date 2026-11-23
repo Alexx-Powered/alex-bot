@@ -347,7 +347,7 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   text(c, visualCrossing?`天气 ECMWF / Visual Crossing Weather · PM2.5 ${airSource}`:
     `温度 / 降水 / 云量：ECMWF IFS · PM2.5：${airSource}`, 20, footer + 19, 9, '#7b8983');
   const fetched = Date.parse(s.fetchedAt), airFetched = Date.parse(air.fetchedAt);
-  text(c, `数据获取：${s.name} ${Number.isFinite(fetched) ? localTime(fetched).slice(5).replace('T', ' ') : '未获取'} · 空气 ${Number.isFinite(airFetched) ? localTime(airFetched).slice(11) : '未获取'}`, 20, footer + 39, 9, '#7b8983');
+  text(c, `数据获取：${s.name}${Number.isFinite(inputs.places?.[0]?.latitude) && Number.isFinite(inputs.places[0].longitude) ? '（'+inputs.places[0].latitude.toFixed(3)+', '+inputs.places[0].longitude.toFixed(3)+'）' : ''} ${Number.isFinite(fetched) ? localTime(fetched).slice(5).replace('T', ' ') : '未获取'} · 空气 ${Number.isFinite(airFetched) ? localTime(airFetched).slice(11) : '未获取'}`, 20, footer + 39, 9, '#7b8983');
   if(visualCrossing){
     const archived=Number.isFinite(archiveTime)?' · 凌晨预报存于昨晚 '+localTime(archiveTime).slice(11):'';
     text(c, '降水概率 ECMWF ENS / Open-Meteo'+archived, 20, footer + 58, 9, '#7b8983');

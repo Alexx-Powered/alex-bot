@@ -6,6 +6,10 @@ from outdoor_places import parse,search_outdoor_places
 def feature(name='措玉村',ident=1,key='place',kind='hamlet',coords=None):
  return {'properties':{'name':name,'osm_type':'N','osm_id':ident,'osm_key':key,'osm_value':kind,'country':'中国','state':'西藏自治区','county':'洛扎县'},'geometry':{'type':'Point','coordinates':coords or [90.79,28.23]}}
 class OutdoorPlacesTests(unittest.TestCase):
+ def test_mountain_query_excludes_village_but_village_query_keeps_it(self):
+  data={'features':[feature('麻田岭村')]}
+  self.assertEqual(parse(data,'麻田岭',True),[])
+  self.assertEqual(len(parse(data,'麻田岭村',True)),1)
  def test_village_and_coordinates(self):
   r=parse({'features':[feature()]},'措玉村');self.assertEqual(r[0]['longitude'],90.79);self.assertIn('洛扎县',r[0]['name'])
  def test_wrong_province_and_fuzzy_hits_rejected(self):

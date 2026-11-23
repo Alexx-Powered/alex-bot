@@ -73,9 +73,20 @@ for (const place of Object.values(CITIES)) {
   for (const key of [place.id, place.name, `${place.name}市`]) aliases.set(compact(key), new Map([[place.id, place]]));
 }
 
-function choose(places) {
+function choose(places, query) {
   if (!places.length) throw new LocationError('LOCATION_NOT_FOUND');
   if (places.length === 1) return { ...places[0] };
+  if (query) {
+    const key = compact(query);
+    const score = place => {
+      const name = compact(place.name.split('·').at(-1));
+      if (name === key) return 3;
+      if (compact(place.name).endsWith(key)) return 2;
+      return name.includes(key) ? 1 : 0;
+    };
+    // Keep provider relevance order for equal textual matches.
+    return {...places.reduce((best, place) => score(place) > score(best) ? place : best)};
+  }
   const suggestions = [...places].sort((a, b) => a.name.localeCompare(b.name, 'zh') || a.id.localeCompare(b.id)).slice(0, 8)
     .map((place) => { const entry = `${place.name}（${place.id}）`; return entry.length <= 60 ? entry : place.id; });
   throw new LocationError('LOCATION_AMBIGUOUS', suggestions);
@@ -83,20 +94,21 @@ function choose(places) {
 
 export class LocationService {
   #fetch; #now; #cache = new Map(); #inflight = new Map(); #active = 0; #waiting = [];
-  constructor({ fetchImpl = globalThis.fetch, now = Date.now, outdoorLookup = searchOutdoorPlaces } = {}) {
+  constructor({ fetchImpl = globalThis.fetch, now = Date.now, outdoorLookup = searchOutdoorPlaces, preferBest = false } = {}) {
+    this.preferBest = preferBest;
     this.outdoorLookup=outdoorLookup;
     if (typeof fetchImpl !== 'function' || typeof now !== 'function') throw invalid();
     this.#fetch = fetchImpl; this.#now = now;
   }
-  async resolve(input) {
+  async resolve(input, {preferBest = this.preferBest} = {}) {
     if (typeof input !== 'string') throw invalid();
     const query = input.normalize('NFKC').trim();
     if (!query || query.length > 60 || !NAME.test(query)) throw invalid();
-    const selected = /\((landmark-[A-Za-z0-9-]+|osm-[nwr]-\d+|geonames-\d+|qweather-[A-Za-z0-9]+|beijing|tianjin|guangzhou)\)$/.exec(query);
+    const selected = /\((landmark-[A-Za-z0-9-]+|amap-[A-Za-z0-9]+|osm-[nwr]-\d+|geonames-\d+|qweather-[A-Za-z0-9]+|beijing|tianjin|guangzhou)\)$/.exec(query);
     const id = selected?.[1] ?? query;
     if (byId.has(id)) return { ...byId.get(id) };
     // A suggested dynamic result may be selected by its stable ID from cache.
-    if (/^(?:geonames-\d+|osm-[nwr]-\d+)$/.test(id)) {
+    if (/^(?:geonames-\d+|osm-[nwr]-\d+|amap-[A-Za-z0-9]+)$/.test(id)) {
       for (const entry of this.#cache.values()) {
         const found = entry.places.find((p) => p.id === id);
         if (entry.expiresAt > this.#now() && found) return { ...found };
@@ -104,39 +116,52 @@ export class LocationService {
       throw new LocationError('LOCATION_NOT_FOUND');
     }
     const key = compact(query);
-    if (aliases.has(key)) return choose([...aliases.get(key).values()]);
+    const rank = preferBest ? query : undefined;
+    if (aliases.has(key)) return choose([...aliases.get(key).values()], rank);
     // The published CSV often omits the conventional suffix (e.g. 海淀).
     // Prefer an exact alias; only then retry the same qualified name without
     // one trailing suffix. Do not select a candidate from an ambiguous set.
     const withoutSuffix = key.replace(/[市区县旗]$/u, '');
-    if (withoutSuffix !== key && aliases.has(withoutSuffix)) return choose([...aliases.get(withoutSuffix).values()]);
+    if (withoutSuffix !== key && aliases.has(withoutSuffix)) return choose([...aliases.get(withoutSuffix).values()], rank);
     if (/^qweather-[A-Za-z0-9]+$/.test(id)) throw new LocationError('LOCATION_NOT_FOUND');
     const time = this.#now();
     if (!Number.isSafeInteger(time) || time < 0) throw invalid();
-    const cached = this.#cache.get(key);
-    if (cached && cached.expiresAt > time) return choose(cached.places);
-    if (!this.#inflight.has(key)) {
-      const pending = this.#lookup(query).then((places) => {
+    const cacheKey = (preferBest ? 'best:' : 'strict:') + key;
+    const cached = this.#cache.get(cacheKey);
+    if (cached && cached.expiresAt > time) return choose(cached.places, rank);
+    if (!this.#inflight.has(cacheKey)) {
+      const pending = this.#lookup(query, preferBest).then((places) => {
         if (this.#cache.size >= MAX_CACHE) this.#cache.delete(this.#cache.keys().next().value);
-        this.#cache.set(key, { places, expiresAt: this.#now() + (places.length ? 24 * 3600_000 : 10 * 60_000) });
+        this.#cache.set(cacheKey, { places, expiresAt: this.#now() + (places.length ? 24 * 3600_000 : 10 * 60_000) });
         return places;
-      }).finally(() => this.#inflight.delete(key));
-      this.#inflight.set(key, pending);
+      }).finally(() => this.#inflight.delete(cacheKey));
+      this.#inflight.set(cacheKey, pending);
     }
-    return choose(await this.#inflight.get(key));
+    return choose(await this.#inflight.get(cacheKey), rank);
   }
-  async #lookup(query) {
+  async #lookup(query, preferBest) {
     const outdoor=async()=>{
-      const rows=await this.outdoorLookup(query);
+      const rows=await this.outdoorLookup(query,{expanded:preferBest});
       if(!Array.isArray(rows)||rows.length>8)throw new LocationError('LOCATION_SOURCE_UNAVAILABLE');
-      return rows.map(row=>{const p=validatePlace(row);if(!/^osm-[nwr]-\d+$/.test(p.id))throw invalid();return p;});
+      return rows.map(row=>{const p=validatePlace(row);if(!/^osm-[nwr]-\d+$/.test(p.id)&&!(preferBest&&/^amap-[A-Za-z0-9]+$/.test(p.id)))throw invalid();return p;});
     };
     // POI-shaped queries must not silently turn into a nearby town or road.
+    if(preferBest){
+      const poi=/村|峰|山|岭|峡|沟|湖|岛|景区|公园|古道|步道|寺|车站|机场|大学|博物馆|trail|peak|mount/i.test(query);
+      const gazetteer=()=>this.#legacyLookup(query,poi);
+      let unavailable=false;
+      for(const lookup of poi?[outdoor,gazetteer]:[gazetteer,outdoor]){
+        try { const places=await lookup(); if(places.length)return places; }
+        catch { unavailable=true; }
+      }
+      if(unavailable)throw new LocationError('LOCATION_SOURCE_UNAVAILABLE');
+      return [];
+    }
     if(/村|峰|山|岭|峡|沟|湖|岛|景区|公园|古道|步道|徒步|穿越|径|徑|线$|trail|peak|mount/i.test(query))return outdoor();
     const places=await this.#legacyLookup(query);
     return places.length?places:outdoor();
   }
-  async #legacyLookup(query) {
+  async #legacyLookup(query, poi = false) {
     if (this.#active >= MAX_CONCURRENT) await new Promise((resolve) => this.#waiting.push(resolve));
     this.#active++;
     try {
@@ -161,7 +186,10 @@ export class LocationService {
       const candidates = new Map();
       for (const item of data.results || []) {
         if (!item || typeof item !== 'object') throw new Error('SOURCE');
-        if (!FEATURES.has(item.feature_code)) continue;
+        if (poi) {
+          if (!label(item.name,80) || !compact(query).endsWith(compact(item.name))) continue;
+          if (/[峰岭山]$/u.test(query) && !['MT','MTS','PK','PKS','RDGE','PASS','HLL','HLLS','SPUR'].includes(item.feature_code)) continue;
+        } else if (!FEATURES.has(item.feature_code)) continue;
         if (!Number.isSafeInteger(item.id) || item.id <= 0 || !label(item.name, 80)) throw new Error('SOURCE');
         const parts = [item.country, item.admin1, item.admin2, item.name].filter((value) => value !== undefined && value !== '');
         if (parts.some((value) => !label(value, 80))) throw new Error('SOURCE');
