@@ -27,7 +27,7 @@ TIMERS = ('daily-reboot', 'morning-gefs', 'morning-ecmwf', 'group-morning-prepar
 RETIRED = ('alex-qq-gateway.service', 'alex-qq-control.service', 'alexbot-onebot.service',
            'alex-qq-pilot.service', 'alexbot-onebot-morning.service', 'alexbot-onebot-morning.timer',
            'alexbot-morning.service')
-PERMISSIONS = ('ownerId', 'allowedGroups', 'grayGroups', 'groupLinks', 'groupHelpNotes', 'wakeWords', 'wakeWordRevision',
+PERMISSIONS = ('ownerId', 'allowedGroups', 'grayGroups', 'groupLinks', 'groupHelpNotes', 'groupMorningSchedules', 'wakeWords', 'wakeWordRevision',
                'removedOfficialGroups', 'paused', 'pauseReason')
 
 

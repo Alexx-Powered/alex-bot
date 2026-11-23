@@ -123,3 +123,28 @@ test('morning retries export independent LangSmith roots, including failure deta
     assert.ok(!JSON.stringify(payloads).includes(secret));
   }finally{await app.close();}
 });
+
+test('admin saves resolved morning coordinates only for the selected group and invalid edits are atomic',async t=>{
+  const home=await fs.mkdtemp(path.join(os.tmpdir(),'qq-group-weather-settings-'));
+  t.after(()=>fs.rm(home,{recursive:true,force:true,maxRetries:5,retryDelay:50}));
+  const store={token:'a'.repeat(64),integrationToken:'b'.repeat(64),init:async()=>{},readCredentials:async()=>null,
+    saveState:async()=>{},loadState:async()=>({version:1,ownerId:'owner',paused:false,pauseReason:null,attempts:[],
+      deliveries:[],incoming:[],lastDeliveryCode:null,allowedGroups:[{id:'g1',name:'A'},{id:'g2',name:'B'}],grayGroups:[]})};
+  const app=await createBridgeServer({home,port:0,store,adapterFactory:()=>({status:()=>({state:'connected'}),disconnect:async()=>{}})});
+  try{
+    const port=await app.listen();
+    const [g,h]=app.core.status().allowedGroups;
+    const save=async(morningSchedule,token=store.token)=> (await fetch('http://127.0.0.1:'+port+'/api/group/features',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({
+        groupKey:g.groupKey,enabled:true,features:g.features,morningSchedule})})).json();
+    const config={location:'桦皮岭',time:'08:15'};
+    assert.equal((await save(config,store.integrationToken)).ok,false);
+    const result=await save(config);assert.equal(result.ok,true);
+    const [edited,other]=result.status.allowedGroups;
+    assert.equal(edited.morningSchedule.place.name,'河北·张家口·桦皮岭');
+    assert.equal(edited.morningSchedule.time,'08:15');assert.deepEqual(other,h);
+    assert.equal((await save({...config,time:'26:00'})).ok,false);
+    assert.deepEqual(app.core.status().allowedGroups[0],edited);
+    assert.equal((await save({location:'',time:'07:30'})).status.allowedGroups[0].morningSchedule,undefined);
+  }finally{await app.close();}
+});

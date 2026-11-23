@@ -1,5 +1,11 @@
 window.createGroupConsole = ({api,action}) => {
   const get=id=>document.getElementById(id);
+  const element=(tag,content,className)=>{
+    const el=document.createElement(tag);
+    if(content!==undefined)el.textContent=content;
+    if(className)el.className=className;
+    return el;
+  };
   const sections=[
     {title:'聊天与理解',items:[
       {keys:['chat'],label:'模型聊天',hint:'自然对话与日常问答'},
@@ -16,7 +22,7 @@ window.createGroupConsole = ({api,action}) => {
       {keys:['balance'],label:'DeepSeek余额',hint:'主人已配置的 DeepSeek API 余额'},
     ]},
     {title:'定时推送',items:[
-      {keys:['morningWeather'],label:'早间天气',hint:'每天 07:30 · 天气、空气与运动建议'},
+      {keys:['morningWeather'],label:'早间天气',hint:'按本群地点和时间推送天气、空气与运动建议'},
       {keys:['morningCampus'],label:'三号楼自习简报',hint:'每天 07:30 · 三号楼空教室与自习安排'},
     ]},
   ];
@@ -39,7 +45,7 @@ window.createGroupConsole = ({api,action}) => {
     input.setAttribute('aria-label',name);input.checked=checked;
     return input;
   }
-  function grid(container,features) {
+  function grid(container,features,morningEditor) {
     baselines.set(container,{...features});container.replaceChildren();
     for (const section of sections) {
       const items=section.items.filter(item=>item.keys.every(key=>catalog.some(feature=>feature.key===key)));
@@ -63,6 +69,7 @@ window.createGroupConsole = ({api,action}) => {
           input.dataset.changed='true';title.querySelector('.partial-badge')?.remove();hint.textContent=item.hint;
         };
         copy.append(title,hint);row.append(copy,input);rows.append(row);
+        if(morningEditor&&item.keys.includes('morningWeather'))rows.append(morningEditor);
       }
       block.append(heading,rows);
       if (items.some(item=>item.keys.includes('weather'))) {
@@ -130,12 +137,6 @@ window.createGroupConsole = ({api,action}) => {
     const expanded=panel.querySelector('details')?.open;
     const focused=panel.contains(document.activeElement)?document.activeElement.id:null;
     const route=routeFor(group)||{active:'official'};
-    const element=(tag,content,className)=>{
-      const el=document.createElement(tag);
-      if(content!==undefined)el.textContent=content;
-      if(className)el.className=className;
-      return el;
-    };
     const button=(id,text,run,disabled=false)=>{
       const el=element('button',text,'secondary');
       el.type='button';el.id=id;el.disabled=disabled;
@@ -276,7 +277,20 @@ window.createGroupConsole = ({api,action}) => {
     const hint=document.createElement('span');hint.className='setting-hint';hint.textContent='停用后停止群内处理，保留功能设置';
     enabledText.append(title,hint);
     const enabled=switchInput('启用这个群',group.enabled!==false);enabledRow.append(enabledText,enabled);
-    const features=document.createElement('div');features.className='feature-sections';grid(features,group.features||defaults);
+    const schedule=group.morningSchedule??{location:'',time:'07:30'};
+    const morningEditor=element('div',undefined,'group-morning-editor');
+    const locationLabel=element('label','预报地点'),timeLabel=element('label','发送时间（北京时间）');
+    const location=document.createElement('input'),time=document.createElement('input');
+    location.id='groupMorningLocation';location.maxLength=60;location.value=schedule.location;
+    location.placeholder='按日历选城';
+    time.id='groupMorningTime';time.type='time';time.required=true;time.value=schedule.time;
+    locationLabel.htmlFor=location.id;timeLabel.htmlFor=time.id;
+    locationLabel.append(location);timeLabel.append(time);
+    const locationHint=element('p',schedule.place?'已定位：'+schedule.place.name+'（'+schedule.place.latitude+'，'+schedule.place.longitude+'）':'地点留空沿用日历：节假日天津，其他日期北京。','help');
+    locationHint.id='groupMorningLocationHint';locationHint.setAttribute('aria-live','polite');location.setAttribute('aria-describedby',locationHint.id);
+    location.oninput=()=>{location.removeAttribute('aria-invalid');locationHint.textContent=location.value.trim()?'保存时核对地点。':'节假日天津，其他日期北京。';};
+    morningEditor.append(locationLabel,timeLabel,locationHint);
+    const features=document.createElement('div');features.className='feature-sections';grid(features,group.features||defaults,morningEditor);
     const {maxLength=240,maxLines=6,defaultWhenChatOff=''}=lastCore.groupHelpNote||{};
     const initialHelpNote=group.helpNote??(group.features?.chat===false?defaultWhenChatOff:'');
     const helpNoteLabel=document.createElement('label');helpNoteLabel.htmlFor='groupHelpNote';helpNoteLabel.textContent='帮助页备注';
@@ -293,15 +307,21 @@ window.createGroupConsole = ({api,action}) => {
     const save=document.createElement('button');save.type='submit';save.textContent='保存设置';
     const remove=document.createElement('button');remove.type='button';remove.className='subtle danger';remove.textContent='移除群';remove.onclick=()=>action('group/remove',{groupKey:group.groupKey});
     controls.append(basic,all,remove,save);
-    const note=document.createElement('p');note.className='help settings-note';note.textContent='更改后点击保存。两个 07:30 推送独立开关；全部开启包含 DeepSeek 余额与两项定时推送。';
+    const note=document.createElement('p');note.className='help settings-note';note.textContent='更改后点击保存。两项定时推送独立开关；全部开启包含 DeepSeek 余额与两项定时推送。';
     const alertLink=document.createElement('button');alertLink.type='button';alertLink.className='secondary';alertLink.textContent='管理本群实时气象预警';
     alertLink.onclick=()=>document.dispatchEvent(new CustomEvent('weather-alerts-select',{detail:group.groupKey}));
     form.append(enabledRow,features,alertLink,helpNoteLabel,helpNoteHint,note,controls);
     form.onsubmit=async event=>{
       event.preventDefault();save.disabled=true;
       const result=await action('group/features',{groupKey:group.groupKey,enabled:enabled.checked,features:read(features),
+        ...(location.value.trim()!==schedule.location||time.value!==schedule.time?{morningSchedule:{location:location.value.trim(),time:time.value}}:{}),
         ...(helpNote.value!==initialHelpNote?{helpNote:helpNote.value}:{})});
       save.disabled=false;
+      if(result?.code?.startsWith('LOCATION_')){
+        location.setAttribute('aria-invalid','true');
+        locationHint.textContent=result.code==='LOCATION_SOURCE_UNAVAILABLE'?'地点查询暂时不可用，请稍后保存。':'未能定位，请补充省市或区县后保存。';
+        location.focus();
+      }
       if(result?.code==='GROUP_HELP_NOTE_INVALID') {
         helpNote.setAttribute('aria-invalid','true');
         helpNoteHint.textContent=`请检查备注内容，限 ${maxLength} 字和 ${maxLines} 行。`;
@@ -350,7 +370,7 @@ window.createGroupConsole = ({api,action}) => {
       ready=core.paired&&!core.paused&&transport.state==='connected';
       get('managedGroups').classList.remove('hidden');
       get('groupMorningState').textContent=schedule.active?
-        '北京时间 '+(schedule.prepareActive?schedule.prepareTime+' 准备 · ':'')+schedule.time+' 发送 · '+schedule.cutoffTime+' 截止 · 天气 '+(schedule.weatherGroups||0)+' 群 · 自习 '+(schedule.campusGroups||0)+' 群':'调度当前未运行';
+        '天气按各群时间发送（'+(schedule.weatherGroups||0)+' 群） · 自习 '+schedule.time+'（'+(schedule.campusGroups||0)+' 群） · 北京时间':'调度当前未运行';
       catalog=core.groupFeatureCatalog||[];defaults=core.groupDefaultFeatures||{};
       if (!initialized&&catalog.length) {grid(get('groupNewFeatures'),defaults);initialized=true;}
       const next=[...(core.allowedGroups||[]),...(core.grayGroups||[])];

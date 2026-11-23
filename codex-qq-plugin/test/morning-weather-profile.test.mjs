@@ -249,3 +249,19 @@ test('partial winter comparison follows the source available at each calendar mi
   const failed=createCalendarAirQuality(undefined,{cams:outside,gefs:async()=>{throw Object.assign(Error(),{code:'FORECAST_SOURCE_TIMEOUT'});}});
   await assert.rejects(failed(query),{code:'FORECAST_SOURCE_TIMEOUT'});
 });
+
+test('scheduled report uses the configured mountain coordinates and title for both sources and rendering',async()=>{
+  const place={id:'custom:peak',name:'麻田岭',latitude:39.98,longitude:114.98};
+  const fetchSample=kind=>async args=>{
+    assert.deepEqual(args.place,place);assert.equal(args.city,place.id);
+    return {...sample(kind),city:place};
+  };
+  const commands=new WeatherCommands({now:()=>now,locations:{resolve:()=>assert.fail('fixed location already resolved')},
+    weather:fetchSample('weather'),air:fetchSample('air')});
+  const svc=new MorningReportService({now:()=>now,scheduledCommands:new ScheduledMorningWeather(commands),chart:async({inputs,plan})=>{
+    assert.deepEqual(inputs.places,[place]);assert.equal(plan.cityName,place.name);
+    return {buffer:Buffer.alloc(16),mimeType:'image/png'};
+  }});
+  const result=await svc.create({scheduledMorning:true,fixedPlace:place});
+  assert.deepEqual(result.cities,[place.id]);
+});

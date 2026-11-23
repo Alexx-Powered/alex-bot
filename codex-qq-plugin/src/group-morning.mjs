@@ -1,3 +1,4 @@
+import {defaultMorningTime,morningScheduleKey} from './morning-settings.mjs';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -16,14 +17,18 @@ const campusRetryable=new Set(['CAMPUS_BUSY','CAMPUS_NETWORK_ERROR','CAMPUS_NAVI
   'CAMPUS_BROWSER_UNAVAILABLE','CAMPUS_QUERY_FAILED','CAMPUS_RENDER_FAILED']);
 const quotaWait=new Set(['RATE_LIMIT_MINUTE','RATE_LIMIT_TARGET']);
 
-export function groupMorningClock(now=new Date()) {
-  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{
-    timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',
-    hour:'2-digit',minute:'2-digit',hourCycle:'h23',
-  }).formatToParts(now).map(part=>[part.type,part.value]));
-  const time=parts.hour+':'+parts.minute;
-  return {date:parts.year+'-'+parts.month+'-'+parts.day,inWindow:time>=sendTime&&time<cutoffTime,
-    canPrepare:time>=prepareTime&&time<cutoffTime};
+export function groupMorningWindow(now=new Date(), time=defaultMorningTime, reportDate) {
+  const stamp=Number(now);
+  const date=reportDate??new Date(stamp+8*3600000).toISOString().slice(0,10);
+  const midnight=Date.parse(date+'T00:00:00+08:00');
+  const due=Date.parse(date+'T'+time+':00+08:00');
+  const prepare=Math.max(midnight,due-5*60000),cutoff=due+10*60000;
+  return {date,due,prepare,cutoff,inWindow:stamp>=due&&stamp<cutoff,canPrepare:stamp>=prepare&&stamp<cutoff};
+}
+
+export function groupMorningClock(now=new Date()){
+  const {date,inWindow,canPrepare}=groupMorningWindow(now);
+  return {date,inWindow,canPrepare};
 }
 
 export function createGroupMorningStatus() {
@@ -44,9 +49,23 @@ export function createGroupMorningStatus() {
 /** Fixed daily orchestration. Recipients and delivery keys remain core-owned. */
 export class GroupMorningService {
   #plan=null;#sending=null;
-  constructor({core,adapter,morning,campus,now=()=>new Date(),sleep=delay,
+  constructor({core,adapter,morning,campus,schedule=null,now=()=>new Date(),sleep=delay,
     deadlineSignal=ms=>AbortSignal.timeout(ms),runRetry=(_context,work)=>work()}) {
-    Object.assign(this,{core,adapter,morning,campus,now,sleep,deadlineSignal,runRetry});
+    Object.assign(this,{core,adapter,morning,campus,now,sleep,deadlineSignal,runRetry,schedule});
+    this.scope=morningScheduleKey(schedule);
+  }
+
+  #clock(date) {return groupMorningWindow(this.now(),this.schedule?.time,date);}
+
+  #targets() {
+    const selected=[];
+    for(const target of this.core.captureMorningTargets()){
+      const revisions={...target.morningRevisions};
+      if(morningScheduleKey(target.morningSchedule)!==this.scope) delete revisions.morningWeather;
+      if(this.scope) delete revisions.morningCampus;
+      if(Object.keys(revisions).length)selected.push({...target,morningRevisions:revisions});
+    }
+    return selected;
   }
 
   ready() {
@@ -59,7 +78,7 @@ export class GroupMorningService {
   }
 
   status() {
-    const plan=this.#plan,clock=groupMorningClock(this.now());
+    const plan=this.#plan,clock=this.#clock();
     return !plan||plan.date!==clock.date?{date:null,parts:{}}:{date:plan.date,parts:Object.fromEntries(
       Object.entries(plan.jobs).map(([part,job])=>[part,{state:job.state,code:job.code}]))};
   }
@@ -68,8 +87,8 @@ export class GroupMorningService {
   // persisted attempts. The prepare and send entry points share the daily plan.
   #start(clock) {
     if(this.#plan?.date===clock.date)return this.#plan;
-    const targets=this.core.captureMorningTargets();
-    const cutoff=Date.parse(clock.date+'T'+cutoffTime+':00+08:00');
+    const targets=this.#targets();
+    const cutoff=clock.cutoff;
     const signal=this.deadlineSignal(Math.max(0,cutoff-Number(this.now())));
     const closed=signal.aborted?Promise.resolve(windowEnded):new Promise(resolve=>{
       signal.addEventListener('abort',()=>resolve(windowEnded),{once:true});
@@ -89,7 +108,7 @@ export class GroupMorningService {
   #preparationStop(plan,part) {
     if(this.#plan!==plan||!this.core.hasMorningPreparationTarget(plan.date,plan.targets,part))return 'MORNING_CANCELLED';
     if(plan.signal.aborted||Number(this.now())>=plan.cutoff)return 'MORNING_WINDOW_ENDED';
-    const clock=groupMorningClock(this.now());
+    const clock=this.#clock(plan.date);
     if(clock.date!==plan.date||!clock.canPrepare)return 'MORNING_CANCELLED';
     return this.ready();
   }
@@ -102,7 +121,7 @@ export class GroupMorningService {
     check();
     const report=part==='weather'?
       await withHeavyWorkGuard(()=>this.#preparationStop(plan,part),()=>
-        this.morning.create({scheduledMorning:true,retrySources:false,backupWeather:attempt!==3,
+        this.morning.create({...(this.schedule?.place?{fixedPlace:this.schedule.place}:{}),scheduledMorning:true,retrySources:false,backupWeather:attempt!==3,
           ...(attempt===2?{visualCrossingWeather:true}:{})})):
       await this.campus.run({date:plan.date},'report',{scheduledMorning:true,authorize:()=>!this.#preparationStop(plan,part)});
     await this.core.waitForPendingOperations();
@@ -141,7 +160,7 @@ export class GroupMorningService {
     for(;;){
       const stop=this.#preparationStop(plan,part);
       if(stop)return {state:stop==='MORNING_CANCELLED'?'cancelled':'failed',code:stop};
-      const claim=await Promise.race([this.core.claimMorningAttempt(plan.date,part,()=>!this.#preparationStop(plan,part)),plan.closed]);
+      const claim=await Promise.race([this.core.claimMorningAttempt(plan.date,part,()=>!this.#preparationStop(plan,part),this.scope),plan.closed]);
       job.attempt=claim.attempt??job.attempt;
       if(!claim.ok){
         const code=claim.code==='MORNING_CANCELLED'?(this.#preparationStop(plan,part)??claim.code):claim.code;
@@ -153,7 +172,7 @@ export class GroupMorningService {
         operation:'morning.retry',date:plan.date,part,retry:claim.attempt-1,
       },work);
       if(outcome.state==='failed'){
-        await Promise.race([this.core.recordMorningFailure(plan.date,part,claim.attempt,outcome.code),plan.closed]);
+        await Promise.race([this.core.recordMorningFailure(plan.date,part,claim.attempt,outcome.code,this.scope),plan.closed]);
       }
       if(!outcome.retryable||claim.attempt===1+MORNING_MAX_RETRIES)return outcome;
       job.lastFailure=outcome.detail;
@@ -164,11 +183,11 @@ export class GroupMorningService {
 
   async prepare() {
     await this.core.waitForPendingOperations();
-    const clock=groupMorningClock(this.now());
+    const clock=this.#clock();
     const stop=code=>({ok:false,code,attempted:0,sent:0});
     if(!clock.canPrepare)return stop('MORNING_NOT_DUE');
     const unavailable=this.ready();if(unavailable)return stop(unavailable);
-    if(!this.core.captureMorningTargets().length)return stop('NO_MORNING_GROUPS');
+    if(!this.#targets().length)return stop('NO_MORNING_GROUPS');
     const jobs=Object.entries(this.#start(clock).jobs);
     await Promise.all(jobs.map(([,job])=>job.promise));
     const failedParts=jobs.filter(([,job])=>job.state==='failed').map(([part,job])=>({part,code:job.code}));
@@ -185,12 +204,12 @@ export class GroupMorningService {
 
   async #run() {
     await this.core.waitForPendingOperations();
-    const clock=groupMorningClock(this.now());
+    const clock=this.#clock();
     const stop=code=>({ok:false,code,attempted:0,sent:0});
     if (!clock.inWindow) return stop('MORNING_NOT_DUE');
     const unavailable=this.ready();
     if (unavailable) return stop(unavailable);
-    const targets=this.core.captureMorningTargets();
+    const targets=this.#targets();
     if (!targets.length) return stop('NO_MORNING_GROUPS');
     const pending=this.core.pendingMorningParts(clock.date,targets);
     if (!pending.weather&&!pending.campus) return stop('DUPLICATE');
@@ -237,12 +256,12 @@ export class GroupMorningService {
       const previous=lastFailure&&['MORNING_WINDOW_ENDED','MORNING_RETRIES_EXHAUSTED'].includes(code)?'\n上次失败 '+lastFailure:'';
       return reportNames[part]+'（生成 '+attempt+' 次）\n'+reason+previous;
     });
-    const text=['【早报失败】'+plan.date,...summary].join('\n');
+    const text=['【早报失败】'+plan.date+(this.scope?' '+(this.schedule.place?.name??'按日历选城')+' '+this.schedule.time:''),...summary].join('\n');
     const until=Number(this.now())+60_000;
     for(;;){
       const unavailable=this.ready();
       if(unavailable)return {ok:false,code:unavailable};
-      const notice=await this.core.notify({text,idempotencyKey:'group-morning-failure-'+plan.date});
+      const notice=await this.core.notify({text,idempotencyKey:'group-morning-failure-'+plan.date+(this.scope?'-'+this.scope:'')});
       if(!quotaWait.has(notice.code)||Number(this.now())>=until)return notice;
       // A local quota check returned before submitting anything to QQ.
       await this.sleep(1000);
@@ -256,7 +275,7 @@ export class GroupMorningService {
       await this.core.waitForPendingOperations();
       while (this.core.pendingMorningParts(plan.date,[target])[part]) {
         if(plan.permissionDenied.has(target.groupKey)){skipped++;break;}
-        const current=groupMorningClock(this.now()),unavailable=this.ready();
+        const current=this.#clock(plan.date),unavailable=this.ready();
         if (!current.inWindow||current.date!==plan.date) return outcome(false,'MORNING_WINDOW_ENDED');
         if (unavailable) return outcome(false,unavailable);
         const result=await this.core.notifyImageAllAllowed({

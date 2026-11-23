@@ -6,9 +6,10 @@ import {measureSpan} from './telemetry.mjs';
 export class MorningReportService{
   constructor({commands,scheduledCommands,home,worker,now=Date.now,chart=renderMorningChart}){Object.assign(this,{commands,worker,now,chart});this.scheduledCommands=scheduledCommands??new ScheduledMorningWeather(commands,{home});}
   plan(){return morningPlan(this.now());}
-  async create({scheduledMorning=false,retrySources=true,backupWeather=true,visualCrossingWeather=false}={}){
+  async create({scheduledMorning=false,fixedPlace,retrySources=true,backupWeather=true,visualCrossingWeather=false}={}){
     const now=this.now(),plan=morningPlan(now);
-    const brief=await (scheduledMorning===true?this.scheduledCommands:this.commands).briefing({cities:[plan.city],renderImage:false,includeData:true,
+    if(fixedPlace){plan.city=fixedPlace.id;plan.cityName=fixedPlace.name;}
+    const brief=await (scheduledMorning===true?this.scheduledCommands:this.commands).briefing({cities:[plan.city],...(fixedPlace?{fixedPlace}:{}),renderImage:false,includeData:true,
       ...(scheduledMorning===true&&retrySources===false?{retrySources:false}:{}),
       ...(scheduledMorning===true?{backupWeather}:{}),
       ...(scheduledMorning===true&&visualCrossingWeather===true?{visualCrossingWeather:true}:{})});

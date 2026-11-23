@@ -1,3 +1,5 @@
+import {GroupWeatherScheduler} from './group-weather-scheduler.mjs';
+import {validMorningInput} from './morning-settings.mjs';
 import {SocialConfigStore} from './social-config.mjs';
 import {GroupMorningService,createGroupMorningStatus,groupMorningClock} from './group-morning.mjs';
 import {SocialService} from './social-service.mjs';
@@ -10,7 +12,7 @@ import { PrivateStore } from './storage.mjs';
 import { BridgeCore } from './core.mjs';
 import { QQAdapter } from './qq-adapter.mjs';
 import {GroupConnections} from './group-connections.mjs';
-import { WeatherCommands, beijingDay } from './weather-commands.mjs';
+import { WeatherCommands, beijingDay, isCityQuery } from './weather-commands.mjs';
 import {WeatherToolbox} from './weather-tools.mjs';
 import {ConversationAgent} from './conversation-agent.mjs';
 import {AgentConfigStore} from './agent-config.mjs';
@@ -107,8 +109,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const groupTransport={status:()=>adapter.status().state==='connected'||core.groupRoutes().some(r=>r.active==='milky'&&connections.available(r,'milky'))
     ? {state:'connected'} : {state:'disconnected'}};
   weatherAlerts=new WeatherAlertsService({home,core,adapter:groupTransport});
-  const groupMorning=new GroupMorningService({core,adapter:groupTransport,morning,campus,
-    runRetry:(context,work)=>monitoring.run(context,work),now:groupMorningNow,sleep:groupMorningSleep});
+  const morningOptions={core,adapter:groupTransport,morning,campus,
+    runRetry:(context,work)=>monitoring.run(context,work),now:groupMorningNow,sleep:groupMorningSleep};
+  const groupMorning=new GroupMorningService(morningOptions);
+  const weatherScheduler=new GroupWeatherScheduler(morningOptions,(context,work)=>monitoring.run(context,work));
   const morningScheduleStatus=createGroupMorningStatus();
   if(prewarm){worker.prewarm();await worker.warmup().catch(()=>false);}
   let configBusy = false;
@@ -230,7 +234,21 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
         return json(res,200,await core.changeWakeWord({...data,operation}));
       }
       if (pathname==='/api/group/features') {
-        if (Object.keys(data).some(k=>!['groupKey','enabled','features','helpNote'].includes(k))) throw Error('INVALID_INPUT');
+        if (Object.keys(data).some(k=>!['groupKey','enabled','features','helpNote','morningSchedule'].includes(k))) throw Error('INVALID_INPUT');
+        if(data.morningSchedule!==undefined){
+          const schedule=data.morningSchedule;
+          if(!validMorningInput(schedule)||(schedule.location&&!isCityQuery(schedule.location))||Object.keys(schedule).some(key=>!['location','time'].includes(key)))throw Error('INVALID_INPUT');
+          const status=core.status(),group=[...status.allowedGroups,...status.grayGroups].find(g=>g.groupKey===data.groupKey);
+          if(!group)return json(res,200,{ok:false,code:'GROUP_NOT_FOUND'});
+          const previous=group.morningSchedule;
+          try {
+            const place=!schedule.location?null:previous?.location===schedule.location?previous.place:
+              await weatherCommands.locations.resolve(schedule.location,{preferBest:true});
+            data.morningSchedule={...schedule,place};
+          } catch(error) {
+            return json(res,200,{ok:false,code:locationCodes.has(error?.code)?error.code:'LOCATION_SOURCE_UNAVAILABLE'});
+          }
+        }
         return json(res,200,await core.setGroupFeatures(data));
       }
       // Preparation must not hold the configuration lock across slow network
@@ -464,13 +482,13 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
       boundPort = server.address().port;
       connections.start();
-      if(prewarm)weatherAlerts.start();
+      if(prewarm){weatherAlerts.start();weatherScheduler.start();}
       if(prewarm&&ragEnabled&&!ragMaintenance){ragMaintenance=setInterval(()=>{void indexWhenIdle(worker);},60000);ragMaintenance.unref();}
       return boundPort;
     },
     async close() {
       connections.close();
-      weatherAlerts.close();
+      weatherAlerts.close();weatherScheduler.close();
       clearInterval(ragMaintenance);
       worker.close();
       weatherCommands.close?.();

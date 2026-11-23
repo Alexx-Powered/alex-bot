@@ -1,3 +1,4 @@
+import {GroupWeatherScheduler} from '../src/group-weather-scheduler.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BridgeCore} from '../src/core.mjs';
@@ -510,4 +511,33 @@ test('an unrelated chat setting save preserves campus preparation but still bloc
   blockSave=false;saved.resolve();await editing;await prepared;
   assert.equal((await running).sent,1);
   assert.deepEqual(f.sent.map(s=>s.requiredFeature),['morningCampus']);assert.equal(f.counts().campus,1);
+});
+
+test('custom weather follows the selected place and time across restarts; campus keeps its default slot',async()=>{
+  const f=await fixture(3,{limits:{minuteAttempts:20}});
+  const [a,b,c]=f.core.status().allowedGroups;
+  const place={id:'test-peak',name:'麻田岭',latitude:39.9,longitude:115.1};
+  const save=(g,time)=>f.core.setGroupFeatures({...g,morningSchedule:{time,location:place.name,place}});
+  await save(a,'08:10');await save(b,'08:10');
+  const restored=f.makeCore();await restored.init();
+  assert.deepEqual(restored.status().allowedGroups[0].morningSchedule.place,place);
+  const standard=f.serviceFor(restored);
+  await standard.run();
+  assert.deepEqual(new Set(f.sent.filter(s=>s.requiredFeature==='morningWeather').map(s=>s.groupId)),new Set(['g2']));
+  assert.equal(f.sent.filter(s=>s.requiredFeature==='morningCampus').length,3);
+  const generated=[];
+  const scheduler=new GroupWeatherScheduler({core:restored,adapter:standard.adapter,now:standard.now,
+    morning:{create:async opt=>{generated.push(opt.fixedPlace);return {date:'2026-11-03',image};}}});
+  f.setNow('2026-11-03T08:05:00+08:00');await scheduler.tick();
+  assert.deepEqual(generated,[place]);assert.equal(f.sent.length,4);
+  await restored.setGroupFeatures({...b,morningSchedule:{time:'09:15',location:place.name,place}});
+  f.setNow('2026-11-03T08:10:00+08:00');await scheduler.tick();
+  assert.deepEqual(f.sent.slice(4).map(s=>s.groupId),['g0']);
+  f.setNow('2026-11-03T09:15:00+08:00');await scheduler.tick();await scheduler.tick();
+  assert.deepEqual(f.sent.slice(4).map(s=>s.groupId),['g0','g1']);
+  assert.equal(generated.length,2);
+  const after=f.makeCore();await after.init();
+  const replay=new GroupWeatherScheduler({core:after,adapter:standard.adapter,now:standard.now,morning:{create:()=>assert.fail('duplicate')}});
+  await replay.tick();assert.equal(f.sent.length,6);
+  assert.equal((await restored.setGroupFeatures({...c,morningSchedule:{time:'24:01',location:'',place:null}})).ok,false);
 });

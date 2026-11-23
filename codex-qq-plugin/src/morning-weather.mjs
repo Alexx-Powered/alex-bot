@@ -43,11 +43,11 @@ export class ScheduledMorningWeather {
     this.air=gefs?args=>selectMorningPm25(args,{cams:commands.air,gefs}):commands.air;
     this.ecWeather=args=>ecWeather({home,...args});
   }
-  async briefing({cities=['beijing'],renderImage=true,includeData=false,day='today',retrySources=true,backupWeather=true,visualCrossingWeather=false}={}) {
+  async briefing({cities=['beijing'],renderImage=true,includeData=false,day='today',fixedPlace,retrySources=true,backupWeather=true,visualCrossingWeather=false}={}) {
     if(day!=='today')throw new Error('INVALID_WEATHER_DAY');
-    if(!Array.isArray(cities)||cities.length!==1||cities.some(c=>!isCityQuery(c))||new Set(cities).size!==cities.length)throw new Error('INVALID_CITY');
+    if(!Array.isArray(cities)||cities.length!==1||(fixedPlace?cities[0]!==fixedPlace.id:cities.some(c=>!isCityQuery(c)))||new Set(cities).size!==cities.length)throw new Error('INVALID_CITY');
     setTraceOperation('weather.report');
-    const places=await measureSpan('resolve_location',()=>Promise.all(cities.map(city=>this.locations.resolve(city))));
+    const places=fixedPlace?[fixedPlace]:await measureSpan('resolve_location',()=>Promise.all(cities.map(city=>this.locations.resolve(city))));
     if(new Set(places.map(place=>place.id)).size!==places.length)throw new Error('INVALID_CITY');
     const now=this.now(), date=beijingDay(now+(day==='tomorrow'?86400000:0));
     const deadline=performance.now()+105_000,retried=[];
@@ -77,7 +77,7 @@ export class ScheduledMorningWeather {
       throw error??Object.assign(Error('FORECAST_SOURCE_TIMEOUT'),{code:'FORECAST_SOURCE_TIMEOUT'});
     };
     const queries=places.map(place=>source('weather',place,(profile,attempt)=>{
-      if(visualCrossingWeather&&attempt===0)return this.ecWeather({city:place.id,now,fetchTimeoutMs:profile.fetchTimeoutMs});
+      if(visualCrossingWeather&&attempt===0&&['beijing','tianjin'].includes(place.id))return this.ecWeather({city:place.id,now,fetchTimeoutMs:profile.fetchTimeoutMs});
       const backupSource=visualCrossingWeather|| (attempt===0?backupWeather:!backupWeather);
       return this.weather({city:place.id,place,day,days:2,now,exerciseFields:true,backupSource,...profile});
     }));

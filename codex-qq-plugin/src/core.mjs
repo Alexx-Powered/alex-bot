@@ -1,3 +1,4 @@
+import {validMorningSchedule,morningScheduleKey} from './morning-settings.mjs';
 import {groupReceiptFields, groupFailureHistory, morningDeliveryKey, isGroupDeliveryError} from './group-delivery-log.mjs';
 import {validVideo} from './video-media.mjs';
 import {copyIncomingMedia} from './incoming-media.mjs';
@@ -64,9 +65,9 @@ function validGroupLink(link) {
   return link && validQQNumber(link.account) && validQQNumber(link.peer) &&
     ['official','milky'].includes(link.active) && Number.isSafeInteger(link.revision) && link.revision>=0;
 }
-const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white', helpNotes={}) => {
+const describeGroup = ({ id, name, enabled=true, features, disabledWakeWords=[] }, access='white', helpNotes={}, schedules={}) => {
   const groupKey=groupKeyFor(id),helpNote=helpNotes[groupKey];
-  return {name,groupKey,groupHint:`sha256:${groupKey.slice(0,12)}`,
+  return {name,groupKey,...(schedules[groupKey]?{morningSchedule:structuredClone(schedules[groupKey])}:{}),groupHint:`sha256:${groupKey.slice(0,12)}`,
     enabled,features:features??defaultGroupFeatures(access),disabledWakeWords:[...disabledWakeWords],
     ...(helpNote!==undefined?{helpNote}:{}),
   };
@@ -155,6 +156,12 @@ function restoreState(raw) {
   const groupHelpNotes=raw.groupHelpNotes===undefined?{}:raw.groupHelpNotes;
   if(!groupHelpNotes||typeof groupHelpNotes!=='object'||Array.isArray(groupHelpNotes))throw new Error('STATE_INVALID');
   const helpNotes=Object.entries(groupHelpNotes),groupKeys=new Set(allGroups.map(g=>groupKeyFor(g.id)));
+  const schedules=raw.groupMorningSchedules??{};
+  if(typeof schedules!=='object'||Array.isArray(schedules)||Object.entries(schedules).some(([key,value])=>
+    !groupKeys.has(key)||!validMorningSchedule(value)))throw Error('STATE_INVALID');
+  const customAttempts=raw.customMorningAttempts;
+  if(customAttempts!==undefined&&(!customAttempts||typeof customAttempts.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(customAttempts.date)||
+    Object.entries(customAttempts).some(([key,value])=>key!=='date'&&(!isHash(key)||!validMorningAttempt(value)))))throw Error('STATE_INVALID');
   const groupLinks=raw.groupLinks===undefined?{}:raw.groupLinks;
   if(!groupLinks||typeof groupLinks!=='object'||Array.isArray(groupLinks))throw Error('STATE_INVALID');
   const links=Object.entries(groupLinks);
@@ -197,6 +204,8 @@ function restoreState(raw) {
     ...(Object.keys(names).length?{groupNames:structuredClone(names)}:{}),
     ...(helpNotes.length?{groupHelpNotes:Object.fromEntries(helpNotes)}:{}),
     ...(removedOfficialGroups.length?{removedOfficialGroups:removedOfficialGroups.map(({key,at})=>({key,at}))}:{}),
+    ...(Object.keys(schedules).length?{groupMorningSchedules:structuredClone(schedules)}:{}),
+    ...(customAttempts?{customMorningAttempts:structuredClone(customAttempts)}:{}),
     ...(morningAttempts?{morningAttempts:structuredClone(morningAttempts)}:{}),
     wakeWords:structuredClone(wakeWords),wakeWordRevision,
   };
@@ -463,7 +472,7 @@ export class BridgeCore {
       if(existing){
         const group=next.allowedGroups.find(g=>g.id===existing.id);
         if(!existing.unconfigured||!group||group.enabled||group.disabledWakeWords?.length||
-          Object.values(group.features).some(Boolean)||next.groupHelpNotes?.[existing.key]!==undefined)return result(false,'GROUP_ROUTE_HAS_SETTINGS');
+          Object.values(group.features).some(Boolean)||next.groupMorningSchedules?.[existing.key]||next.groupHelpNotes?.[existing.key]!==undefined)return result(false,'GROUP_ROUTE_HAS_SETTINGS');
         next.allowedGroups=next.allowedGroups.filter(g=>g.id!==existing.id);
         delete next.groupLinks[existing.key];
         delete next.groupNames[existing.key];
@@ -685,9 +694,9 @@ export class BridgeCore {
       lastDeliveryCode: this.#state.lastDeliveryCode,
       uncertainDeliveries: this.#state.deliveries.filter((entry) => entry.state === 'uncertain' || entry.state === 'inFlight').length,
       groupCount: this.#state.allowedGroups.length,
-      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup({...g,name:this.#displayName(g)},'white',helpNotes)),
+      allowedGroups: this.#state.allowedGroups.map(g=>describeGroup({...g,name:this.#displayName(g)},'white',helpNotes,this.#state.groupMorningSchedules)),
       grayGroupCount:this.#state.grayGroups.length,
-      grayGroups:this.#state.grayGroups.map(g=>describeGroup({...g,name:this.#displayName(g)},'gray',helpNotes)),
+      grayGroups:this.#state.grayGroups.map(g=>describeGroup({...g,name:this.#displayName(g)},'gray',helpNotes,this.#state.groupMorningSchedules)),
       groupFeatureCatalog:GROUP_FEATURES.filter(feature=>!feature.hidden),
       groupDefaultFeatures:basicGroupFeatures(),
       groupHelpNote:{...HELP_NOTE_LIMITS,defaultWhenChatOff:DEFAULT_CHAT_OFF_HELP_NOTE},
@@ -876,7 +885,8 @@ export class BridgeCore {
     } finally {this.#releaseRestriction(group.id,ticket);}
   }
 
-  async setGroupFeatures({groupKey,features,enabled,helpNote}={}) {
+  async setGroupFeatures({groupKey,features,enabled,helpNote,morningSchedule}={}) {
+    if(morningSchedule!==undefined&&!validMorningSchedule(morningSchedule))return result(false,'INVALID_INPUT');
     if (!validGroupKey(groupKey) || !validGroupFeatures(features) || typeof enabled!=='boolean') return result(false,'INVALID_INPUT');
     const normalizedNote=helpNote===undefined?undefined:normalizeGroupHelpNote(helpNote);
     if (normalizedNote===null) return result(false,'GROUP_HELP_NOTE_INVALID');
@@ -885,7 +895,8 @@ export class BridgeCore {
     // Block admission and ongoing work before waiting for the serial queue.
     const normalized=normalizeGroupFeatures(features),previous=this.groupFeatures(group.id);
     const changedMorning=enabled!==(group.enabled!==false)?MORNING_FEATURE_KEYS:
-      MORNING_FEATURE_KEYS.filter(key=>previous[key]!==normalized[key]);
+      MORNING_FEATURE_KEYS.filter(key=>previous[key]!==normalized[key] || (key==='morningWeather' && morningSchedule!==undefined &&
+        morningScheduleKey(morningSchedule)!==morningScheduleKey(this.#state.groupMorningSchedules?.[groupKey])));
     const ticket=this.#restrictGroup(group.id,null,changedMorning);
     try {
       return await this.#enqueue(async()=>{
@@ -893,6 +904,10 @@ export class BridgeCore {
         const current=[...next.allowedGroups,...next.grayGroups].find(g=>g.id===group.id);
         if (!current) return result(false,'GROUP_NOT_FOUND');
         current.enabled=enabled;current.features=normalized;
+        if(morningSchedule!==undefined){
+          if(morningScheduleKey(morningSchedule)) next.groupMorningSchedules={...next.groupMorningSchedules,[groupKey]:structuredClone(morningSchedule)};
+          else if(next.groupMorningSchedules)delete next.groupMorningSchedules[groupKey];
+        }
         if(next.groupLinks?.[groupKey]?.unconfigured)delete next.groupLinks[groupKey].unconfigured;
         if (normalizedNote!==undefined) next.groupHelpNotes={...next.groupHelpNotes,[groupKey]:normalizedNote};
         try {await this.#persist(next);} catch {return this.#storageFailed();}
@@ -913,6 +928,7 @@ export class BridgeCore {
       const next = structuredClone(this.#state);
       next.allowedGroups = next.allowedGroups.filter(group => groupKeyFor(group.id) !== groupKey);
       next.grayGroups = next.grayGroups.filter(group => groupKeyFor(group.id) !== groupKey);
+      if (next.groupMorningSchedules) delete next.groupMorningSchedules[groupKey];
       if (next.groupHelpNotes) delete next.groupHelpNotes[groupKey];
       if (next.groupLinks) delete next.groupLinks[groupKey];
       if (next.groupNames) delete next.groupNames[groupKey];
@@ -1282,6 +1298,7 @@ export class BridgeCore {
     return [...this.#state.allowedGroups,...this.#state.grayGroups]
       .filter(g=>(feature?[feature]:MORNING_FEATURE_KEYS).some(key=>this.canUseFeature(g.id,key)))
       .map(g=>({groupKey:groupKeyFor(g.id),revision:this.#groupRevisions.get(g.id)||0,
+        ...(this.#state.groupMorningSchedules?.[groupKeyFor(g.id)]?{morningSchedule:structuredClone(this.#state.groupMorningSchedules[groupKeyFor(g.id)])}:{}),
         morningRevisions:Object.fromEntries(MORNING_FEATURE_KEYS.filter(key=>this.canUseFeature(g.id,key))
           .map(key=>[key,this.#morningRevisions.get(g.id)?.[key]||0]))}));
   }
@@ -1304,28 +1321,30 @@ export class BridgeCore {
   }
 
   // Claim before starting upstream work so a restart cannot reset the daily limit.
-  claimMorningAttempt(date,part,authorize) {
+  claimMorningAttempt(date,part,authorize,scope=null) {
     return this.#enqueue(async()=>{
       if(!this.#ready||date!==hkDay(this.#time())||!Object.hasOwn(MORNING_PART_FEATURES,part)||!authorize()){
         return result(false,'MORNING_CANCELLED');
       }
-      const attempts=this.#state.morningAttempts?.date===date?this.#state.morningAttempts:{date};
-      const {count=0,lastCode}=attempts[part]??{};
+      const field=scope?'customMorningAttempts':'morningAttempts',key=scope??part;
+      const attempts=this.#state[field]?.date===date?this.#state[field]:{date};
+      const {count=0,lastCode}=attempts[key]??{};
       if(count>=1+MORNING_MAX_RETRIES)return result(false,'MORNING_RETRIES_EXHAUSTED',{attempt:count,lastCode});
       const attempt=count+1;
-      try{await this.#persist({...this.#state,morningAttempts:{...attempts,[part]:{count:attempt,...(lastCode?{lastCode}:{})}}});}
+      try{await this.#persist({...this.#state,[field]:{...attempts,[key]:{count:attempt,...(lastCode?{lastCode}:{})}}});}
       catch{return this.#storageFailed();}
       return {ok:true,attempt};
     },false);
   }
 
-  recordMorningFailure(date,part,attempt,code) {
+  recordMorningFailure(date,part,attempt,code,scope=null) {
     return this.#enqueue(async()=>{
-      const attempts=this.#state.morningAttempts;
-      if(!Object.hasOwn(MORNING_PART_FEATURES,part)||attempts?.date!==date||attempts[part]?.count!==attempt)return;
+      const field=scope?'customMorningAttempts':'morningAttempts',key=scope??part;
+      const attempts=this.#state[field];
+      if(!Object.hasOwn(MORNING_PART_FEATURES,part)||attempts?.date!==date||attempts[key]?.count!==attempt)return;
       const lastCode=failureDetail('morning',{code}).code;
-      if(!lastCode||attempts[part].lastCode===lastCode)return;
-      try{await this.#persist({...this.#state,morningAttempts:{...attempts,[part]:{count:attempt,lastCode}}});}
+      if(!lastCode||attempts[key].lastCode===lastCode)return;
+      try{await this.#persist({...this.#state,[field]:{...attempts,[key]:{count:attempt,lastCode}}});}
       catch{this.#storageFailed();}
     },false);
   }
