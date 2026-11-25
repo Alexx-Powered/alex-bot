@@ -94,7 +94,9 @@ class GroupChannel:
         deliveries = set()
 
         async def reply(data):
+            delivery_at = time.time_ns()//1_000_000
             receipt = await self.deliver(data)
+            receipt.update(deliveryAt=delivery_at, returnedAt=time.time_ns()//1_000_000)
             if not ws.closed:
                 with suppress(ConnectionError, RuntimeError):
                     await ws.send_json(receipt)
@@ -165,6 +167,7 @@ class GroupChannel:
             return dict(ack, outcome="unknown")
 
     async def incoming(self, bot: Bot, event: GroupMessageEvent):
+        received_at = time.time_ns()//1_000_000
         peer = str(event.data.peer_id)
         ws = self.ws
         if self.bot is not bot or str(event.self_id) != bot.self_id or event.data.sender_id == event.self_id:
@@ -200,7 +203,7 @@ class GroupChannel:
             return
         await ws.send_json({"type": "message", "account": bot.self_id, "peer": peer,
                             "sender": str(event.data.sender_id), "seq": str(event.data.message_seq),
-                            "at": event.data.time*1000, "text": text, "mentioned": mentioned, "media": media})
+                            "at": event.data.time*1000, "receivedAt": received_at, "text": text, "mentioned": mentioned, "media": media})
 
     async def resource_url(self, bot, resource):
         async with self.resource_slots:

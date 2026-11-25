@@ -16,7 +16,19 @@ const remoteDetails=new WeakMap();
 const MORNING_OPERATIONS=new Set(['morning.prepare','morning.dispatch','morning.preview','morning.retry','morning.test']);
 const MORNING_SKIPS=new Set(['MORNING_NOT_DUE','NO_MORNING_GROUPS','DUPLICATE','MORNING_CANCELLED']);
 const MORNING_SUCCESS=new Set(['MORNING_PREPARED','SENT','MORNING_GROUP_FAILURES']);
-const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip',...MORNING_OPERATIONS]);
+const MILKY_EVENTS=new Set(['milky.account_offline','milky.bridge_closed','milky.channel_offline','milky.roster_ready','milky.roster_error']);
+const MILKY_TIMES=['qqEventAt','nonebotReceivedAt','nodeReceivedAt','nodeSubmittedAt','nonebotDeliveryAt','gatewayReturnedAt','nodeReceiptAt','stateEventAt'];
+// Receipt callbacks run on the socket listener. Capture the originating request here.
+export function milkyTimeline(){
+  const trace=activeTrace.getStore();
+  return fields=>{
+    if(!trace||trace.closed)return;
+    trace.transport='milky';
+    for(const key of MILKY_TIMES)if(Number.isSafeInteger(fields[key])&&fields[key]>0&&fields[key]<=Date.now()+60000)
+      trace[key]=new Date(fields[key]).toISOString();
+  };
+}
+const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip',...MORNING_OPERATIONS,...MILKY_EVENTS]);
 const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send','qq_group_permission']);
 export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_gfs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
 export const campusWorkerStages=Object.freeze(['campus_browser_start','campus_navigation','campus_login_form','campus_login_fill_account',
@@ -74,6 +86,10 @@ const round=x=>Math.round(x*100)/100;
 function contextFields(context){
   const result={};
   try{
+    if(context?.transport==='milky'){
+      result.transport='milky';
+      for(const key of MILKY_TIMES)if(typeof context[key]==='string'&&ISO.test(context[key]))result[key]=context[key];
+    }
     if(context?.scope==='c2c'||context?.scope==='group')result.scope=context.scope;
     if(result.scope==='group'&&(context.access==='white'||context.access==='gray'))result.access=context.access;
     if(context?.synthetic===true)result.synthetic=true;
@@ -257,7 +273,7 @@ export class Telemetry{
     if(context?.operation==='morning.retry'){
       if(Number.isInteger(context.retry)&&context.retry>=1&&context.retry<=MORNING_MAX_RETRIES)parameters.retry=context.retry;
     }
-    const trace={id:randomUUID(),startTime:new Date(timeValue(this.#now)).toISOString(),...contextFields(context),...(scheduled?{operation:context.operation}:{}),spans:[],parameters,causes:new WeakMap(),now:this.#now,clock:this.#clock,closed:false};
+    const trace={id:randomUUID(),startTime:new Date(timeValue(this.#now)).toISOString(),...contextFields(context),...(scheduled||MILKY_EVENTS.has(context?.operation)?{operation:context.operation}:{}),spans:[],parameters,causes:new WeakMap(),now:this.#now,clock:this.#clock,closed:false};
     let status='ok',outcome;
     try{outcome=await activeTrace.run(trace,fn);return outcome;}catch(error){trace.failure=diagnostic(trace,scheduled?trace.operation:'qq.response',error);throw error;}
     finally{

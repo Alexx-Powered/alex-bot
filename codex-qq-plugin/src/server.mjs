@@ -27,7 +27,7 @@ import {CampusService} from './campus-service.mjs';
 import {PublicStatusService} from './public-status.mjs';
 import {isEntrypoint} from './entrypoint.mjs';
 import {MonitoringConfigStore} from './monitoring-config.mjs';
-import {Telemetry,measureSpan} from './telemetry.mjs';
+import {Telemetry,milkyTimeline,measureSpan} from './telemetry.mjs';
 import {RagHealthCheck} from './rag-health.mjs';
 import {ResearchHealthCheck} from './research-health.mjs';
 import {HikingHealthCheck,indexWhenIdle} from './hiking-health.mjs';
@@ -76,7 +76,10 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core,weatherAlerts,connections;
-  const receive=(message,expires,channel)=>monitoring.run({scope:message.kind},()=>core.handleMessage(message,expires,channel));
+  const receive=(message,expires,channel,times)=>monitoring.run({scope:message.kind},()=>{
+    if(channel==='milky')milkyTimeline()(times??{});
+    return core.handleMessage(message,expires,channel);
+  });
   const makeAdapter = adapterFactory ?? (options => new QQAdapter(options));
   const adapter = makeAdapter({
     groupAddressed: (groupId,text) => core?.addressesGroupMessage(groupId,text)===true,
@@ -105,6 +108,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
     send: (request) => measureSpan('qq_send',()=>connections.send(request)), now: () => groupMorningNow?Number(groupMorningNow()):Date.now(), limits, observeMessage:social?(data,context)=>social.observe(data,context):null, commandHandler: (text,context) => measureSpan('agent',async()=>await weatherAlerts.handle(text,context)??await agent.handle(text,context)) });
   await core.init();
   connections=new GroupConnections({core,official:adapter,onMessage:receive,
+    onState:(operation,at)=>void monitoring.run({operation,transport:'milky'},()=>milkyTimeline()({stateEventAt:at})).catch(()=>{}),
     socketPath:process.env.QQ_GROUP_CHANNEL_SOCKET});
   const groupTransport={status:()=>adapter.status().state==='connected'||core.groupRoutes().some(r=>r.active==='milky'&&connections.available(r,'milky'))
     ? {state:'connected'} : {state:'disconnected'}};

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {Telemetry,measureSpan,recordTiming} from '../src/telemetry.mjs';
+import {Telemetry,measureSpan,recordTiming,milkyTimeline} from '../src/telemetry.mjs';
 
 const config={enabled:true,apiKey:'test-only-langsmith-key',project:'alex-bot-test',endpoint:'https://api.smith.langchain.com',workspaceId:'abcdef12-1234-4567-8901-123456789012'};
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -219,4 +219,22 @@ test('synthetic accepts only boolean true and cannot retain arbitrary context va
   await f.settle();const status=await f.telemetry.status();
   assert.equal(status.summary.count,5);
   for(const trace of status.recent)assert.equal(Object.hasOwn(trace,'synthetic'),false);
+});
+
+test('ordinary QQ emits separate lifecycle runs and preserves gateway clock timestamps on its originating run',async t=>{
+  const f=await fixture(t),stamp=Date.now()-3000;
+  await f.telemetry.run({operation:'milky.account_offline',transport:'milky'},()=>milkyTimeline()({stateEventAt:stamp}));
+  await f.telemetry.run({scope:'group'},async()=>{
+    const mark=milkyTimeline();
+    mark({qqEventAt:stamp,nonebotReceivedAt:stamp+500,nodeReceivedAt:stamp+510});
+    await measureSpan('qq_send',async()=>mark({nodeSubmittedAt:stamp+600,nonebotDeliveryAt:stamp+610,gatewayReturnedAt:stamp+900,nodeReceiptAt:stamp+920}));
+  });
+  await f.settle();
+  const runs=f.requests.map(r=>JSON.parse(r.body));
+  const state=runs.find(r=>r.name==='qq.milky.account_offline').extra.metadata;
+  assert.equal(state.stateEventAt,new Date(stamp).toISOString());
+  const message=runs.find(r=>r.name==='qq.response').extra.metadata;
+  assert.equal(message.transport,'milky');
+  assert.equal(message.nodeReceiptAt,new Date(stamp+920).toISOString());
+  assert.equal(message.qqEventAt,new Date(stamp).toISOString());
 });

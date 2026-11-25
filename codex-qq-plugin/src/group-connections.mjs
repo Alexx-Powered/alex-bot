@@ -1,3 +1,4 @@
+import {milkyTimeline} from './telemetry.mjs';
 import {createConnection} from 'node:net';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {isOrdinaryGroupId} from './core.mjs';
@@ -16,8 +17,8 @@ const offlineNoticeTTL=15*60_000;
 const noticeTime=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 
 export class GroupConnections {
-  constructor({core,official,onMessage,socketPath,now=Date.now}) {
-    Object.assign(this,{core,official,onMessage,socketPath,now});
+  constructor({core,official,onMessage,onState,socketPath,now=Date.now}) {
+    Object.assign(this,{core,official,onMessage,onState,socketPath,now});
     this.directory=new Map(); this.pending=new Map(); this.observed=new Map();
     this.profileChecks=new Map();
     this.memberships=new Map();
@@ -40,7 +41,10 @@ export class GroupConnections {
       ws.on('message',(bytes,binary)=>{
         try{if(binary)throw Error();this.receive(JSON.parse(bytes.toString()));}catch{ws.terminate();}
       });
+      ws.on('open',()=>{this.bridgeOpen=true;});
       ws.on('close',()=>{
+        if(this.bridgeOpen&&!this.closed)this.onState?.('milky.bridge_closed',this.now());
+        this.bridgeOpen=false;
         this.reset();
         if(!this.closed)this.retry=setTimeout(connect,2000).unref();
       });
@@ -269,17 +273,19 @@ export class GroupConnections {
       if(!decimal(frame.account)||!Number.isSafeInteger(frame.at)||frame.at<now-offlineNoticeTTL||frame.at>now+5000)return;
       const key='ordinary-offline:'+frame.account+':'+frame.at;
       if(this.offlineNotice && (this.offlineNotice.key===key || this.offlineNotice.at>frame.at))return;
+      this.onState?.('milky.account_offline',frame.at);
       this.offlineNotice={key,at:frame.at,submitted:false};
       this.sendOfflineNotice();
       return;
     }
     if(frame.type==='roster_error'){
+      if(!this.directoryUnavailable)this.onState?.('milky.roster_error',this.now());
       this.directoryUnavailable=true;
       this.configSignature=null;
       if(this.pair?.mode==='probe'&&!this.pair.ticket)this.finishProbe(this.pair,'GROUP_ROUTE_OFFLINE');
       return;
     }
-    if(frame.type==='offline'){this.reset({socketClosed:false});return;}
+    if(frame.type==='offline'){if(this.account)this.onState?.('milky.channel_offline',this.now());this.reset({socketClosed:false});return;}
     if(frame.type==='probe_ready'){
       const p=this.activePair();
       if(p?.mode==='probe'&&p.account===frame.account&&p.command===frame.command)void this.submitProbe(p);
@@ -292,6 +298,7 @@ export class GroupConnections {
         if(!decimal(g.number)||typeof g.name!=='string'||g.name.length>160)throw Error('INVALID_GROUP');
         directory.set(g.number,g.name);
       }
+      if(frame.account!==this.account||this.directoryUnavailable)this.onState?.('milky.roster_ready',this.now());
       if(frame.account!==this.account)this.reset({socketClosed:false});
       this.account=frame.account;this.directory=directory;this.lastRoster=this.now();this.directoryUnavailable=false;this.sync();
       const updates=this.core.groupRoutes().filter(r=>r.account===this.account&&directory.has(r.peer)&&r.names.milky!==directory.get(r.peer));
@@ -301,6 +308,7 @@ export class GroupConnections {
     if(frame.type==='receipt'){
       const request=this.pending.get(frame.request);
       if(!request)return;
+      request.timeline?.({nonebotDeliveryAt:frame.deliveryAt,gatewayReturnedAt:frame.returnedAt,nodeReceiptAt:this.now()});
       if(frame.outcome==='accepted'&&decimal(frame.seq))request.finish(null,{ok:true});
       else if(frame.outcome==='cancelled')request.finish(error('QQ_SEND_CANCELLED'));
       else if(frame.outcome==='rejected')request.finish(new QQAdapterError('QQ_SEND_REJECTED',{
@@ -336,7 +344,7 @@ export class GroupConnections {
     const message={kind:'group',groupId:route.id,senderId:'milky:'+frame.account+':'+frame.sender,id,
       mentioned:frame.mentioned===true,text:frame.text,media:copyIncomingMedia(frame.media),
       replyTarget:{scope:'group',targetId:route.id,msgId:id}};
-    void Promise.resolve(this.onMessage(message,expires,'milky')).catch(()=>{});
+    void Promise.resolve(this.onMessage(message,expires,'milky',{qqEventAt:frame.at,nonebotReceivedAt:frame.receivedAt,nodeReceivedAt:this.now()})).catch(()=>{});
   }
   async send(request) {
     const route=request.groupId&&this.core.groupRoutes().find(r=>r.id===request.groupId);
@@ -371,7 +379,9 @@ export class GroupConnections {
         clearTimeout(timer);this.pending.delete(id);if(failure)reject(failure);else resolve(value);
       };
       const timer=setTimeout(()=>finish(error('QQ_SERVICE_UNAVAILABLE',true)),220000);
-      this.pending.set(id,{finish});
+      const timeline=milkyTimeline();
+      timeline({nodeSubmittedAt:this.now()});
+      this.pending.set(id,{finish,timeline});
       try{this.socket.send(JSON.stringify({type:'deliver',request:id,account:route.account,peer:route.peer,parts,
         deadline:request.deliveryDeadline??null}),err=>{if(err&&this.pending.has(id))finish(error('QQ_SERVICE_UNAVAILABLE',true));});}
       catch{finish(error('QQ_SERVICE_UNAVAILABLE'));}
