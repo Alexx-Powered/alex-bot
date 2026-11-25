@@ -90,7 +90,7 @@ Object.assign(stageNames,{weather_forecast_primary:'主预报接口',weather_met
   weather_forecast_backup:'备用预报接口',weather_metadata_backup:'备用起报元数据'});
 const scheduledTraceNames={'morning.prepare':'早报准备','morning.dispatch':'早报投递','morning.preview':'早报预览','morning.retry':'早报重试'};
 Object.assign(stageNames,{weather_video:'天气视频',resolve_location:'地点解析',heavy_queue:'渲染资源排队',video_cache_hit:'视频缓存命中',
-  video_prepare_worker:'渲染进程初始化',video_fetch_gdps:'获取 GDPS 云量',video_fetch_ifs:'读取 ECMWF 预报',video_fetch_cams:'读取 CAMS 空气预报',video_fetch_forecast:'查询备用预报接口',video_fetch_satellite:'获取卫星观测',
+  video_prepare_worker:'渲染进程初始化',video_fetch_gdps:'获取 GDPS 云量',video_fetch_ifs:'读取 ECMWF 预报',video_fetch_gfs:'读取 GFS 备用预报',video_fetch_cams:'读取 CAMS 空气预报',video_fetch_forecast:'查询备用预报接口',video_fetch_satellite:'获取卫星观测',
   video_download_slowest:'最慢一次下载',video_decode_slowest:'最慢一次解码',video_render_frames:'绘图及帧写盘',video_encode_h264:'H.264 编码',
   video_read_mp4:'读取成片',weather_fetch:'获取天气',air_fetch:'获取空气质量',weather_render:'天气绘图',radar_query:'雷达查询',qq_media_upload:'QQ 媒体上传',qq_message_submit:'QQ 消息提交'});
 const duration=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0?`${Math.round(value)} ms`:'—';

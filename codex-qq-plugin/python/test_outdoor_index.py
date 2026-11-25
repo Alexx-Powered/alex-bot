@@ -1,5 +1,5 @@
 import unittest
-from outdoor_index import outdoor_index
+from outdoor_index import OutdoorHour, assess_period, outdoor_index
 
 
 def sample(**changes):
@@ -74,6 +74,16 @@ class OutdoorIndexTests(unittest.TestCase):
         data.pop('red_hazards')
         data['hours'][0]['observed'] = 18.0
         self.assertEqual(outdoor_index.invoke(data)['grade'], 'gold')
+
+    def test_observation_correction_expires_at_eighteen_hours(self):
+        base = sample(pm25=120.0)['hours'][0]
+        def hour(h, obs=None):
+            return OutdoorHour(**{**base,'time':f'2026-11-03T{h:02}:00:00+08:00','observed':obs})
+        anchor = hour(0, 30.0)
+        # A 90-unit bias decays by 5 per hour. Corrected values are 80, 115, 120.
+        for h, expected in [(10, 15), (17, 37), (18, 41), (19, 41)]:
+            row = assess_period('测试', h, h+1, [hour(h)], anchor)
+            self.assertAlmostEqual(row['deductions']['pm25'],expected)
 
     def test_wind_thresholds_and_gusts(self):
         for wind, gust, score in [(10.7,13.8,100),(10.8,13.8,78),(1,13.9,78),

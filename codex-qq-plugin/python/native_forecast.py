@@ -23,7 +23,7 @@ FIELDS = {'temperature': ('temperature_2m', '°C', -100, 70),
           'precipitation': ('precipitation', 'mm', 0, 1000),
           'cloud_cover': ('cloud_cover', '%', 0, 100),
           'pm25': ('pm2_5', 'μg/m³', 0, 5000)}
-DOMAINS = {'ecmwf_ifs': 'ECMWF IFS', 'cams_global': 'CAMS 全球', 'cams_europe': 'CAMS 欧洲'}
+DOMAINS = {'ecmwf_ifs': 'ECMWF IFS', 'ncep_gfs013': 'NOAA GFS', 'cams_global': 'CAMS 全球', 'cams_europe': 'CAMS 欧洲'}
 BLOCK = 32768
 CACHE_TIMESTAMP_SIZE = 8
 
@@ -193,14 +193,15 @@ def verify_grid(domain, wkt):
             raise ValueError('unexpected Gaussian grid')
         return
     match = re.search(r'BBOX\[([^\]]+)\]', wkt)
-    expected = (-90,-180,90,179.6) if domain=='cams_global' else (71.95,-24.95,30.05,44.95)
+    expected = {'cams_global': (-90,-180,90,179.6), 'cams_europe': (71.95,-24.95,30.05,44.95),
+                'ncep_gfs013': (-89.912125,-180,89.912125,179.88281)}[domain]
     box = [float(v) for v in match.group(1).split(',')] if match else []
     if len(box)!=4 or not all(math.isclose(a,b,abs_tol=.0001) for a,b in zip(box,expected)):
-        raise ValueError('unexpected CAMS grid')
+        raise ValueError('unexpected regular grid')
 
 
 def raster_side(domain, view):
-    step = {'ecmwf_ifs': 180/2560.5, 'cams_global': .4, 'cams_europe': .1}[domain]
+    step = {'ecmwf_ifs': 180/2560.5, 'ncep_gfs013': 360/3072, 'cams_global': .4, 'cams_europe': .1}[domain]
     return min(192, max(16, math.ceil(view['size']/view['world']*360/step)+2))
 
 
@@ -209,6 +210,7 @@ def projected_frames(root, domain, view, time_slice, limits, *, workers=8):
     gaussian = domain == 'ecmwf_ifs'
     rows, cols, lat0, dy, lon0 = {
         'ecmwf_ifs': (2560, 0, 1279.5*180/2560.5, -180/2560.5, 0),
+        'ncep_gfs013': (1536, 3072, -0.11714935*1535/2, 0.11714935, -180.),
         'cams_global': (451, 900, -90., .4, -180.),
         'cams_europe': (420, 700, 71.95, -.1, -24.95),
     }[domain]
@@ -301,9 +303,9 @@ def store_frames(prefix, frames, updated_at):
                 pass
 
 
-def native_forecast(layer, view, times, now, deadline, cache_dir=None):
+def native_forecast(layer, view, times, now, deadline, cache_dir=None, *, domain=None):
     name, unit, low, high = FIELDS[layer]
-    domain = domain_for(layer, view)
+    domain = domain or domain_for(layer, view)
     # IFS row slices touch many disjoint ranges. Keep one origin and overlap the
     # smaller reads; the CAMS rectangular grids need fewer connections.
     workers, block_size = (32, 16*1024) if domain=='ecmwf_ifs' else (8, BLOCK)
@@ -319,7 +321,7 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None):
             run = datetime.strptime(manifest['reference_time'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
             run_at = int(run.timestamp())
             source = DOMAINS[domain]+' · Open-Meteo'
-            max_age = {'ecmwf_ifs':24, 'cams_global':36, 'cams_europe':48}[domain]*3600
+            max_age = {'ecmwf_ifs':24, 'ncep_gfs013':24, 'cams_global':36, 'cams_europe':48}[domain]*3600
             if not (0 <= now-run_at <= max_age) or name not in manifest['variables']:
                 raise ValueError('run not available')
             verify_grid(domain, manifest['crs_wkt'])

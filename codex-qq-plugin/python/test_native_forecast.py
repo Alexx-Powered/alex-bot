@@ -42,6 +42,20 @@ class NativeForecastTests(unittest.TestCase):
         self.assertEqual(domain_for('pm25',area(48,44.5)),'cams_global')
         self.assertEqual(domain_for('pm25',area(39.9,116.4)),'cams_global')
 
+    def test_gfs_projection_preserves_huapiling_position_and_orientation(self):
+        np, _ = libraries()
+        class Grid:
+            shape = (1536,3072,1)
+            def __getitem__(self, index):
+                y,x,_ = index
+                latitude = (y-767.5)*0.11714935
+                longitude = -180+np.arange(x.start,x.stop)*360/3072
+                return (latitude + longitude/10).astype('float32')[:,None]
+        view = area(41.245,115.42)
+        with projected_frames(Grid(),'ncep_gfs013',view,slice(0,1),(0,100))[0] as frame:
+            lat,lon = coordinate_axes(view,frame.width)
+            np.testing.assert_allclose(np.asarray(frame),lat[:,None]+lon[None,:]/10,atol=.00002)
+
     def test_cache_serves_shorter_window_and_ignores_truncated_data(self):
         with tempfile.TemporaryDirectory() as directory:
             prefix=Path(directory)/'native-test'

@@ -387,18 +387,30 @@ def prepare_video(args,spool,now=None,fetch=None):
                     frames,source,updated_at=native_forecast(layer,region,times,now,started+25,cache_dir)
                 times=times[:len(frames)]
             except VideoFailure as error:
-                if error.code=='VIDEO_OUTSIDE_WINDOW':raise
-                # The whole forecast comes from the same model through its point API.
-                with stage('video_fetch_forecast'):
-                    metadata_fetch=fetch if fetch is not None else partial(request,timeout=4)
-                    meta=forecast_metadata(layer,region,now,metadata_fetch)
-                    updated_at,end=meta or (None,None)
-                    if end is not None:
-                        times=[t for t in times if t<end]
-                        if not times:raise VideoFailure('VIDEO_OUTSIDE_WINDOW')
-                    region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times),start=start)
-                source=DOMAINS[domain_for(layer,region)]+' · Open-Meteo'
-                detail='sampled'
+                if layer in ('cloud_cover','precipitation'):
+                    try:
+                        with stage('video_fetch_gfs'):
+                            frames,source,updated_at=native_forecast(layer,region,times,now,time.monotonic()+40,cache_dir,
+                                                                     domain='ncep_gfs013')
+                    except VideoFailure as backup_error:
+                        if backup_error.code=='VIDEO_OUTSIDE_WINDOW':
+                            both=error.code=='VIDEO_OUTSIDE_WINDOW'
+                            raise VideoFailure('VIDEO_BOTH_OUTSIDE_WINDOW' if both else 'VIDEO_GFS_OUTSIDE_WINDOW') from backup_error
+                        raise
+                    times=times[:len(frames)]
+                else:
+                    if error.code=='VIDEO_OUTSIDE_WINDOW':raise
+                    # The whole forecast comes from the same model through its point API.
+                    with stage('video_fetch_forecast'):
+                        metadata_fetch=fetch if fetch is not None else partial(request,timeout=4)
+                        meta=forecast_metadata(layer,region,now,metadata_fetch)
+                        updated_at,end=meta or (None,None)
+                        if end is not None:
+                            times=[t for t in times if t<end]
+                            if not times:raise VideoFailure('VIDEO_OUTSIDE_WINDOW')
+                        region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times),start=start)
+                    source=DOMAINS[domain_for(layer,region)]+' · Open-Meteo'
+                    detail='sampled'
             region={**region,'requested_hours':args.get('hours',24),'forecast_source':source,'forecast_detail':detail,'forecast_updated_at':updated_at}
     try:
         with stage('video_render_frames'):count=render_sequence(spool,layer,name,region,times,frames,started+165)

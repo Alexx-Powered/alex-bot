@@ -60,6 +60,8 @@ export class WeatherVideoService{
       }
       const target=place.regionId?{region_id:place.regionId}:{latitude:place.latitude,longitude:place.longitude};
       const data=await this.worker.run({type:'weather_video',name:'weather_video',args:{layer,name:place.name,...target,...(start===undefined?{}:{start}),...(hours===48?{hours}: {})}},()=>{throw Error('VIDEO_RPC_DENIED')},v=>v.data);
+      if(data?.code==='VIDEO_BOTH_OUTSIDE_WINDOW')return {text:'ECMWF IFS、NOAA GFS 数据源无当日预报'};
+      if(data?.code==='VIDEO_GFS_OUTSIDE_WINDOW')return {text:'ECMWF IFS 暂不可用，NOAA GFS 数据源无当日预报'};
       if(data?.code==='VIDEO_OUTSIDE_WINDOW')return {text:(layer==='pm25'?'CAMS':'ECMWF IFS')+'数据源无当日预报'};
       if(!data?.ok)throw Object.assign(Error(messages[data?.code]||'动态天气数据源暂不可用，请稍后重试。'),{code:data?.code||'VIDEO_SOURCE_UNAVAILABLE'});
       if(!/^[a-f0-9]{32}$/.test(data.artifact_id)||data.layer!==layer||!Number.isSafeInteger(data.generated_at)||Math.abs(this.now()-data.generated_at*1000)>300000||!validVideoTimeline(data,layer,hours,start)||!matchesTarget(data,place))throw Error('VIDEO_RESULT_INVALID');

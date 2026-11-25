@@ -55,17 +55,14 @@ class CloudTests(unittest.TestCase):
     def test_fallback_preserves_the_complete_48_hour_window_and_credits(self):
         view=area(32.,118.);times=[1793743200+i*3600 for i in range(48)];grids=[[]]*48
         available=times[0]-60
-        def metadata_fetch(url, limit):
-            self.assertEqual(url,'https://api.open-meteo.com/data/ecmwf_ifs/static/meta.json')
-            return json.dumps({'last_run_initialisation_time':available-3600,'last_run_availability_time':available}).encode()
-        with patch('weather_video.native_forecast',side_effect=VideoFailure('VIDEO_DATA_MISSING')), \
-             patch('weather_video.forecast_frames',return_value=(view,times,grids)) as old, \
+        with patch('weather_video.native_forecast',side_effect=[
+                VideoFailure('VIDEO_NATIVE_UNAVAILABLE'), (grids,'NOAA GFS · Open-Meteo',available)]) as native, \
              patch('weather_video.render_sequence',return_value=142) as render:
-            result=prepare_video(dict(layer='cloud_cover',name='南京',latitude=32.,longitude=118.,hours=48),None,times[0],metadata_fetch)
-        self.assertEqual(old.call_args.kwargs['hours'],48)
-        self.assertEqual(render.call_args.args[3]['forecast_source'],'ECMWF IFS · Open-Meteo')
-        self.assertEqual(render.call_args.args[3]['forecast_detail'],'sampled')
+            result=prepare_video(dict(layer='cloud_cover',name='南京',latitude=32.,longitude=118.,hours=48),None,times[0])
+        self.assertNotIn('domain', native.call_args_list[0].kwargs)
+        self.assertEqual(native.call_args.kwargs['domain'],'ncep_gfs013')
+        self.assertEqual(render.call_args.args[3]['forecast_source'],'NOAA GFS · Open-Meteo')
         self.assertEqual(render.call_args.args[3]['forecast_updated_at'],available)
-        self.assertEqual(result['forecast_detail'],'sampled')
+        self.assertEqual(result['forecast_detail'],'native')
         self.assertIs(render.call_args.args[5],grids)
         self.assertEqual(result['source_times'],times)
