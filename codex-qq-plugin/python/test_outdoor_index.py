@@ -41,8 +41,8 @@ class OutdoorIndexTests(unittest.TestCase):
 
     def test_pm_boundaries(self):
         self.assertEqual(self.invoke(pm25=60.0)['score'], 95)
-        self.assertEqual(self.invoke(pm25=100.0)['score'], 55)
-        self.assertEqual(self.invoke(pm25=150.0)['score'], 0)
+        self.assertEqual(self.invoke(pm25=100.0)['score'], 75)
+        self.assertEqual(self.invoke(pm25=150.0)['score'], 35)
 
     def test_missing_pm_uses_hourly_sustained_wind_for_scoring(self):
         for wind, grade in [(3.39, 'unknown'), (3.4, 'excellent'), (10.8, 'fair'), (17.2, 'poor')]:
@@ -55,8 +55,25 @@ class OutdoorIndexTests(unittest.TestCase):
         packet['hours'][1].update(wind=3.3, pm25=100.0)
         packet['hours'][7].update(wind=3.3)
         morning, afternoon = outdoor_index.invoke(packet)['periods']
-        self.assertEqual((morning['score'], morning['conditions']['pm25Peak']), (55, 100))
+        self.assertAlmostEqual(morning['score'], 95.55555556)
+        self.assertEqual(morning['conditions']['pm25Peak'], 100)
         self.assertEqual(afternoon['status'], 'unknown')
+
+    def test_observed_clean_morning_and_forecast_rebound(self):
+        data = sample(pm25=130.0)
+        for row in data['hours'][:4]:
+            row['observed'] = 18.0
+        morning, afternoon = outdoor_index.invoke(data)['periods']
+        self.assertGreaterEqual(morning['score'], 95)
+        self.assertGreater(morning['score'], afternoon['score'])
+        self.assertIn('09:00实测 18', morning['reason'])
+        data['red_hazards'] = ['大风']
+        self.assertEqual(outdoor_index.invoke(data)['score'], 0)
+        for row in data['hours']:
+            row.update(pm25=18.0, observed=None)
+        data.pop('red_hazards')
+        data['hours'][0]['observed'] = 18.0
+        self.assertEqual(outdoor_index.invoke(data)['grade'], 'gold')
 
     def test_wind_thresholds_and_gusts(self):
         for wind, gust, score in [(10.7,13.8,100),(10.8,13.8,78),(1,13.9,78),

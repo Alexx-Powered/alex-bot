@@ -234,7 +234,7 @@ function exercise(c, analysis, city, y) {
     text(c, row.name, 48, yy + 24, 13, S.ink, 650);
     text(c, String(row.startHour).padStart(2, '0') + ':00–' + String(row.endHour).padStart(2, '0') + ':00', 88, yy + 23, 10, S.muted, 400, { mono: true });
     text(c, row.status === 'complete' ? number(row.displayScore) + ' 分 · ' + (row.gold ? '夯中夯' : row.character) : '暂不评级', 392, yy + 24, 12, style.ink, 650, { mono: true, align: 'right' });
-    text(c, d ? '云量 ' + Math.round(d.cloudMean) + '% · PM2.5 ' + number(d.pm25Peak) + ' μg/m³ · 雨量 ' + d.rainTotal.toFixed(1) + ' mm' : '不以缺测值推算户外指数', 48, yy + 46, 9.7, '#6f625d', 400, { maxWidth: 344 });
+    text(c, d ? '云量 ' + Math.round(d.cloudMean) + '% · PM2.5预报峰值 ' + number(d.pm25Peak) + ' μg/m³ · 雨量 ' + d.rainTotal.toFixed(1) + ' mm' : '不以缺测值推算户外指数', 48, yy + 46, 9.7, '#6f625d', 400, { maxWidth: 344 });
     text(c, row.reason, 48, yy + 66, 10.5, analysis.dailyDanger?'#b51d31':style.ink, 500, { maxWidth: 344 });
   });
   return y + 244;

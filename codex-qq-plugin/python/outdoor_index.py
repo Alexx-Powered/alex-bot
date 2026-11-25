@@ -11,9 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 RULES = {
-    "version": "outdoor-v6-20261123",
+    "version": "outdoor-v7-20261125",
     "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
-    "pm25Knots": [[0, 0], [60, 5], [100, 45], [150, 100]],
+    "pm25Knots": [[0, 0], [60, 5], [100, 25], [150, 65], [200, 100]],
     "windLoss": {"none": 0, "blue": 22, "yellow": 70, "orange": 100},
     "rainLoss": {"none": 0, "brief": 20, "light": 35, "more": 50},
     "rainZero": {"hourlyAboveMm": 2.5, "periodAtLeastMm": 5},
@@ -34,6 +34,7 @@ class OutdoorHour(BaseModel):
     time: str
     cloud: Cloud | None
     pm25: Pm | None
+    observed: Pm | None = None
     wind: Wind | None
     gust: Wind | None
     rain: Rain | None
@@ -63,19 +64,30 @@ UNREVIEWED_CODES = {48, 56, 57, 66, 71, 73, 75, 77, 85, 86, 95, 96, 97, 99}
 SUPPORTED_CODES = {0, 1, 2, 3, 45, 51, 53, 55, 61, 63, 65, 67, 80, 81, 82}
 
 
-def assess_period(name, start, end, rows):
+def assess_period(name, start, end, rows, latest=None):
     result = {"name": name, "startHour": start, "endHour": end, "status": "unknown",
               "score": None, "grade": "unknown", "character": None, "gold": False}
     if len(rows) != end - start or any(any(getattr(row, field) is None for field in
                                           ("cloud", "wind", "gust", "rain", "code")) for row in rows):
         return {**result, "reason": "关键预报数据不足"}
-    scoring_pm25 = [30.0 if row.pm25 is None and row.wind >= 3.4 else row.pm25 for row in rows]
+    scoring_pm25 = []
+    for row in rows:
+        value = row.pm25
+        if row.observed is not None:
+            value = row.observed
+        elif latest and latest.pm25 is not None and value is not None:
+            gap = (datetime.fromisoformat(row.time)-datetime.fromisoformat(latest.time)).total_seconds()/3600
+            if 0 < gap < 10:
+                value = max(0, value + (latest.observed-latest.pm25)*(1-gap/10))
+        if value is None and row.wind >= 3.4:
+            value = 30.0
+        scoring_pm25.append(value)
     if None in scoring_pm25:
         return {**result, "reason": "关键预报数据不足"}
     if any(row.code in UNREVIEWED_CODES or row.code not in SUPPORTED_CODES for row in rows):
         return {**result, "reason": "该天气类型暂不评级"}
     cloud = sum(row.cloud for row in rows) / len(rows)
-    pm = max(scoring_pm25)
+    pm = 0.8 * sum(scoring_pm25)/len(rows) + 0.2 * max(scoring_pm25)
     forecast_peak = max((row.pm25 for row in rows if row.pm25 is not None), default=None)
     wind, gust = max(row.wind for row in rows), max(row.gust for row in rows)
     rain, rain_peak = sum(row.rain for row in rows), max(row.rain for row in rows)
@@ -90,14 +102,14 @@ def assess_period(name, start, end, rows):
         "rain": 100 if rain_zero else RULES["rainLoss"][rain_level],
     }
     zero_reasons = []
-    if pm >= 150:
+    if pm >= 200:
         zero_reasons.append("PM2.5达到清零门槛")
     if wind_level == "orange":
         zero_reasons.append("预报风力达橙色大风门槛，本时段清零")
     if rain_zero:
         zero_reasons.append("中雨以上或雨量达到清零门槛")
     score = 0 if zero_reasons else max(0, 100 - sum(deductions.values()))
-    gold = score >= 95 and cloud <= 5 and pm <= 25 and wind <= 5.4 and gust <= 7.9 and rain_level == "none"
+    gold = score >= 95 and cloud <= 5 and max(scoring_pm25) <= 25 and wind <= 5.4 and gust <= 7.9 and rain_level == "none"
     grade = "gold" if gold else "excellent" if score >= 80 else "fair" if score >= 60 else "poor"
     character = {"gold": "夯", "excellent": "夯", "fair": "可", "poor": "拉"}[grade]
     rain_label = {"none": "无雨", "brief": "零星小雨", "light": "持续小雨" if wet_hours >= 3 else "小雨", "more": "小雨偏多", "zero": "中雨及以上"}[rain_level]
@@ -105,6 +117,8 @@ def assess_period(name, start, end, rows):
     if wind_level in {"blue", "yellow"} and not zero_reasons:
         level = "蓝色" if wind_level == "blue" else "黄色"
         reasons.append(f"预报风力达{level}大风门槛，扣{deductions['wind']}分")
+    if latest:
+        reasons.append(f"{latest.time[11:16]}实测 {latest.observed:g} μg/m³")
     reason = " · ".join(reasons)
     return {**result, "status": "complete", "score": score, "displayScore": round(score, 1), "grade": grade,
             "character": character, "gold": gold, "reason": reason, "deductions": deductions,
@@ -129,7 +143,8 @@ def outdoor_index(date: str, hours: list[OutdoorHour], red_hazards: list[str] | 
         if stamp.hour in by_hour:
             raise ValueError("DUPLICATE_FORECAST_HOUR")
         by_hour[stamp.hour] = row
-    periods = [assess_period(name, start, end, [by_hour[h] for h in range(start, end) if h in by_hour])
+    latest = next((by_hour[h] for h in sorted(by_hour, reverse=True) if by_hour[h].observed is not None), None)
+    periods = [assess_period(name, start, end, [by_hour[h] for h in range(start, end) if h in by_hour], latest)
                for name, start, end in RULES["periods"]]
     polluted = len(by_hour) == 24 and all(row.pm25 is not None and row.pm25 > RULES["dailyPm25Above"] for row in by_hour.values())
     pollution_names = {'重污染', '重污染天气', '空气重污染', '空气重污染天气'}

@@ -1,3 +1,4 @@
+import {currentCitySamples} from './city-air-observations.mjs';
 import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
@@ -62,10 +63,11 @@ export async function summarizeOutdoor({date,city,weather,air,warning},{schedule
   const forecasts=hourly(weather?.date===date?weather:null),pollution=hourly(air);
   if(!forecasts.size&&!pollution.size&&!warning?.hazards?.length)return missing();
   const measured=(n,max)=>finite(n)&&n>=0&&n<=max?n:null;
+  const observations=await currentCitySamples(date,city,weather?.city);
   const hours=Array.from({length:24},(_,h)=>{
     const time=start+h*3600000,row=forecasts.get(time);
     return {time:date+'T'+String(h).padStart(2,'0')+':00:00+08:00',
-      cloud:measured(row?.cloudCoverPct,100),pm25:measured(pollution.get(time)?.pm25,5000),wind:measured(row?.windSpeedMs,150),
+      observed:observations.get(h)??null,cloud:measured(row?.cloudCoverPct,100),pm25:measured(pollution.get(time)?.pm25,5000),wind:measured(row?.windSpeedMs,150),
       gust:measured(row?.windGustMs,150),rain:measured(row?.rainMm,1000),code:Number.isInteger(row?.weatherCode)?measured(row.weatherCode,99):null};
   });
   return new Promise(resolveResult=>{
