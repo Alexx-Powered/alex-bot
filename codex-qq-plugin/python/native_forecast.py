@@ -21,6 +21,7 @@ from weather_video_codec import VideoFailure
 STORE = 'https://openmeteo.s3.amazonaws.com/data_run'
 FIELDS = {'temperature': ('temperature_2m', '°C', -100, 70),
           'precipitation': ('precipitation', 'mm', 0, 1000),
+          'snow_water': ('snowfall_water_equivalent', 'mm', 0, 1000),
           'cloud_cover': ('cloud_cover', '%', 0, 100),
           'pm25': ('pm2_5', 'μg/m³', 0, 5000)}
 DOMAINS = {'ecmwf_ifs': 'ECMWF IFS', 'ncep_gfs013': 'NOAA GFS', 'cams_global': 'CAMS 全球', 'cams_europe': 'CAMS 欧洲'}
@@ -303,7 +304,7 @@ def store_frames(prefix, frames, updated_at):
                 pass
 
 
-def native_forecast(layer, view, times, now, deadline, cache_dir=None, *, domain=None):
+def native_forecast(layer, view, times, now, deadline, cache_dir=None, *, domain=None, manifests=None):
     name, unit, low, high = FIELDS[layer]
     domain = domain or domain_for(layer, view)
     # IFS row slices touch many disjoint ranges. Keep one origin and overlap the
@@ -314,10 +315,14 @@ def native_forecast(layer, view, times, now, deadline, cache_dir=None, *, domain
         with httpx.Client(headers={'Accept-Encoding':'identity'}, limits=httpx.Limits(
                 max_connections=workers, max_keepalive_connections=workers), timeout=6) as client:
             base = f'{STORE}/{domain}'
-            with sample('video_download_slowest'):
-                response = client.get(base+'/latest.json')
-                response.raise_for_status()
-                manifest = response.json()
+            manifest = manifests.get(domain) if manifests is not None else None
+            if manifest is None:
+                with sample('video_download_slowest'):
+                    response = client.get(base+'/latest.json')
+                    response.raise_for_status()
+                    manifest = response.json()
+                if manifests is not None:
+                    manifests[domain] = manifest
             run = datetime.strptime(manifest['reference_time'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
             run_at = int(run.timestamp())
             source = DOMAINS[domain]+' · Open-Meteo'

@@ -4,6 +4,34 @@ from pydantic import ValidationError
 from pathlib import Path
 from weather_video import cloud_times,forecast_frames,build_tool,VideoFailure,N
 class VideoTests(unittest.TestCase):
+ def test_snow_marks_only_wet_snowy_pixels(self):
+  from PIL import Image,ImageChops
+  from weather_video import mark_snow
+  with Image.new('RGB',(64,64),'#445566') as image, image.copy() as before, Image.new('F',image.size,1.0) as total, Image.new('F',image.size,0.0) as snow:
+   snow.paste(0.5,(32,0,64,64))
+   total.paste(0.0,(0,32,64,64))
+   mark_snow(image,total,snow)
+   with ImageChops.difference(image,before) as diff:
+    box=diff.getbbox()
+    self.assertIsNotNone(box)
+    self.assertGreaterEqual(box[0],32)
+    self.assertLessEqual(box[3],32)
+
+ def test_missing_snow_keeps_total_without_cross_model_substitution(self):
+  from PIL import Image
+  from weather_video import prepare_video
+  calls=[]
+  def native(layer,region,times,now,deadline,cache_dir,*,domain=None,manifests):
+   calls.append((layer,domain,manifests))
+   if layer=='snow_water':raise VideoFailure('VIDEO_NATIVE_UNAVAILABLE')
+   return [Image.new('F',(2,2),1)],'ECMWF IFS',None
+  with patch('weather_video.native_forecast',side_effect=native),patch('weather_video.render_sequence',return_value=1) as render:
+   result=prepare_video(dict(name='测试',layer='precipitation',latitude=41,longitude=115),None)
+  self.assertTrue(result['ok'])
+  self.assertFalse(render.call_args.args[3]['snow_available'])
+  self.assertEqual(calls[1][:2],('snow_water','ecmwf_ifs'))
+  self.assertIs(calls[0][2],calls[1][2])
+
  def test_all_regions_fit_between_title_and_timeline_in_both_sources(self):
   from weather_regions import REGIONS,REGION_ALIASES,regional_area
   from weather_video import cloud_window,xy

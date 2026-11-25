@@ -230,6 +230,19 @@ def forecast_map(layer,grid):
         result.paste('#9ba1a3',(0,0),expanded);mask.close();expanded.close()
     return result
 
+def mark_snow(image, precipitation, snow):
+    # Stagger small six-armed crystals beneath the cartographic overlay. The
+    # colour underneath keeps its original meaning (total precipitation).
+    with precipitation.resize(image.size,Image.Resampling.BILINEAR) as total, snow.resize(image.size,Image.Resampling.BILINEAR) as frozen:
+        draw=ImageDraw.Draw(image)
+        for row,y in enumerate(range(8,image.height,16)):
+            for x in range(8+(row%2)*8,image.width,16):
+                tips=((x,y),(x-3,y),(min(x+3,image.width-1),y),(x,y-3),(x,min(y+3,image.height-1)))
+                if any(total.getpixel(pt)<0.05 or frozen.getpixel(pt)<0.05 for pt in tips):
+                    continue
+                for dx,dy in ((0,3),(3,2),(3,-2)):
+                    draw.line((x-dx,y-dy,x+dx,y+dy),fill='#f0f8ff')
+
 def static_overlay(layer, name, area, times):
     size = OUTPUT_SIZE
     ratio = size/720
@@ -250,6 +263,7 @@ def static_overlay(layer, name, area, times):
     subtitle='近6小时·历史卫星云图' if layer=='cloud' else f'{len(times)}小时·'+{'temperature':'温度预报','precipitation':'降水预报','pm25':'PM2.5预报','cloud_cover':'云量预报'}[layer]
     if layer=='cloud' and len(times)<37:subtitle+=' · 缺测跳时'
     if area.get('forecast_detail')=='sampled':subtitle+=' · 简略版'
+    if layer=='precipitation':subtitle+=(' · 雪花标记含雪区' if area.get('snow_available') else ' · 降水相态暂无数据')
     put(25,64,subtitle,16,outline=True)
     tibet='54' in area.get('members',())
     if area.get('members')==['71']:
@@ -310,12 +324,14 @@ def clock_text(layer, start, end):
     return text+'  北京时间'
 
 
-def render_sequence(spool, layer, name, area, times, sources, deadline):
+def render_sequence(spool, layer, name, area, times, sources, deadline, snow=None):
     size=OUTPUT_SIZE; ratio=size/720
     decorations=static_overlay(layer,name,area,times)
     time_font=ImageFont.truetype(font_path(True),round(21*ratio))
     def load(index):
-        return sources[index].copy() if layer=='cloud' else forecast_map(layer,sources[index])
+        image=sources[index].copy() if layer=='cloud' else forecast_map(layer,sources[index])
+        if snow is not None:mark_snow(image,sources[index],snow[index])
+        return image
     def write(source,caption,timestamp):
         if time.monotonic()>=deadline:raise VideoFailure('VIDEO_TIMEOUT')
         frame=source.resize((size,size),Image.Resampling.LANCZOS if layer=='cloud' else Image.Resampling.BILINEAR)
@@ -368,6 +384,7 @@ def prepare_video(args,spool,now=None,fetch=None):
     target=REGIONS.get(args.get('region_id'))
     viewport=regional_area(target) if target else None
     name=target['name'] if target else args['name']
+    snow=None
     with (pooled_downloads() if fetch is None else nullcontext(fetch)) as download:
         if layer=='cloud':
             with stage('video_fetch_satellite'):
@@ -381,17 +398,20 @@ def prepare_video(args,spool,now=None,fetch=None):
                 raise VideoFailure('VIDEO_INPUT_INVALID')
             times=[start+i*3600 for i in range(args.get('hours',24))]
             detail='native'
+            domain=domain_for(layer,region)
+            pinned={'manifests':{}} if layer=='precipitation' else {}
             try:
                 with stage('video_fetch_cams' if layer=='pm25' else 'video_fetch_ifs',fallback_on=VideoFailure):
                     cache_dir=spool.directory.parent if isinstance(spool,FrameFiles) else None
-                    frames,source,updated_at=native_forecast(layer,region,times,now,started+25,cache_dir)
+                    frames,source,updated_at=native_forecast(layer,region,times,now,started+25,cache_dir,**pinned)
                 times=times[:len(frames)]
             except VideoFailure as error:
                 if layer in ('cloud_cover','precipitation'):
                     try:
                         with stage('video_fetch_gfs'):
+                            domain='ncep_gfs013'
                             frames,source,updated_at=native_forecast(layer,region,times,now,time.monotonic()+40,cache_dir,
-                                                                     domain='ncep_gfs013')
+                                                                     domain=domain,**pinned)
                     except VideoFailure as backup_error:
                         if backup_error.code=='VIDEO_OUTSIDE_WINDOW':
                             both=error.code=='VIDEO_OUTSIDE_WINDOW'
@@ -411,9 +431,18 @@ def prepare_video(args,spool,now=None,fetch=None):
                         region,times,frames=forecast_frames(layer,lat,lon,now,download,viewport=viewport,hours=len(times),start=start)
                     source=DOMAINS[domain_for(layer,region)]+' · Open-Meteo'
                     detail='sampled'
+            if layer=='precipitation':
+                try:
+                    snow,_,_=native_forecast('snow_water',region,times,now,time.monotonic()+25,cache_dir,domain=domain,**pinned)
+                    if len(snow)!=len(frames) or any(a.size!=b.size for a,b in zip(frames,snow)):
+                        for img in snow:img.close()
+                        snow=None
+                except VideoFailure:
+                    snow=None
+                region={**region,'snow_available':snow is not None}
             region={**region,'requested_hours':args.get('hours',24),'forecast_source':source,'forecast_detail':detail,'forecast_updated_at':updated_at}
     try:
-        with stage('video_render_frames'):count=render_sequence(spool,layer,name,region,times,frames,started+165)
+        with stage('video_render_frames'):count=render_sequence(spool,layer,name,region,times,frames,started+165,**({'snow':snow} if snow is not None else {}))
         metadata={'ok':True,'format_version':2,'layer':layer,'start':times[0],'end':times[-1],
                 'frames':count,'source_times':times,'fps':FPS,'generated_at':int(now),'width':OUTPUT_SIZE,'height':OUTPUT_SIZE}
         if layer!='cloud':metadata['forecast_detail']=region['forecast_detail']
@@ -423,6 +452,7 @@ def prepare_video(args,spool,now=None,fetch=None):
             metadata.update(region_id=target['id'],view_bounds=[west,south,east,north])
         return metadata
     finally:
+        for img in snow or []:img.close()
         for img in frames:
             if isinstance(img,Image.Image):img.close()
 

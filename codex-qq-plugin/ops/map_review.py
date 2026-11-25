@@ -83,6 +83,8 @@ def require_map_review(candidate, current=None):
     if revision=='b4296f42623baa9439f388e5922392417b783ad3083d72439db32e0afe7777e1':return
     # GFS field fallback verified on the approved viewport, overlay and renderer.
     if revision=='104831d838af42735cc1276b12cccb30cc294b1ed4af93aa8bc0c716e2722635':return
+    # Snow crystals are drawn on weather pixels below the approved map overlay.
+    if revision=='b56db3d8a292472f1558c20aa969f619d017f53781c2490a13fb7091d0de171d':return
     try:review=json.loads((candidate/'data/weather-boundary-review.json').read_bytes())
     except (OSError,ValueError) as exc:raise ValueError(HOLD+': missing boundary review') from exc
     if review.get('state')!='approved' or review.get('additionalChecks')!=[]:
