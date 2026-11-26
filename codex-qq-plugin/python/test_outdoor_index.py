@@ -108,7 +108,7 @@ class OutdoorIndexTests(unittest.TestCase):
         self.assertIn('扣22分', morning['reason'])
         self.assertEqual((afternoon['score'], afternoon['character'], afternoon['deductions']['wind']), (22, '拉', 70))
         self.assertIn('扣70分', afternoon['reason'])
-        self.assertEqual(result['recommendation'], {'word': '上午', 'suffix': '户外条件尚可'})
+        self.assertEqual(result['recommendation'], {'word': '上午', 'suffix': '户外条件尚可', 'causes': ['大风']})
         self.assertEqual(self.invoke(pm25=100.0, wind=11.0)['grade'], 'poor')
 
     def test_three_rain_deductions_and_hard_zero(self):
@@ -162,6 +162,30 @@ class OutdoorIndexTests(unittest.TestCase):
         result = outdoor_index.invoke(data)
         self.assertFalse(result['gold'])
         self.assertEqual((result['grade'], result['score']), ('excellent', 92.5))
+
+    def test_fair_reports_the_main_losses_for_the_period_being_rated(self):
+        haze = '雾霾（PM2.5 偏高）'
+        for fair_hours, word in [(slice(0, 6), '上午'), (slice(6, 12), '下午')]:
+            data = sample(wind=18.0)
+            for row in data['hours'][fair_hours]:
+                row.update(wind=1.0, pm25=100.0)
+            result = outdoor_index.invoke(data)
+            self.assertEqual((result['grade'], result['score']), ('fair', 75))
+            self.assertEqual(result['recommendation'], {'word':word, 'suffix':'户外条件尚可', 'causes':[haze]})
+        data = sample(cloud=100.0)
+        for row in data['hours'][:6]:
+            row['wind'] = 11.0
+        for row in data['hours'][6:]:
+            row['pm25'] = 72.0
+        result = outdoor_index.invoke(data)
+        self.assertEqual((result['grade'], result['recommendation']['word'], result['score']), ('fair','全天',68.5))
+        self.assertEqual(result['recommendation']['causes'], ['云量较多'])
+        self.assertTrue(result['periods'][0]['reason'].startswith('主要扣分：大风'))
+        self.assertTrue(result['periods'][1]['reason'].startswith('主要扣分：云量较多'))
+        self.assertEqual(result['periods'][1]['reason'].count('云量较多'), 1)
+        self.assertEqual(self.invoke(pm25=80.0, cloud=100.0)['recommendation']['causes'], [haze, '云量较多'])
+        self.assertEqual(self.invoke(rain=0.1, code=51)['recommendation']['causes'], ['降雨'])
+        self.assertNotIn('causes', self.invoke()['recommendation'])
 
     def test_missing_or_unrated_weather_is_not_zero_or_good(self):
         for changes in [dict(pm25=None),dict(code=95),dict(code=71)]:

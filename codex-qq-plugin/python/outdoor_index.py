@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date as calendar_date, datetime
 import json
+from math import isclose
 import sys
 from typing import Annotated
 
@@ -64,6 +65,15 @@ MODERATE_RAIN_CODES = {63, 65, 67, 81, 82}
 UNREVIEWED_CODES = {48, 56, 57, 66, 71, 73, 75, 77, 85, 86, 95, 96, 97, 99}
 SUPPORTED_CODES = {0, 1, 2, 3, 45, 51, 53, 55, 61, 63, 65, 67, 80, 81, 82}
 
+DEDUCTION_LABELS = {"pm25": "雾霾（PM2.5 偏高）", "wind": "大风", "rain": "降雨", "cloud": "云量较多"}
+
+
+def main_deduction_causes(period_deductions):
+    totals = {key: sum(losses[key] for losses in period_deductions) for key in DEDUCTION_LABELS}
+    largest = max(totals.values())
+    return [DEDUCTION_LABELS[key] for key, loss in totals.items()
+            if loss > 0 and isclose(loss, largest, rel_tol=0, abs_tol=1e-9)]
+
 
 def assess_period(name, start, end, rows, latest=None):
     result = {"name": name, "startHour": start, "endHour": end, "status": "unknown",
@@ -117,6 +127,9 @@ def assess_period(name, start, end, rows, latest=None):
     character = {"gold": "夯", "excellent": "夯", "fair": "可", "poor": "拉"}[grade]
     rain_label = {"none": "无雨", "brief": "零星小雨", "light": "持续小雨" if wet_hours >= 3 else "小雨", "more": "小雨偏多", "zero": "中雨及以上"}[rain_level]
     reasons = zero_reasons or [rain_label, "云量较多" if cloud >= 70 else "云量适中" if cloud >= 30 else "少云"]
+    if grade == "fair":
+        causes = main_deduction_causes([deductions])
+        reasons = ["主要扣分：" + "、".join(causes)] + [detail for detail in reasons if detail not in causes]
     if wind_level in {"blue", "yellow"} and not zero_reasons:
         level = "蓝色" if wind_level == "blue" else "黄色"
         reasons.append(f"预报风力达{level}大风门槛，扣{deductions['wind']}分")
@@ -175,13 +188,11 @@ def outdoor_index(date: str, hours: list[OutdoorHour], red_hazards: list[str] | 
         recommendation = {"word": "全天" if len(fair) == 2 else fair[0]["name"], "suffix": "户外条件尚可"}
     else:
         recommendation = {"word": "全天", "suffix": "不宜户外活动"}
-        labels = {"pm25": "雾霾（PM2.5 偏高）", "wind": "大风", "rain": "降雨", "cloud": "云量较多"}
-        losses = {key: sum(p["deductions"][key] for p in periods) for key in labels}
-        largest = max(losses.values())
-        recommendation["causes"] = [label for key, label in labels.items() if losses[key] == largest]
-    all_day = recommendation["word"] == "全天"
-    score = sum(p["score"] for p in periods) / len(periods) if all_day else best["score"]
-    gold = all(p["gold"] for p in periods) if all_day else best["gold"]
+    rated_periods = periods if recommendation["word"] == "全天" else [best]
+    if best["grade"] in {"fair", "poor"}:
+        recommendation["causes"] = main_deduction_causes([p["deductions"] for p in rated_periods])
+    score = sum(p["score"] for p in rated_periods) / len(rated_periods)
+    gold = all(p["gold"] for p in rated_periods)
     grade = "excellent" if best["gold"] and not gold else best["grade"]
     return {"date": date, "version": RULES["version"], "status": "complete", "periods": periods,
             "bestPeriod": best["name"], "score": score, "displayScore": round(score, 1),

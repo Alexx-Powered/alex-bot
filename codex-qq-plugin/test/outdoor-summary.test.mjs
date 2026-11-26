@@ -27,13 +27,19 @@ test('tomorrow advice uses 全天宜 and keeps the reason between the verdict an
     return draw.apply(this,arguments);
   });
   const input=sample(),now=Date.parse(input.date+'T00:00:00+08:00')-3600_000;
-  for(const pm25 of [10,165,240]){
+  for(const pm25 of [10,80,100,165,240]){
+    const tied=pm25===80;
+    for(const row of input.weather.hourly)row.cloudCoverPct=tied?100:0;
     for(const row of input.air.hourly)row.pm25=pm25;
     const index=await summarizeOutdoor({...input,warning:{hazards:[]}});
     labels.clear();
-    await renderWeatherReportImage({inputs:{date:input.date,cities:[input.city],weather:[input.weather],air:input.air,now,outdoorIndex:index}});
-    const reason=index.dailyDanger?.reasons[0]??index.recommendation.causes?.[0];
-    const words=reason?['明天全天不宜户外活动',reason]:['明天','全天','宜户外活动'];
+    await renderWeatherReportImage({morning:tied,inputs:{date:input.date,cities:[input.city],weather:[input.weather],air:input.air,now,outdoorIndex:index}});
+    const reason=(index.dailyDanger?.reasons??index.recommendation.causes)?.join('、');
+    let words=['明天','全天','宜户外活动'];
+    if(pm25===80||pm25===100){
+      assert.equal(reason,tied?'雾霾（PM2.5 偏高）、云量较多':'雾霾（PM2.5 偏高）');
+      words=['明天','全天','户外条件尚可',reason];
+    }else if(reason)words=['明天全天不宜户外活动',reason];
     const boxes=[...words,index.displayScore+' 分'].map(word=>{
       assert.ok(labels.has(word),word);
       return labels.get(word);
