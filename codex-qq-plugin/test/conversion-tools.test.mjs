@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseConversionCommand,conversionReply,ConversionToolbox,CONVERSION_HELP,fixedToolContext} from '../src/conversion-tools.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
+import {PythonAgentWorker} from '../src/python-agent.mjs';
+import {APP_ROOT} from '../src/runtime-paths.mjs';
 import {RESTRICTED_REPLY} from '../src/access-policy.mjs';
 
 test('fixed conversion aliases and natural numeric forms normalise without doing arithmetic in Node',()=>{
@@ -32,15 +34,13 @@ test('conversion results allow only one bounded numeric line or a fixed clarific
   assert.equal(conversionReply({kind:'chat',text:'1 HU$ = 70 元'}),null);
 });
 
-test('fixed conversion is a Python LangChain execution with no model configuration or quota use',async()=>{
-  const packets=[];
-  const tools=new ConversionToolbox({run:async(packet,execute,finish)=>{packets.push(packet);return finish({kind:'conversion',text:'0.6 HU$ = 70 元'});}});
-  const agent=new ConversationAgent({toolbox:{handle:async()=>null},conversionTools:tools,
-    worker:{run:async()=>assert.fail('Model must not run')},configStore:{read:async()=>assert.fail('No key needed')},
+test('fixed conversion is a Python LangChain execution with no model configuration or quota use',async t=>{
+  const worker=new PythonAgentWorker({home:APP_ROOT});
+  t.after(()=>worker.close());
+  const agent=new ConversationAgent({worker,configStore:{read:async()=>({enabled:false})},
     modelBudget:{acquire:async()=>assert.fail('No model call to count')}});
-  assert.deepEqual(await agent.handle('换算 0.6 HU$ 人民币'),{text:'0.6 HU$ = 70 元'});
-  assert.deepEqual(packets,[{type:'execute',name:'convert_units',args:{amount:'0.6',from_unit:'HU$',to_unit:'CNY'}}]);
-  assert.equal(await tools.handle('马里首都是什么'),null);
+  assert.deepEqual(await agent.handle('换算 0.6 HU$ 人民币',{scope:'c2c'}),{text:'0.6 HU$ = 70 元'});
+  assert.equal(await agent.handle('马里首都是什么',{scope:'c2c'}),null);
 });
 
 test('model-selected conversion is projected separately from chat policy, never rewritten as persona text',async()=>{
@@ -71,12 +71,15 @@ test('fixed tools carry only valid scoped session identity and a server timestam
 
 test('scoped fixed conversion still uses no model key or quota and excludes group background',async()=>{
   let packet;const sessionKey='b'.repeat(64);
-  const conversionTools=new ConversionToolbox({run:async(p,_e,finish)=>{packet=p;return finish({kind:'conversion',text:'1 马里 = 3.08 km'});}});
-  const agent=new ConversationAgent({toolbox:{handle:async()=>assert.fail('Fixed conversion handled first')},conversionTools,
-    configStore:{read:async()=>assert.fail('Fixed conversion needs no Key')},modelBudget:{acquire:async()=>assert.fail('No model quota')}});
-  const result=await agent.handle('1马里换公里',{scope:'group',access:'gray',sessionKey,groupContext:[{text:'not sent'}],currentSpeaker:'member-private'});
+  const worker={run:async(p,_e,finish)=>{packet=p;return finish({kind:'conversion',text:'1 马里 = 3.08 km'});}};
+  const agent=new ConversationAgent({worker,configStore:{read:async()=>({enabled:false,apiKey:'must-not-be-forwarded'})},modelBudget:{acquire:async()=>assert.fail('No model quota')}});
+  const result=await agent.handle('1马里换公里',{scope:'group',access:'gray',sessionKey,groupContext:[{role:'member',speaker:'member-1',text:'not sent'}],currentSpeaker:'member-private'});
   assert.deepEqual(result,{text:'1 马里 = 3.08 km',requiredAccess:'chat'});
-  assert.deepEqual({...packet,now:'server time'},{type:'execute',name:'convert_units',args:{amount:'1',from_unit:'马里',to_unit:'km'},sessionKey,context:{scope:'group',access:'gray'},now:'server time'});
+  assert.equal(packet.type,'fixed_request');assert.equal(packet.replyFormat,'attachment-v1');
+  assert.equal(packet.text,'1马里换公里');assert.equal(packet.sessionKey,sessionKey);
+  assert.equal(packet.context.scope,'group');assert.equal(packet.context.access,'gray');
+  assert.match(packet.context.currentSpeaker,/^member-[0-9a-f]+$/);
+  assert.doesNotMatch(JSON.stringify(packet),/not sent|member-private|must-not-be-forwarded/);
   assert.ok(Number.isFinite(Date.parse(packet.now)));
 });
 

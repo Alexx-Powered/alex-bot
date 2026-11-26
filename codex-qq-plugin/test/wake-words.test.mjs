@@ -6,7 +6,6 @@ import {BridgeCore} from '../src/core.mjs';
 import {DEFAULT_WAKE_WORDS,parseGroupWake} from '../src/wake-words.mjs';
 import {createBridgeServer} from '../src/server.mjs';
 import {PythonAgentWorker} from '../src/python-agent.mjs';
-import {ConversionToolbox} from '../src/conversion-tools.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 
 const key=id=>createHash('sha256').update('group:'+id).digest('hex');
@@ -122,7 +121,7 @@ test('admin-only catalog and group switches use one store and reject extra paylo
 
 test('custom wake reaches real Python LangChain conversion and a closed word never invokes it',async t=>{
   const home=fileURLToPath(new URL('../',import.meta.url)),worker=new PythonAgentWorker({home});t.after(()=>worker.close());
-  const agent=new ConversationAgent({conversionTools:new ConversionToolbox(worker),toolbox:{handle:async()=>null},
+  const agent=new ConversationAgent({worker,
     configStore:{read:async()=>({enabled:false})},modelBudget:{acquire:async()=>assert.fail()}});
   const f=await fixture({handler:(text,context)=>agent.handle(text,context)});
   await f.change('add',{text:'鲸鱼'});const word=f.core.status().wakeWords.at(-1);

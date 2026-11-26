@@ -1,26 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
 import {BridgeCore} from '../src/core.mjs';
-import {CampusService,campusFailure} from '../src/campus-service.mjs';
+import {CampusService} from '../src/campus-service.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 
 const image={buffer:Buffer.alloc(16),mimeType:'image/png'};
 const owner=(id,text)=>({kind:'c2c',senderId:'owner',id,text,replyTarget:{scope:'c2c',targetId:'owner',msgId:id}});
-const snapshot=(date='2026-10-29')=>({...campusFailure('OK',date),ok:true,fetched_at:'2026-10-29T09:00:00+08:00',
-  buildings:['三号楼'],rooms:[{building:'三号楼',room:'105',free_periods:Array.from({length:14},(_,i)=>i+1),busy_periods:[]}]});
-const report=()=>({schema_version:'buaa-recommendations.v1',ok:true,code:'OK',date:'2026-10-29',now:'2026-10-29T16:00:00+08:00',fetched_at:'2026-10-29T09:00:00+08:00',session:'晚上',
-  message:'105（小，1级）19:00—22:15，稍后可用',candidates:[{room:'105',small:true,tier:1,start_period:11,end_period:14,usable_from:'19:00',usable_until:'22:15',available_now:false,complete_remaining:true,period5_busy:false,full_afternoon:true}]});
-
 async function coreFixture({send,limits={},handler}={}){
   let fetched=0;const sent=[];
-  const campus=new CampusService({home:'D:/unused',configStore:{},worker:{close(){}}});
-  campus.run=async()=>{fetched++;assert.equal(sent[0]?.text,'正在抓取数据');return {data:snapshot(),image};};
+  const agent=new ConversationAgent({
+    campusTools:{workerGrant:async()=>({code:'OK'})},configStore:{read:async()=>null},
+    modelBudget:{acquire:()=>assert.fail('fixed command must not use a model')},
+    worker:{run:async(_packet,_execute,finish,authorize,events)=>{
+      const tool='buaa_classroom_query';
+      if(!await authorize('campus',tool))return finish({kind:'clarify',reason:'restricted_access'});
+      if(!await events.progress('campus-fetch'))return finish({kind:'attachment',tool,reply:{cancelled:true}});
+      fetched++;assert.equal(sent[0]?.text,'正在抓取数据');
+      return finish({kind:'attachment',tool,reply:{text:'',image}});
+    }}
+  });
   const core=new BridgeCore({loadState:async()=>null,saveState:async()=>{},limits:{dailyAttempts:300,minuteAttempts:30,reservedNotifications:10,...limits},
     send:async request=>{sent.push(request);await send?.(request,core);return {ok:true};},
-    commandHandler:handler||((text,context)=>campus.handle(text,context))});
+    commandHandler:handler||((text,context)=>agent.handle(text,context))});
   await core.init();const pair=await core.startPairing();await core.handleMessage(owner('pair','/pair '+pair.pairingCode));await core.confirmPairing();
   return {core,sent,fetched:()=>fetched};
 }
@@ -69,46 +70,21 @@ test('white group receives its own acknowledgement and image; gray receives neit
   assert.ok(!f.sent.at(-1).image);
 });
 
-test('query snapshots persist in bounded private memory, restore after restart and recommendations never read credentials',async t=>{
-  const home=await mkdtemp(join(tmpdir(),'qq-campus-memory-'));t.after(()=>rm(home,{recursive:true,force:true}));
-  let credentialReads=0;const calls=[];
-  const config={status:async()=>({enabled:true,configured:true}),read:async()=>{credentialReads++;return {enabled:true,username:'offline-student',password:'offline-password'};}};
-  const worker={close(){},run:async(payload,_execute,finish)=>{
-    calls.push(payload);
-    return finish(payload.mode==='recommend'?{recommendation:report()}:{data:snapshot(payload.args.date),artifact_id:null,...(payload.mode==='report'?{render_error:true}:{})});
-  }};
-  const service=new CampusService({home,configStore:config,worker,now:()=>Date.parse('2026-10-29T08:00:00Z')});
-  for(let i=-1;i<=7;i++)await service.run({date:new Date(Date.parse('2026-10-29T00:00:00Z')+i*86400000).toISOString().slice(0,10)});
-  const saved=JSON.parse(await readFile(join(home,'.private','campus-output','memory.json'),'utf8'));
-  assert.equal(saved.snapshots.length,8);assert.equal(saved.snapshots[0].date,'2026-10-29');
-  assert.doesNotMatch(JSON.stringify(saved),/offline-student|offline-password/);
-  assert.equal((await service.run({date:'2026-10-29'},'report')).data.code,'CAMPUS_RENDER_FAILED');
-  const restored=new CampusService({home,configStore:config,worker,now:()=>Date.parse('2026-10-29T08:00:00Z')});
-  const before=credentialReads;
-  const result=await restored.recommend({session:'evening',limit:8},{scope:'c2c'});
-  assert.equal(credentialReads,before);assert.equal(result.campusRecommendation.candidates[0].room,'105');
-  const request=calls.at(-1);assert.equal(request.mode,'recommend');assert.equal(request.snapshot.date,'2026-10-29');assert.equal(request.now,'2026-10-29T08:00:00.000Z');
-  assert.equal(Object.hasOwn(request,'credentials'),false);
-  const count=calls.length;await restored.recommend({},{scope:'group',access:'gray'});assert.equal(calls.length,count);
-  await restored.recommend({now:'2000-01-01'},{scope:'c2c'});assert.equal(calls.length,count);
-});
-
-test('natural follow-up uses cached tool then a separate model-only explanation and rechecks group permission',async()=>{
+test('natural follow-up executes in one worker request with a credential-free recommendation grant and rechecks group permission',async()=>{
   const packets=[];let allowed=true,budgets=0;
-  const agent=new ConversationAgent({campusTools:{handle:async()=>null,recommend:async()=>({text:report().message,campusRecommendation:report(),requiredAccess:'white'})},
-    toolbox:{handle:async()=>null,execute:async()=>assert.fail('no weather')},
+  const campusTools=new CampusService({home:'unused',worker:{},configStore:{status:async()=>({configured:true,enabled:true}),read:()=>assert.fail('no credentials needed')}});
+  const agent=new ConversationAgent({campusTools,
     configStore:{read:async()=>({enabled:true,apiKey:'offline-model-key'})},modelBudget:{acquire:async()=>{budgets++;return {ok:true};}},
     policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),
-    worker:{run:async(payload,execute,finish)=>{
+    worker:{run:async(payload,_execute,finish,authorize)=>{
       packets.push(payload);
-      if(payload.type==='request')return execute('buaa_classroom_recommend',{session:'evening',limit:8});
-      assert.equal(payload.type,'campus_advice');assert.equal(payload.report.now,'2026-10-29T16:00:00+08:00');
-      await assert.rejects(execute('any',{}),/ADVICE_TOOL_DENIED/);
-      return finish({kind:'reasoned',source:'campus-recommendation',text:'北京时间16:00，09:00采集的缓存。\n105，19:00—22:15，稍后可用。'});
+      assert.equal(payload.type,'request');
+      assert.deepEqual(await authorize('campus','buaa_classroom_recommend'),{code:'OK'});
+      return finish({kind:'attachment',tool:'buaa_classroom_recommend',reply:{text:'',image}});
     }}});
   const context={scope:'group',access:'white',groupContext:[],authorize:()=>allowed};
   const reply=await agent.handle('推荐一下晚上的教室，多推荐几个',context);
-  assert.equal(reply.requiredAccess,'white');assert.match(reply.text,/105/);assert.equal(packets.length,2);assert.equal(budgets,1);
+  assert.equal(reply.requiredAccess,'white');assert.equal(reply.image,image);assert.equal(packets.length,1);assert.equal(budgets,1);
   assert.doesNotMatch(JSON.stringify(packets),/offline-student|offline-password/);
-  allowed=false;assert.equal(await agent.handle('现在想换教室推荐去哪',context),null);assert.equal(packets.length,2);
+  allowed=false;assert.equal(await agent.handle('现在想换教室推荐去哪',context),null);assert.equal(packets.length,1);
 });

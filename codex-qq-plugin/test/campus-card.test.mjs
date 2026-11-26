@@ -1,7 +1,7 @@
 import {pythonExecutable} from '../src/runtime-paths.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,mkdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -9,8 +9,6 @@ import {CampusService,campusFailure} from '../src/campus-service.mjs';
 import {PythonAgentWorker} from '../src/python-agent.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 const home=fileURLToPath(new URL('..',import.meta.url));
-const report=()=>({schema_version:'buaa-recommendations.v1',ok:true,code:'OK',building:'新主楼',date:'2026-10-29',now:'2026-10-29T16:36:00+08:00',fetched_at:'2026-10-29T15:00:00+08:00',session:'下午',message:'A101可用',candidates:[{building:'新主楼',room:'A101',small:false,tier:1,start_period:9,end_period:10,usable_from:'16:36',usable_until:'18:15',available_now:true,complete_remaining:true,period5_busy:false,full_afternoon:false,just_released:true,release_pending:false}]});
-
 test('an ignored request does not trigger rule-based campus dispatch',async()=>{
   const image={mimeType:'image/png'};let calls=0,recovered=0;
   const agent=new ConversationAgent({campusTools:{handle:async()=>null,recoverIgnored:async(text,context)=>{recovered++;assert.equal(text,'今天三号楼的空教室情况');assert.equal(context.access,'white');return {image,text:'',requiredAccess:'white'};}},
@@ -21,46 +19,31 @@ test('an ignored request does not trigger rule-based campus dispatch',async()=>{
   assert.ok(result.ignored);assert.equal(result.requiredAccess,'chat');assert.equal(calls,1);assert.equal(recovered,0);
 });
 
-test('fresh multi-region query preserves the region array through cache and recommendation without leaking credentials',async t=>{
-  const folder=await mkdtemp(path.join(tmpdir(),'qq-regions-'));t.after(()=>rm(folder,{recursive:true,force:true}));
-  const calls=[],regions=['主M','新主楼A座'];
-  const data={...campusFailure('OK','2026-10-29'),ok:true,buildings:['主楼','新主楼'],rooms:[{building:'主楼',room:'主M201',free_periods:Array.from({length:14},(_,i)=>i+1),busy_periods:[]}]};
-  const worker={close(){},run:async(payload,_execute,finish)=>{
-    calls.push(payload);
-    if(payload.mode==='intent')return finish({intent:{view:'compact',session:'now'}});
-    return finish(payload.mode==='query'?{data,artifact_id:null}:{recommendation:{...report(),building:'组合区域',regions,missing_regions:['新主楼A座'],candidates:[{...report().candidates[0],building:'主楼',room:'主M201',region:'主M'}]}});
-  }};
-  const service=new CampusService({home:folder,worker,now:()=>Date.parse('2026-10-29T08:36:00Z'),configStore:{read:async()=>({enabled:true,username:'offline-student',password:'offline-password'}),status:async()=>({enabled:true,configured:true})}});
-  const result=await service.execute({date:'2026-10-29',regions},{scope:'c2c'},'主M和新主楼A座现在去哪');
-  assert.deepEqual(result.campusRecommendation.regions,regions);assert.equal(result.campusRecommendation.candidates[0].region,'主M');
-  const business=calls.filter(call=>call.mode!=='intent');
-  assert.equal(business[0].mode,'query');assert.deepEqual(business[0].args,{date:'2026-10-29'});
-  assert.deepEqual(business[1].args.regions,regions);assert.equal(Object.hasOwn(business[1],'credentials'),false);
-  assert.doesNotMatch(JSON.stringify(result),/offline-student|offline-password/);
-});
-
-test('real private Python renderer creates a validated image; gray cannot render',async t=>{
-  const folder=await mkdtemp(path.join(tmpdir(),'qq-card-'));
-  const worker=new PythonAgentWorker({home:folder,pythonPath:pythonExecutable(),workerPath:path.join(home,'python','campus_worker.py'),maxLineBytes:262144});
-  t.after(()=>{worker.close();return rm(folder,{recursive:true,force:true,maxRetries:10,retryDelay:100});});const service=new CampusService({home:folder,worker,configStore:{}});
-  assert.equal(await service.renderRecommendation(report(),'去A101。',{scope:'group',access:'gray'}),null);
-  const result=await service.renderRecommendation(report(),'去A101。',{scope:'c2c'});
-  assert.equal(result.text,'');assert.equal(result.requiredAccess,'white');assert.equal(result.image.mimeType,'image/png');
-  assert.equal(result.image.buffer.readUInt32BE(16),1080);
-});
-
-test('natural recommendation produces one image after model explanation, including fallback on model failure',async()=>{
-  for(const failed of [false,true]){
-    let rendered=0;
-    const image={buffer:Buffer.alloc(16),mimeType:'image/png'};
-    const agent=new ConversationAgent({
-      campusTools:{handle:async()=>null,recommend:async(args,_context,text)=>{assert.equal(args.building,'新主楼');assert.equal(text,undefined);return {text:'A101',campusRecommendation:report()};},
-        renderRecommendation:async(data,explanation)=>{rendered++;assert.equal(data.building,'新主楼');assert.equal(explanation,failed?'':'去A101。');return {image,text:'',requiredAccess:'white'};}},
-      toolbox:{handle:async()=>null},configStore:{read:async()=>({enabled:true,apiKey:'offline-model-key'})},
-      policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})},
-      worker:{run:async(packet,execute,finish)=>{if(packet.type==='request')return execute('buaa_classroom_recommend',{building:'新主楼'});if(failed)throw Error('offline failure');return finish({source:'campus-recommendation',text:'A101可用',explanation:'去A101。'});}}
-    });
-    const result=await agent.handle('新主楼现在去哪个教室',{scope:'c2c'});
-    assert.equal(result.image,image);assert.equal(result.text,'');assert.equal(rendered,1);
-  }
+test('a real LangChain recommendation reads a pre-migration snapshot and returns a PNG through the gateway',async t=>{
+  const folder=await mkdtemp(path.join(tmpdir(),'qq-campus-worker-'));
+  const tomorrow=new Date(Date.now()+32*3600000).toISOString().slice(0,10);
+  const script=path.join(folder,'offline_school.py');
+  await writeFile(script,[
+    'import sys','sys.path.insert(0,'+JSON.stringify(path.join(home,'python'))+')',
+    'import agent_worker','from test_agent_worker import ScriptedModel, call','from langchain_core.messages import AIMessage',
+    "model=ScriptedModel(responses=[call('buaa_classroom_recommend',{'date':'"+tomorrow+"','regions':['新主楼A座'],'session':'evening'}),AIMessage(content='优先看看A101。')])",
+    'agent_worker.default_model_factory=lambda _:model','agent_worker.main()'
+  ].join('\n'),'utf8');
+  const worker=new PythonAgentWorker({home:folder,pythonPath:pythonExecutable(),workerPath:script});
+  t.after(()=>{worker.close();return rm(folder,{recursive:true,force:true,maxRetries:10,retryDelay:100});});
+  const room={building:'新主楼',room:'A101',free_periods:Array.from({length:14},(_,i)=>i+1),busy_periods:[]};
+  const data={...campusFailure('OK',tomorrow),ok:true,buildings:['新主楼'],rooms:[room]};
+  const output=path.join(folder,'.private','campus-output');await mkdir(output,{recursive:true});
+  await writeFile(path.join(output,'memory.json'),JSON.stringify({version:1,snapshots:[data]}));
+  const campus=new CampusService({home:folder,worker:{},configStore:{
+    status:async()=>({enabled:true,configured:true}),read:async()=>assert.fail('recommendation read credentials')
+  }});
+  const context={scope:'group',access:'white',groupContext:[],currentSpeaker:'member-a'};
+  const packet={type:'request',replyFormat:'attachment-v1',text:'明天晚上新主楼A座哪间教室能去？',sessionKey:'offline-school',
+    now:new Date().toISOString(),context,config:{enabled:true,apiKey:'offline-model-key',model:'deepseek-flash',baseURL:'https://api.deepseek.com'},
+    policy:{enabled:false,topics:[],maxChars:600,instructions:''}};
+  const outputReply=await worker.run(packet,()=>assert.fail('legacy callback'),value=>value.reply,
+    (_feature,tool)=>campus.workerGrant(tool,context),{allowed:()=>true});
+  assert.equal(outputReply.text,'');assert.equal(outputReply.image.mimeType,'image/png');
+  assert.equal(outputReply.image.buffer.readUInt32BE(16),1080);
 });

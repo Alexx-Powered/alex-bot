@@ -219,7 +219,7 @@ def format_observation(value):
     return '\n\n'.join(parts)
 
 
-def build_agent_rag_tools(retriever, packet, claim, selected, outdoor_config=None,research_queue=None):
+def build_agent_rag_tools(retriever, packet, claim, selected, outdoor_config=None,research_queue=None,authorize=None):
     if retriever is None or not eligible_context(packet):
         return []
     from rag_tools import build_rag_tools
@@ -259,7 +259,8 @@ def build_agent_rag_tools(retriever, packet, claim, selected, outdoor_config=Non
             if not claim():
                 return '本轮已执行一次工具。'
             feature = feature_for(_name, args)
-            if not feature or not allows_feature(context, feature) or (feature == 'memory' and not allow_memory):
+            if (not feature or not allows_feature(context, feature) or (feature == 'memory' and not allow_memory)
+                    or (authorize and not authorize(_name, feature))):
                 selected.update(kind='clarify', reason='restricted_access', memory_text='')
                 return '当前会话未开放这项功能。'
             started=time.time()*1000

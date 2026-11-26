@@ -17,14 +17,14 @@ test('five providers have deterministic commands; unsupported providers do not m
 });
 
 test('all five commands cross real Node/Python/LangChain boundary without model config or budget',async()=>{
-  const worker=new PythonAgentWorker({home:APP_ROOT,pythonPath:pythonExecutable(),workerPath:path.join(APP_ROOT,'test/fixtures/provider-status-worker.py'),timeoutMs:15000});
-  const statusTools=new PublicStatusService({home:APP_ROOT,worker});
-  const agent=new ConversationAgent({statusTools,configStore:{read:async()=>assert.fail('no model configuration')},modelBudget:{acquire:async()=>assert.fail('no model budget')}});
+  const worker=new PythonAgentWorker({home:APP_ROOT,pythonPath:pythonExecutable(),workerPath:path.join(APP_ROOT,'test/fixtures/public-status-worker.py'),timeoutMs:20000});
+  const agent=new ConversationAgent({worker,configStore:{read:async()=>({enabled:false})},modelBudget:{acquire:async()=>assert.fail('no model budget')}});
   try{for(const p of providers){
-    const answer=await agent.handle(`查 ${p} 状态`,{scope:'c2c'});
+    const answer=await agent.handle(`查 ${p} 状态`,{scope:'group',access:'white',features:defaultGroupFeatures('white')});
     assert.equal(answer.richMedia,true,answer.text);assert.equal(answer.requiredFeature,'status');
+    assert.match(answer.text,/运行正常/);assert.ok(answer.text.toLowerCase().includes(p));
     const image=await loadImage(answer.image.buffer);assert.equal(image.width,1867);assert.ok(answer.image.buffer.length<1500000);
-  }}finally{statusTools.close();}
+  }}finally{worker.close();}
 });
 
 test('group feature switch, gray access and invalid parameters deny before querying',async()=>{
@@ -38,16 +38,21 @@ test('group feature switch, gray access and invalid parameters deny before query
   assert.equal(queries,0);
 });
 
-test('existing OpenAI and new provider natural-language tools cross real LangChain RPC once',async()=>{
+test('natural-language provider queries run in LangChain and authorize one worker attachment each',async()=>{
   const worker=new PythonAgentWorker({home:APP_ROOT,pythonPath:pythonExecutable(),workerPath:path.join(APP_ROOT,'test/fixtures/public-status-worker.py'),timeoutMs:15000});
-  const calls=[],reply={text:'official source',image:{buffer:Buffer.alloc(10),mimeType:'image/png'},requiredFeature:'status',richMedia:true};
-  const agent=new ConversationAgent({worker,statusTools:{handle:async()=>null,execute:async(name,args)=>{calls.push({name,args});return reply;}},toolbox:{handle:async()=>null},
+  const calls=[],run=worker.run.bind(worker);
+  worker.run=(packet,execute,finish,authorize,events)=>run(packet,execute,finish,(feature,name)=>{
+    calls.push({feature,name});return authorize(feature,name);
+  },events);
+  const agent=new ConversationAgent({worker,
     configStore:{read:async()=>({enabled:true,apiKey:'offline-test-key',model:'deepseek-flash',baseURL:'https://api.deepseek.com'})},
     policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})}});
   try{for(const p of ['openai','gemini','claude','kimi']){
-    assert.equal(await agent.handle(`${p}是不是恢复了`,{scope:'c2c',sessionKey:'provider-'+p}),reply);
+    const reply=await agent.handle(`${p}是不是恢复了`,{scope:'c2c',sessionKey:'provider-'+p});
+    assert.ok(reply.text.toLowerCase().includes(p),reply.text);assert.match(reply.text,/运行正常/);
+    assert.equal(reply.richMedia,true);assert.equal((await loadImage(reply.image.buffer)).width,1867);
   }}finally{worker.close();}
-  assert.deepEqual(calls,['openai','gemini','claude','kimi'].map(provider=>({name:'ai_service_status',args:{provider}})));
+  assert.deepEqual(calls,Array.from({length:4},()=>({feature:'status',name:'ai_service_status'})));
 });
 
 test('permission revoked during a provider query suppresses its in-flight image',async()=>{

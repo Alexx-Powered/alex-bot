@@ -39,6 +39,15 @@ export class WeatherToolbox{
   }
   async invoke(name,args){
     if(!Object.hasOwn(schemas,name))throw new Error('UNKNOWN_WEATHER_TOOL');
+    if(name==='weather_image'){
+      try{
+        return await this.worker.run({type:'execute',name,args,replyFormat:'attachment-v1'},
+          ()=>{throw Error('UNEXPECTED_TOOL_CALLBACK');},result=>result.reply,(_feature,tool)=>tool===name);
+      }catch(error){
+        recordRequestFailure(error,'worker_total');
+        return {text:timeoutNotice(error)||'天气图服务暂不可用，请稍后查询。'};
+      }
+    }
     schemas[name].parse(args);
     try{return await this.worker.run({type:'execute',name,args},(n,a)=>this.execute(n,a));}
     catch(error){if(error.toolExecuted)throw error;if(error.timedOut){recordRequestFailure(error,'worker_total');return {text:timeoutNotice(error)};}return this.execute(name,args);}

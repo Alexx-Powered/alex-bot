@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,execFileSync} from 'node:child_process';
-import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {loadImage} from '@napi-rs/canvas';
@@ -10,6 +10,7 @@ import {PythonAgentWorker,pythonEnvironment} from '../src/python-agent.mjs';
 import {pythonExecutable} from '../src/runtime-paths.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 import {defaultGroupFeatures} from '../src/group-features.mjs';
+import {Telemetry} from '../src/telemetry.mjs';
 
 function fixture(n=3){
   const days=Array.from({length:n},(_,i)=>({date:'2026-11-'+String(i+7).padStart(2,'0'),route:['起点村','山脊营地'],sleep:i<n-1?{name:'山脊营地',kind:'tent'}:null,distance:12,
@@ -46,11 +47,13 @@ test('3 and 14 walking days retain readable day width within canvas memory budge
   assert.ok(small.width>2000);assert.ok(long.width>small.width);
   assert.ok(long.width<=6001);assert.ok(long.width*long.height<=18_020_000);
 });
-test('new fixed command cannot bypass group weather permission',async()=>{
-  const agent=new ConversationAgent({worker:{run(){throw Error('MUST_NOT_EXECUTE');}},ragEnabled:true,modelBudget:{acquire(){throw Error('MUST_NOT_CALL_MODEL');}}});
+test('new fixed command cannot bypass group weather permission',async t=>{
+  const home=fileURLToPath(new URL('../',import.meta.url)),worker=new PythonAgentWorker({home});
+  t.after(()=>worker.close());
+  const agent=new ConversationAgent({worker,modelBudget:{acquire(){throw Error('MUST_NOT_CALL_MODEL');}}});
   const features={...defaultGroupFeatures(),weather:false};
   const result=await agent.handle('发 徒步 党岭',{scope:'group',access:'white',features,sessionKey:'a'.repeat(64)});
-  assert.equal(result.image,undefined);assert.ok(result.text);
+  assert.equal(result.image,undefined);assert.match(result.text,/未开放/);
 });
 test('real Node to Python LangChain carries weather reference and camping/room alternatives without model or QQ',async()=>{
   const root=fileURLToPath(new URL('../',import.meta.url)),parent=path.join(root,'test-output','hiking-node');await mkdir(parent,{recursive:true});
@@ -62,6 +65,14 @@ test('real Node to Python LangChain carries weather reference and camping/room a
   await writeFile(wrapper,`import sys,runpy
 sys.path.insert(0,${JSON.stringify(path.join(root,'python'))})
 import hiking_trip as h
+import worker_artifacts, json
+from pathlib import Path
+render=worker_artifacts.render_canvas
+def capture_render(kind, inputs):
+ if kind=='hiking':
+  Path("render-input.json").write_text(json.dumps(inputs,ensure_ascii=False),encoding="utf-8")
+ return render(kind,inputs)
+worker_artifacts.render_canvas=capture_render
 from hiking_catalog import validate_profile
 point={'lat':30,'lon':100,'source':'https://www.openstreetmap.org/node/1'}
 profile=validate_profile({'topic':'合成测试山','variant':'测试两日往返','sources':[{'url':'https://example.org/fixture','date':'2026-11-08'}],
@@ -76,17 +87,18 @@ h.forecasts=forecast
 runpy.run_path(${JSON.stringify(path.join(root,'python','agent_worker.py'))},run_name='__main__')
 `);
   const worker=new PythonAgentWorker({home,pythonPath:python,workerPath:wrapper,spawnImpl:(exe,args,options)=>spawn(exe,args,{...options,env:{...options.env,QQ_RAG_CONFIG:config}})});
-  const run=worker.run.bind(worker),outputs=[];
-  worker.run=(packet,execute,finish)=>run(packet,execute,value=>{outputs.push(value);return finish(value);});
   try{
-    const agent=new ConversationAgent({worker,ragEnabled:true,configStore:{read(){throw Error('MODEL_CONFIG_DENIED');}},modelBudget:{acquire(){throw Error('MODEL_BUDGET_DENIED');}}});
-    const reply=await agent.handle('发 徒步 合成测试山',{scope:'c2c',sessionKey:'a'.repeat(64)});
+    const agent=new ConversationAgent({worker,configStore:{read:async()=>({enabled:false})},modelBudget:{acquire(){throw Error('MODEL_BUDGET_DENIED');}}});
+    const telemetry=new Telemetry({home,configStore:{read:async()=>({enabled:false})}});
+    const reply=await telemetry.run({scope:'c2c'},()=>agent.handle('发 徒步 合成测试山',{scope:'c2c',sessionKey:'a'.repeat(64)}));
     assert.equal(reply.text,'');assert.ok(Buffer.isBuffer(reply.image.buffer));assert.equal(reply.image.mimeType,'image/png');assert.ok((await loadImage(reply.image.buffer)).width>1000);
-    const day=outputs.at(-1).hikingCard.days[0];
+    const stages=(await telemetry.status()).recent[0].spans.map(span=>span.name);
+    for(const stage of ['hiking_route','hiking_locate','hiking_fetch','hiking_render'])assert.ok(stages.includes(stage),stage);
+    const card=JSON.parse(await readFile(path.join(home,'render-input.json'),'utf8'));
+    const day=card.days[0];
     assert.equal(day.stats.min,10);assert.equal(day.stats.cloud,40);assert.equal(day.stats.precip,24);
     assert.equal(day.coverage.min,24);assert.equal(day.coverage.precip,24);assert.equal(day.series[12][0],10);
     assert.equal(day.weather_reference,'起点村');
-    const card=outputs.at(-1).hikingCard;
     assert.equal(card.nights[0].kind,'tent');assert.equal(card.nights[0].comfort,10);
     assert.deepEqual(card.nights[0].options,['tent','inn']);
     assert.equal(card.alternate.nights[0].kind,'inn');assert.equal(card.alternate.nights[0].comfort,null);

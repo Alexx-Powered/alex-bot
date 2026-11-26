@@ -1,4 +1,4 @@
-"""Serial, bounded NDJSON LangChain worker. Images and QQ remain in Node."""
+"""Serial, bounded NDJSON LangChain worker. QQ transport stays in the gateway."""
 from __future__ import annotations
 
 import contextlib
@@ -104,6 +104,7 @@ class CampusArgs(StrictArgs):
     building: Annotated[str,Field(min_length=1,max_length=64,pattern=r'^[\w（）()· .-]+$')] = '三号楼'
     regions: Annotated[list[Annotated[str,Field(min_length=1,max_length=32,pattern=r'^[\w（）()· .-]+$')]],Field(max_length=12)] = []
     view: Literal['auto','compact','full'] = 'auto'
+    session: Literal['now','morning','afternoon','evening'] = 'now'
 
 
 class OpenAIStatusArgs(StrictArgs):
@@ -304,9 +305,11 @@ class Runner:
     def __init__(self, model_factory: Callable, rpc_callback: Callable, clock: Callable, memory_store=None,chat_model_factory=None,profiling=False,rag_retriever=None,outdoor_config=None,research_queue=None):
         self.model_factory, self.rpc_callback, self.clock = model_factory, rpc_callback, clock
         self.sessions: OrderedDict[str, Session] = OrderedDict()
+        self.weather_places = OrderedDict()
         self.signature: str | None = None
         self.memory_store = memory_store
         self.chat_model_factory=chat_model_factory
+        self.gateway = None
         self.profiling=profiling
         self.tool_results=ToolResultContext(clock=clock)
         self.tool_config_signature=None
@@ -405,6 +408,26 @@ class Runner:
                         return clarify('unsupported_time')
                 except ValueError:
                     return clarify('unsupported_time')
+            if packet.get("replyFormat") == "attachment-v1":
+                from worker_business import execute, error_reply
+                if name not in TOOL_FEATURES:
+                    raise WorkerError("TOOL_DENIED")
+                grant = self._authorize(packet, name, args)
+                if grant is None:
+                    return clarify("restricted_access")
+                try:
+                    reply = execute(name, args, packet, self.performance, grant)
+                except Exception as exc:
+                    reply = {"text": error_reply(name, exc)}
+                if reply.get("media") and args.get("city") and packet.get("sessionKey"):
+                    key = (packet["sessionKey"], context.get("currentSpeaker"))
+                    self.weather_places[key] = (self.clock(), args["city"])
+                    self.weather_places.move_to_end(key)
+                    if len(self.weather_places) > 256:
+                        self.weather_places.popitem(last=False)
+                summary = f"{name} {json.dumps(args,ensure_ascii=False)}："+("已生成" if reply.get("media") else reply["text"])
+                selected.update(kind="attachment", tool=name, reply=reply, memory_text=summary[:MAX_REQUEST_CHARS])
+                return selected["memory_text"]
             content = self.rpc_callback(packet["id"], uuid.uuid4().hex, name, args)
             if not isinstance(content, str) or len(content.encode("utf-8")) > 60000:
                 raise WorkerError("INVALID_TOOL_RESULT")
@@ -542,9 +565,9 @@ class Runner:
                 return remote('liang_status',{})
             tools.extend([ai_service_status,deepseek_service_status,liang_status])
             @tool(args_schema=CampusArgs,return_direct=True)
-            def buaa_classroom_query(date: str = '',building: str='三号楼',regions: list[str]=[],view: str='auto') -> str:
+            def buaa_classroom_query(date: str = '',building: str='三号楼',regions: list[str]=[],view: str='auto',session: str='now') -> str:
                 """本人或白名单群主动查询：获取北航学院路全部教学楼空教室JSON，并生成三号楼自习简报图片。date为空今天，或未来7天YYYY-MM-DD。学院路、学校空教室、三号楼自习/简报问题使用此工具。凭据由独立本机服务处理；不询问学号密码，不接受其他校区、URL、文件路径或收件人。灰名单没有此权限。"""
-                return remote('buaa_classroom_query',{'date':date,**({'building':building} if building!='三号楼' else {}),**({'regions':regions} if regions else {}),**({'view':view} if view!='auto' else {})})
+                return remote('buaa_classroom_query',{'date':date,**({'building':building} if building!='三号楼' else {}),**({'regions':regions} if regions else {}),**({'view':view} if view!='auto' else {}),**({'session':session} if session!='now' else {})})
             tools.append(buaa_classroom_query)
             @tool(args_schema=RecommendationArgs,return_direct=True)
             def buaa_classroom_recommend(date: str='', session: str='now', limit: int=8, exclude_room: str='',building: str='三号楼',regions: list[str]=[]) -> str:
@@ -559,7 +582,13 @@ class Runner:
                 """本人或白名单群主动查询本机已配置DeepSeek API Key所属账户的真实余额、赠金和充值余额。无参数，不接受用户指定Key或账户；不查询古月币、用户生活费或QQ钱包。灰名单没有此权限。"""
                 if not claim():
                     return "本请求仅允许一个工具动作。"
-                text = read_balance(packet.get('config',{}).get('apiKey'))
+                key = (packet.get('config') or {}).get('apiKey')
+                if packet.get("type") == "fixed_request":
+                    grant = self._authorize(packet, "deepseek_account_balance", {})
+                    if grant is None:
+                        return clarify("restricted_access")
+                    key = grant.get("apiKey")
+                text = read_balance(key)
                 self.tool_results.remember_balance(packet.get('sessionKey'),context,text)
                 selected.update(kind="balance",text=text,memory_text="[已私下查询DeepSeek余额]")
                 return text
@@ -643,15 +672,41 @@ class Runner:
                 tools.append(chat_memory)
         if self.rag_retriever is not None:
             from rag_runtime import build_agent_rag_tools
-            tools.extend(build_agent_rag_tools(self.rag_retriever,packet,claim,selected,self.outdoor_config,self.research_queue))
+            authorize = None
+            if packet.get("replyFormat") == "attachment-v1":
+                authorize = lambda name, feature: self._authorize(packet,name,{},feature=feature) is not None
+            tools.extend(build_agent_rag_tools(self.rag_retriever,packet,claim,selected,self.outdoor_config,self.research_queue,authorize))
         tools=[item for item in tools if item.name not in TOOL_FEATURES or allows_feature(context,TOOL_FEATURES[item.name])]
         return tools, local_weather_briefing, selected
+
+    def _authorize(self, packet, name, args, feature=None):
+        if self.gateway is None:
+            return {}
+        trace = {k:args[k] for k in ("city","target","day","hours","provider") if k in args}
+        result = self.gateway(packet["id"], "authorize", tool=name, trace=trace, **({"feature":feature} if feature else {}))
+        return result.get("grant", {}) if result.get("allowed") is True else None
 
     def run(self, packet: Any) -> dict:
         from performance_metrics import PerformanceRecorder
         self.performance=PerformanceRecorder(enabled=self.profiling)
         received=time.time()*1000
+        if isinstance(packet,dict) and self.gateway:
+            request_id=packet.get("id")
+            self.performance.video_event=lambda event:self.gateway(request_id,"video_stage",event=event)
+            self.performance.campus_event=lambda event:self.gateway(request_id,"campus_stage",event=event)
+            self.performance.campus_allowed=lambda:self.gateway(request_id,"campus_continue").get("allowed") is True
+            self.performance.campus_progress=lambda stage:self.gateway(request_id,"campus_progress",stage=stage).get("allowed") is True
+            self.performance.save_campus_session=lambda state:self.gateway(request_id,"campus_session",state=state).get("allowed") is True
+        self.performance.campus_advice=lambda report:self._run({**packet,"type":"campus_advice","report":report}).get("explanation","")
         result=self._run(packet)
+        if result.get("hikingCard") and packet.get("replyFormat")=="attachment-v1":
+            from worker_artifacts import render_canvas, publish
+            try:
+                with self.performance.span("hiking_render"):
+                    image=publish(packet["id"],"png",render_canvas("hiking",result.pop("hikingCard")))
+                result.update(kind="attachment",tool="hiking_trip_card",text="",**image)
+            except Exception:
+                result.update(kind="attachment",tool="hiking_trip_card",text="徒步卡片暂未完成，请稍后重试。")
         if self.profiling:
             timings=self.performance.finish()
             if timings:result['timings']=timings
@@ -776,7 +831,29 @@ class Runner:
 
                 report = morning_analysis.invoke({"payload": packet.get("data")})
                 return {"type": "result", "id": request_id, "kind": "analysis", "report": report}
-            if packet.get("type") == "execute":
+            if packet.get("type") == "fixed_request":
+                from fixed_commands import parse
+                text, session_key = packet.get("text"), packet.get("sessionKey")
+                if (not isinstance(text, str) or not 1 <= len(text) <= MAX_REQUEST_CHARS or
+                        not isinstance(session_key, str) or not 1 <= len(session_key) <= 256):
+                    raise WorkerError("INVALID_REQUEST")
+                context = packet["context"]
+                _normalize_context(context)
+                today = _now(packet["now"]).date()
+                prior = self.weather_places.get((session_key, context.get("currentSpeaker")))
+                place = prior[1] if prior and 0 <= self.clock() - prior[0] < 1800 else None
+                route = parse(text, today, place)
+                if route is None:
+                    return {"type":"result", "id":request_id, "kind":"ignore"}
+                name, args = route
+                tools, _, selected = self._tools(packet, _normalize_policy(None), today.isoformat())
+                chosen = next((item for item in tools if item.name == name), None)
+                if chosen is None:
+                    if name == "hiking_trip_card" and allows_feature(context, "weather") and context.get("access") != "gray":
+                        return {"type":"result", "id":request_id, "kind":"rag", "text":"徒步资料服务暂未启用。", "requiredFeature":"weather"}
+                    return {"type":"result", "id":request_id, "kind":"clarify", "reason":"restricted_access"}
+                chosen.invoke(args)
+            elif packet.get("type") == "execute":
                 name, args = packet.get("name"), packet.get("args")
                 if name not in EXECUTE_NAMES or not isinstance(args, dict):
                     raise WorkerError("INVALID_EXECUTE")
@@ -936,7 +1013,7 @@ class Runner:
                     for fact in auto_memory_candidates(text):
                         with self.performance.span('memory'):
                             memory_tools['update'].invoke({'action':'remember',**fact})
-                if group_context is None and not selected.get('forget_history') and (selected.get("kind") in {"tool", "conversion", "reasoned", "balance", "chat", "clarify"} or selected.get('outdoor_trip')):
+                if group_context is None and not selected.get('forget_history') and (selected.get("kind") in {"tool", "attachment", "conversion", "reasoned", "balance", "chat", "clarify"} or selected.get('outdoor_trip')):
                     # Reset only the short conversation thread on an explicit topic switch.
                     # Durable member preferences and media records remain available.
                     session = (history if selected.get('topic_relation')!='new' else None) or Session(self.clock())
@@ -950,7 +1027,9 @@ class Runner:
                 raise WorkerError("INVALID_REQUEST")
             kind = selected.get("kind", "ignore")
             response = {"type": "result", "id": request_id, "kind": kind}
-            if kind == "chat":
+            if kind == "attachment":
+                response.update(tool=selected["tool"], **selected["reply"])
+            elif kind == "chat":
                 response.update(text=selected["text"], topic=selected["topic"])
                 if selected.get('forget_history'):response['memory_reset']=True
             elif kind == 'rag':
@@ -1029,7 +1108,18 @@ def main():
     incoming, outgoing = sys.stdin.buffer, sys.stdout.buffer
     from chat_memory import ChatMemoryStore
     from rag_runtime import load_rag_retriever,load_outdoor_config,load_research_queue
+    def gateway(request_id, operation, **fields):
+        if operation in {"video_stage","campus_stage"}:
+            write_packet(outgoing,{**fields["event"],"type":operation,"id":request_id})
+            return {}
+        write_packet(outgoing, {"type":operation,"id":request_id,**fields})
+        response = read_packet(incoming)
+        if not response or response.get("type")!="authorization" or response.get("id")!=request_id:
+            raise WorkerError("PROTOCOL_AUTHORIZATION_MISMATCH")
+        return response
+
     runner = build_runner(rpc_callback=StdioRPC(incoming, outgoing),memory_store=ChatMemoryStore(Path.cwd()/'.private'/'chat-memory'),chat_model_factory=default_model_factory,profiling=True,rag_retriever=load_rag_retriever(),outdoor_config=load_outdoor_config(),research_queue=load_research_queue())
+    runner.gateway = gateway
     while True:
         try:
             packet = read_packet(incoming)

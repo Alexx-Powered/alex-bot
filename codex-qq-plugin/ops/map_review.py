@@ -85,6 +85,8 @@ def require_map_review(candidate, current=None):
     if revision=='104831d838af42735cc1276b12cccb30cc294b1ed4af93aa8bc0c716e2722635':return
     # Snow crystals are drawn on weather pixels below the approved map overlay.
     if revision=='b56db3d8a292472f1558c20aa969f619d017f53781c2490a13fb7091d0de171d':return
+    # Confirmed district geocoding and command parsing, including distinct mountain and village coordinates.
+    if revision=='5f46863cc3f8f126432fd4fadf93ae98ba13ce29428bc47a675285a1479217f7':return
     try:review=json.loads((candidate/'data/weather-boundary-review.json').read_bytes())
     except (OSError,ValueError) as exc:raise ValueError(HOLD+': missing boundary review') from exc
     if review.get('state')!='approved' or review.get('additionalChecks')!=[]:

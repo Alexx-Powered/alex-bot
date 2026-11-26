@@ -21,13 +21,15 @@ test('fixed balance execution projects optional scoped session metadata without 
  const agent=new ConversationAgent({toolbox:{handle:async()=>null},configStore:{read:async()=>({enabled:false,apiKey:'fake-key-123'})},
   worker:{run:async(p,_e,finish)=>{packets.push(p);return finish({kind:'balance',text:'DeepSeek余额：4.09 CNY'});}},modelBudget:{acquire:async()=>assert.fail('No model quota for balance')}});
  for(const context of [{scope:'c2c',sessionKey:'e'.repeat(64)},{scope:'group',access:'white',sessionKey:'f'.repeat(64)}]){
-  await agent.handle('查DeepSeek余额',{...context,groupContext:[{text:'never send shared transcript'}],currentSpeaker:'private member',now:'user supplied'});
+  await agent.handle('查DeepSeek余额',{...context,groupContext:[{speaker:'member-1',role:'member',text:'never send shared transcript'}],currentSpeaker:'private member',now:'user supplied'});
   const packet=packets.at(-1);
   assert.equal(packet.sessionKey,context.sessionKey);
-  assert.deepEqual(packet.context,{scope:context.scope,...context.scope==='group'?{access:'white'}:{}});
+  assert.equal(packet.context.scope,context.scope);assert.equal(packet.context.access,context.access);
+  if(context.scope==='group')assert.match(packet.context.currentSpeaker,/^member-[a-f0-9]+$/);
   assert.ok(Number.isFinite(Date.parse(packet.now)));
-  assert.doesNotMatch(JSON.stringify(packet),/never send shared transcript|private member|user supplied/);
+  assert.doesNotMatch(JSON.stringify(packet),/never send shared transcript|private member|user supplied|fake-key-123/);
  }
  await agent.handle('查DeepSeek余额',{scope:'c2c'});
- assert.deepEqual(packets.at(-1),{type:'execute',name:'deepseek_account_balance',args:{},config:{enabled:false,apiKey:'fake-key-123'},context:{scope:'c2c'}});
+ assert.equal(packets.at(-1).type,'fixed_request');assert.equal(packets.at(-1).replyFormat,'attachment-v1');
+ assert.equal(packets.at(-1).text,'查DeepSeek余额');assert.equal(packets.at(-1).config,undefined);
 });

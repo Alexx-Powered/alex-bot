@@ -20,7 +20,7 @@ def observations(data):
     if not rows:raise CampusError('CAMPUS_RENDER_FAILED')
     return {'building':'三号楼','date':data['date'],'rows':rows}
 
-def render_report(data,private_root,*,demo=False):
+def render_report(data,private_root,*,demo=False,save_latest=True):
     result=planner.analyze(observations(data))
     board=render_board(result,demo=demo)
     strip=Image.new('RGB',(1800,110),'#f6f3ed');draw=ImageDraw.Draw(strip)
@@ -33,7 +33,8 @@ def render_report(data,private_root,*,demo=False):
     artifact=uuid.uuid4().hex
     path=output/(artifact+'.png');image.save(path,optimize=True)
     if path.stat().st_size>1_500_000:path.unlink();raise CampusError('CAMPUS_RENDER_FAILED')
-    (output/'latest.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+    if save_latest:
+        (output/'latest.json').write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
     return artifact
 
 

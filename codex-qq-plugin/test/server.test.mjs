@@ -17,10 +17,10 @@ test('an incompatible account domain cannot open official state', async () => {
   assert.deepEqual(store.state, {identityDomain:'other-account'});
 });
 
-async function fixture(weatherCommands) {
+async function fixture(weatherCommands, agentWorker) {
   const store=memoryStore(), sent=[];
   let receive,reportStatus;
-  const app=await createBridgeServer({port:0,store,campusService:{status:async()=>({enabled:false}),handle:async()=>null,close(){},run:async()=>({image:{buffer:Buffer.alloc(32),mimeType:'image/png'}})},...(weatherCommands?{weatherCommands,morningReport:{plan:()=>({city:'beijing'}),create:()=>weatherCommands.briefing({cities:['beijing'],renderImage:true})}}:{}),adapterFactory:({onMessage,onStatus})=>{
+  const app=await createBridgeServer({port:0,store,agentWorker,campusService:{status:async()=>({enabled:false}),handle:async()=>null,close(){},run:async()=>({image:{buffer:Buffer.alloc(32),mimeType:'image/png'}})},...(weatherCommands?{weatherCommands,morningReport:{plan:()=>({city:'beijing'}),create:()=>weatherCommands.briefing({cities:['beijing'],renderImage:true})}}:{}),adapterFactory:({onMessage,onStatus})=>{
     receive=onMessage; let state='disconnected';
     reportStatus=(next,code)=>{state=next;onStatus({state,code});};
     return {status:()=>({state,code:null}),async connect(){state='connected'},async disconnect(){state='disconnected'},
@@ -290,7 +290,13 @@ test('weather location errors expose only fixed codes and bounded safe suggestio
 
 test('authenticated group enrollment binds an observed group; public notifications remain owner-only', async () => {
   const queries = [];
-  const f = await fixture({ execute: async command => { queries.push(command); return { text: 'weather fixture' }; } });
+  const f = await fixture(undefined,{close(){},run:async(packet,execute,finish,authorize)=>{
+    assert.equal(packet.replyFormat,'attachment-v1');
+    assert.equal(packet.type,'fixed_request');
+    assert.equal(await authorize('weather','weather_image'),true);
+    queries.push(packet.text);
+    return finish({kind:'attachment',tool:'weather_image',reply:{text:'weather fixture'}});
+  }});
   const groupMessage = (id, text, groupId = 'PRIVATE_GROUP_OPENID') => ({ kind: 'group', id, groupId,
     senderId: 'MEMBER_OPENID', text, replyTarget: { scope: 'group', targetId: groupId, msgId: id } });
   try {
@@ -321,7 +327,7 @@ test('authenticated group enrollment binds an observed group; public notificatio
     assert.equal(f.sent.length, 0); assert.deepEqual(queries, []);
     await f.receive(groupMessage('weather-in-group', '梁祖 发 天气 北京'));
     assert.equal(f.sent.length, 1);
-    assert.deepEqual(queries, [{type:'weather',city:'beijing'}]);
+    assert.deepEqual(queries, ['发 天气 北京']);
     assert.equal(f.sent[0].groupId, 'PRIVATE_GROUP_OPENID');
     assert.equal(f.sent[0].replyTarget.scope, 'group');
     const notify = await (await f.request('/api/notify', { text: 'private Codex report', idempotencyKey: 'private-report', groupId: 'PRIVATE_GROUP_OPENID', replyTarget: groupMessage('fake', '').replyTarget })).json();

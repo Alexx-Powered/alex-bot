@@ -31,11 +31,20 @@ test('real Node stdio invokes canonical LangChain RAG tools without model or QQ'
     const trip=await worker.run({...base,name:'prepare_outdoor_trip',args:{destination_id:'beijing',start_date:'2050-11-07',end_date:'2050-11-08'}},()=>{throw Error('RPC forbidden');},x=>x);
     assert.equal(trip.kind,'rag');assert.equal(trip.requiredFeature,'weather');
     assert.match(trip.text,/季节参考/);assert.match(trip.text,/暂无可用预报/);assert.ok(trip.text.length<=1600);
-    const directAgent=new ConversationAgent({worker,ragEnabled:true,toolbox:{handle:async()=>null},
+    let memoryDisabled=false;
+    const directAgent=new ConversationAgent({worker,socialService:{prepare:async()=>({social:{disabled:memoryDisabled}})},
       configStore:{read:async()=>({enabled:false})},
       modelBudget:{acquire:async()=>{throw Error('MODEL_BUDGET_MUST_NOT_BE_USED');}}});
     const saved=await directAgent.handle('保存项目 天气助手：使用 ECMWF 数据。',{scope:'c2c',sessionKey:'a'.repeat(64)});
     assert.match(saved.text,/已保存/);
+    memoryDisabled=true;
+    const blocked=await directAgent.handle('删除项目 天气助手',{scope:'c2c',sessionKey:'a'.repeat(64)});
+    assert.doesNotMatch(blocked.text,/已删除/);
+    const refused=await directAgent.handle('保存项目 营地助手：记录小屋。',{scope:'c2c',sessionKey:'a'.repeat(64)});
+    assert.doesNotMatch(refused.text,/已保存/);
+    memoryDisabled=false;
+    const absent=await directAgent.handle('删除项目 营地助手',{scope:'c2c',sessionKey:'a'.repeat(64)});
+    assert.match(absent.text,/没有找到/);
     const deleted=await directAgent.handle('删除项目 天气助手',{scope:'c2c',sessionKey:'a'.repeat(64)});
     assert.match(deleted.text,/已删除/);
     const exported=[];

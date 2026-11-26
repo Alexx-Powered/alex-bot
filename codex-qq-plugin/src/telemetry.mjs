@@ -34,7 +34,7 @@ export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetc
 export const campusWorkerStages=Object.freeze(['campus_browser_start','campus_navigation','campus_login_form','campus_login_fill_account',
   'campus_login_fill_password','campus_login_click','campus_login_result','campus_classroom_fetch','campus_render']);
 for(const name of [...videoWorkerStages,...campusWorkerStages,'weather_video','resolve_location','heavy_queue','video_cache_hit','video_read_mp4',
-  'video_download_slowest','video_decode_slowest','weather_fetch','air_fetch','weather_render','radar_query','qq_media_upload','qq_message_submit',
+  'video_download_slowest','video_decode_slowest','weather_fetch','air_fetch','weather_render','warning_fetch','radar_query','qq_media_upload','qq_message_submit',
   'weather_forecast_primary','weather_metadata_primary','weather_forecast_backup','weather_metadata_backup',
   'weather_ecmwf_snapshot','weather_ecmwf_backup','weather_summary',
   'morning_air_cams','morning_air_gefs','morning_air_select',

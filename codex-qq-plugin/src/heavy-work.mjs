@@ -8,19 +8,25 @@ const waiters = [];
 const admission = new AsyncLocalStorage();
 export const withHeavyWorkGuard = (stopReason, work) => admission.run(stopReason, work);
 const busyError = () => Object.assign(Error('HEAVY_WORK_BUSY'),{code:'HEAVY_WORK_BUSY'});
-export async function withHeavyWork(work) {
+export async function acquireHeavyWork() {
   if (busy) {
     if (waiters.length >= 16) throw busyError();
     await measureSpan('heavy_queue',()=>new Promise(resolve => waiters.push(resolve)));
   } else busy = true;
-  try {
-    const stop = admission.getStore()?.();
-    if (stop) throw Object.assign(Error(stop), {code:stop});
-    return await work();
-  }
-  finally {
+  let released=false;
+  const release=()=>{
+    if(released)return;
+    released=true;
     const next = waiters.shift();
     if (next) next();
     else busy = false;
-  }
+  };
+  const stop=admission.getStore()?.();
+  if(stop){release();throw Object.assign(Error(stop),{code:stop});}
+  return release;
+}
+export async function withHeavyWork(work) {
+  const release=await acquireHeavyWork();
+  try{return await work();}
+  finally{release();}
 }

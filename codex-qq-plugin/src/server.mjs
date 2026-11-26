@@ -21,10 +21,8 @@ import {MorningReportService} from './morning-report.mjs';
 import {createCalendarAirQuality} from './morning-pm25.mjs';
 import {loadSendLimits} from './send-limits.mjs';
 import {ModelRequestBudget} from './chat-safety.mjs';
-import {ConversionToolbox} from './conversion-tools.mjs';
 import {CampusConfigStore} from './campus-config.mjs';
 import {CampusService} from './campus-service.mjs';
-import {PublicStatusService} from './public-status.mjs';
 import {isEntrypoint} from './entrypoint.mjs';
 import {MonitoringConfigStore} from './monitoring-config.mjs';
 import {Telemetry,milkyTimeline,measureSpan} from './telemetry.mjs';
@@ -63,17 +61,16 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
   let configured = Boolean(await readTransportCredentials());
-  const worker = agentWorker || new PythonAgentWorker({home,toolTimeouts:{satellite_video:190000,cloud_video:190000,pm25_video:190000,precipitation_video:190000,temperature_video:190000,buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
+  const worker = agentWorker || new PythonAgentWorker({home,toolTimeouts:{satellite_video:190000,cloud_video:190000,pm25_video:190000,precipitation_video:190000,temperature_video:190000,buaa_classroom_query:210000,liang_status:75000,radar_image:150000}});
   const ragHealth = new RagHealthCheck({worker,enabled:ragEnabled});
   const researchHealth = new ResearchHealthCheck({worker,enabled:ragEnabled,configStore:agentConfigStore});
   const hikingHealth = new HikingHealthCheck({worker,enabled:ragEnabled,configStore:agentConfigStore});
   let ragMaintenance=null;
   const campus = campusService || new CampusService({home,configStore:campusConfigStore});
-  const statusTools = new PublicStatusService({home});
   const weatherTools = new WeatherToolbox(weatherCommands,worker);
   const morning = morningReport || new MorningReportService({commands:weatherCommands,home,worker});
   const social=socialService||(prewarm ? new SocialService({home,configStore:socialConfigStore,agentConfigStore}):null);
-  const agent = conversationAgent || new ConversationAgent({toolbox:weatherTools,conversionTools:new ConversionToolbox(worker),campusTools:campus,statusTools,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
+  const agent = conversationAgent || new ConversationAgent({campusTools:campus,worker,configStore:agentConfigStore,policyFile:path.join(home,'config','chat-policy.md'),modelBudget:new ModelRequestBudget(home),socialService:social});
   const agentStatus = async () => {try{return await agentConfigStore.status();}catch{return {enabled:false,configured:false,code:'AGENT_CONFIG_UNAVAILABLE'};}};
   let core,weatherAlerts,connections;
   const receive=(message,expires,channel,times)=>monitoring.run({scope:message.kind},()=>{
@@ -498,7 +495,6 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
       weatherCommands.close?.();
       social?.close();
       campus.close();
-      statusTools.close();
       await adapter.disconnect();
       server.closeIdleConnections();
       if (server.listening) await new Promise(resolve => server.close(resolve));

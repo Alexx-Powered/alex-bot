@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BridgeCore} from '../src/core.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
+import {PythonAgentWorker} from '../src/python-agent.mjs';
+import {APP_ROOT} from '../src/runtime-paths.mjs';
 import {CampusService} from '../src/campus-service.mjs';
 import {fullAccess} from '../src/access-policy.mjs';
 import {createBridgeServer} from '../src/server.mjs';
@@ -56,15 +58,17 @@ test('legacy state remains white and duplicate white/gray IDs fail closed',async
   }
 });
 
-test('gray fixed conversion works without model; balance is denied before credential read and queries cannot use RPC',async()=>{
-  let reads=0,queries=0;
-  const agent=agentFixture({configStore:{read:async()=>{reads++;return {enabled:false,apiKey:''};}},
-    toolbox:{handle:async()=>{queries++;throw Error('no fixed queries');},execute:async()=>{queries++;throw Error('no RPC queries');}},
-    worker:{run:async(_p,execute)=>execute('weather_image',{city:'北京'})}});
+test('gray fixed conversion works without a model and cannot access balance or weather',async t=>{
+  const worker=new PythonAgentWorker({home:APP_ROOT});
+  t.after(()=>worker.close());
+  let reads=0;
+  const agent=agentFixture({worker,configStore:{read:async()=>{reads++;return {enabled:false};}},
+    modelBudget:{acquire:()=>assert.fail('fixed commands need no model quota')}});
   const context={scope:'group',access:'gray',groupContext:[]};
   assert.match((await agent.handle('1马里换公里',context)).text,/3.08/);assert.equal(reads,1);
   assert.match((await agent.handle('查DeepSeek余额',context)).text,/灰名单/);assert.equal(reads,2);
-  assert.equal(await agent.handle('北京天气怎么样',context),null);assert.equal(queries,0);
+  assert.equal(await agent.handle('北京天气怎么样',context),null);
+  assert.match((await agent.handle('发天气北京',context)).text,/灰名单/);
 });
 
 test('white natural balance reply is marked sensitive; gray forced balance/status results are blocked',async()=>{
@@ -82,8 +86,8 @@ test('white natural balance reply is marked sensitive; gray forced balance/statu
 test('white campus calls have full access; gray campus never reads saved credentials',async()=>{
   let reads=0;
   const campus=new CampusService({home:'D:/unused',configStore:{read:async()=>{reads++;return {};}} ,worker:{close(){}}});
-  assert.equal(JSON.parse((await campus.execute({},{scope:'group',access:'gray'})).text).code,'CAMPUS_OWNER_ONLY');assert.equal(reads,0);
-  const result=await campus.execute({},{scope:'group',access:'white'});assert.equal(JSON.parse(result.text).code,'CAMPUS_NOT_CONFIGURED');assert.equal(reads,1);
+  assert.equal((await campus.workerGrant('buaa_classroom_query',{scope:'group',access:'gray'})).code,'CAMPUS_OWNER_ONLY');assert.equal(reads,0);
+  const result=await campus.workerGrant('buaa_classroom_query',{scope:'group',access:'white'});assert.equal(result.code,'CAMPUS_NOT_CONFIGURED');assert.equal(reads,1);
   assert.equal(fullAccess({scope:'group',access:'white',authorize:()=>false}),false);
 });
 

@@ -5,12 +5,27 @@ import json
 import logging
 import sys
 from pathlib import Path
-from campus_classrooms import build_query_tool,envelope,campus_stage,browser_collect
+from campus_classrooms import build_query_tool,envelope,campus_stage,browser_collect,CampusError
 
 LIMIT=262144
 
-def process(packet,*,collector=None,on_stage=None):
+def process(packet,*,collector=None,on_stage=None,authorized=None):
     private=Path.cwd()/'.private'
+    if packet.get('cache_snapshot') is True and packet.get('mode') in {'query','report','login'}:
+        from campus_cache import query_slot,remember
+        try:
+            with query_slot(private):
+                if authorized and not authorized():
+                    return {'cancelled':True}
+                result=_process(packet,private,collector,on_stage)
+                if result['data']['ok']:
+                    remember(private,result['data'])
+                return result
+        except CampusError as exc:
+            return {'kind':'campus','data':envelope(code=exc.code),'artifact_id':None}
+    return _process(packet,private,collector,on_stage)
+
+def _process(packet,private,collector,on_stage):
     session={}
     profile=packet.get('timeout_profile','normal')
     if profile not in {'normal','morning'} or (profile=='morning' and (packet.get('type')!='campus' or packet.get('mode')!='report')):
@@ -33,8 +48,14 @@ def process(packet,*,collector=None,on_stage=None):
         artifact=render_compact(packet['report'],private,packet.get('explanation',''))
         return {'kind':'campus','artifact_id':artifact}
     if packet.get('type')=='campus' and packet.get('mode')=='recommend':
-        from campus_recommendations import build_recommendation_tool
-        report=build_recommendation_tool(packet.get('snapshot'),packet['now'],packet.get('request_text')).invoke(packet['args'])
+        from campus_recommendations import build_recommendation_tool,timestamp
+        if 'snapshot' in packet:
+            snapshot=packet['snapshot']
+        else:
+            from campus_cache import snapshots
+            date=packet['args'].get('date') or timestamp(packet['now']).date().isoformat()
+            snapshot=snapshots(private).get(date)
+        report=build_recommendation_tool(snapshot,packet['now'],packet.get('request_text')).invoke(packet['args'])
         return {'kind':'campus','recommendation':report,'artifact_id':None}
     if packet.get('type')!='campus' or packet.get('mode') not in {'query','report','login'} or not isinstance(packet.get('args'),dict):
         return {'kind':'campus','data':envelope(code='CAMPUS_QUERY_FAILED'),'artifact_id':None}
@@ -48,7 +69,7 @@ def process(packet,*,collector=None,on_stage=None):
                 from campus_regions import resolve_regions
                 from campus_report import render_report,render_region_day
                 selected,_=resolve_regions(data,packet.get('building') or '三号楼',packet.get('regions'),packet.get('request_text'))
-                artifact=render_report(data,private) if selected==['三号楼'] else render_region_day(data,private,selected)
+                artifact=render_report(data,private,save_latest=not packet.get('cache_snapshot')) if selected==['三号楼'] else render_region_day(data,private,selected)
         except Exception:return {'kind':'campus','data':data,'artifact_id':None,'render_error':True}
     return {'kind':'campus','data':data,'artifact_id':artifact,**({'session_state':session['state']} if 'state' in session else {})}
 

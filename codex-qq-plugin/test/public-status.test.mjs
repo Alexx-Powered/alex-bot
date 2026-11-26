@@ -59,21 +59,30 @@ test('malformed/stale worker snapshots and authorization changes never send an i
   assert.match((await service.execute('liang_status',{}, {scope:'group',access:'white',authorize:()=>allowed})).text,/灰名单/);
 });
 
-test('fixed status requests work with model config disabled and no budget or model Key',async()=>{
-  const reply={text:'DeepSeek 正常\n来源：https://status.deepseek.com/',richMedia:true,image:{buffer:Buffer.alloc(12),mimeType:'image/png'},requiredAccess:'white'};
-  const statusTools={handle:async text=>parseStatusCommand(text)?reply:null};
-  const agent=new ConversationAgent({statusTools,toolbox:{handle:async()=>assert.fail()},configStore:{read:async()=>assert.fail('no Key read')},modelBudget:{acquire:async()=>assert.fail('no model call')}});
-  for(const text of ['查DeepSeek状态','大肥鱼还活着吗','大肥鱼 大肥鱼还活着吗'])assert.equal(await agent.handle(text,{scope:'c2c'}),reply);
+test('fixed status requests work with model config disabled and no budget or model Key',async t=>{
+  const worker=new PythonAgentWorker({home:APP_ROOT,workerPath:path.join(APP_ROOT,'test','fixtures','public-status-worker.py'),timeoutMs:20000});
+  t.after(()=>worker.close());
+  const agent=new ConversationAgent({worker,configStore:{read:async()=>({enabled:false})},modelBudget:{acquire:async()=>assert.fail('no model call')}});
+  for(const text of ['查DeepSeek状态','大肥鱼还活着吗','大肥鱼 大肥鱼还活着吗','大肥鱼是不是挂了','大肥鱼 现在还能用吗']){
+    const reply=await agent.handle(text,{scope:'c2c'});
+    assert.match(reply.text,/运行正常/);assert.match(reply.text,/https:\/\/status\.deepseek\.com/);
+    assert.equal(reply.richMedia,true);assert.equal(reply.image.mimeType,'image/png');
+  }
 });
 
-test('natural language uses a real Node → Python → LangChain → Node tool call',async()=>{
+test('natural language uses LangChain to return a rendered and authorized Liang snapshot',async()=>{
   const worker=new PythonAgentWorker({home:APP_ROOT,pythonPath:pythonExecutable(),workerPath:path.join(APP_ROOT,'test','fixtures','public-status-worker.py'),timeoutMs:15000});
-  const calls=[];const result={text:'滑动变祖器：梁圣\n来源：https://liang.itsuyo.top/',richMedia:true,image:{buffer:Buffer.alloc(10),mimeType:'image/png'},requiredAccess:'white'};
-  const agent=new ConversationAgent({worker,statusTools:{handle:async()=>null,execute:async(name,args,context)=>{calls.push({name,args,scope:context.scope});return result;}},toolbox:{handle:async()=>null},
+  const calls=[],run=worker.run.bind(worker);
+  worker.run=(packet,execute,finish,authorize,events)=>run(packet,execute,finish,(feature,name)=>{
+    calls.push({feature,name,scope:packet.context.scope});return authorize(feature,name);
+  },events);
+  const agent=new ConversationAgent({worker,
     configStore:{read:async()=>({enabled:true,apiKey:'offline-test-key',model:'deepseek-flash',baseURL:'https://api.deepseek.com'})},
     policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})}});
   try{
     const answer=await agent.handle('滑动变祖器现在几级了',{scope:'c2c',sessionKey:'offline-public-status'});
-    assert.equal(answer,result);assert.deepEqual(calls,[{name:'liang_status',args:{},scope:'c2c'}]);
+    assert.match(answer.text,/梁圣 · 22\.4794/);assert.match(answer.text,/liang\.itsuyo\.top/);
+    assert.equal(answer.richMedia,true);assert.equal(answer.image.mimeType,'image/png');
+    assert.deepEqual(calls,[{feature:'status',name:'liang_status',scope:'c2c'}]);
   }finally{worker.close();}
 });

@@ -5,7 +5,6 @@ import {BridgeCore} from '../src/core.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 import {basicGroupFeatures,defaultGroupFeatures} from '../src/group-features.mjs';
 import {PythonAgentWorker} from '../src/python-agent.mjs';
-import {ConversionToolbox} from '../src/conversion-tools.mjs';
 import {APP_ROOT} from '../src/runtime-paths.mjs';
 
 const groupId='qq_100001_g_200001',ownerId='qq_100001_u_100002';
@@ -67,16 +66,14 @@ test('whole-group pause suppresses background observations and notification part
   assert.equal(f.sent.length,1);assert.equal(f.sent[0].groupId,undefined);
 });
 
-test('disabled deterministic conversion never crosses into Python; an enabled conversion still runs real LangChain',async t=>{
-  const worker=new PythonAgentWorker({home:APP_ROOT}),conversionTools=new ConversionToolbox(worker);
+test('fixed routing with real LangChain respects the conversion switch before returning a result',async t=>{
+  const worker=new PythonAgentWorker({home:APP_ROOT});
   t.after(()=>worker.close());
-  let calls=0;
-  const agent=new ConversationAgent({conversionTools:{handle:async(...args)=>{calls++;return conversionTools.handle(...args);}},
-    toolbox:{handle:async()=>null},modelBudget:{acquire:async()=>assert.fail()},configStore:{read:async()=>({enabled:false})}});
+  const agent=new ConversationAgent({worker,modelBudget:{acquire:async()=>assert.fail()},configStore:{read:async()=>({enabled:false})}});
   const context={scope:'group',access:'white',features:{...basicGroupFeatures(),conversion:false}};
-  assert.match((await agent.handle('1马里换公里',context)).text,/未开放/);assert.equal(calls,0);
+  assert.match((await agent.handle('1马里换公里',context)).text,/未开放/);
   context.features.conversion=true;
-  assert.equal((await agent.handle('1马里换公里',context)).text,'1 马里 = 3.08 km');assert.equal(calls,1);
+  assert.equal((await agent.handle('1马里换公里',context)).text,'1 马里 = 3.08 km');
 });
 
 test('image understanding works independently when group model chat is disabled',async()=>{

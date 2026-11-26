@@ -42,6 +42,16 @@ test('empty owner fails closed, no send, and groups never pair', async () => {
   assert.equal(f.core.status().paused, true);
 });
 
+test('the paired owner receives the help image for all three private menu aliases',async()=>{
+  const f=fixture();
+  await pair(f);
+  for(const [i,command] of ['帮助','菜单','/help'].entries()){
+    assert.equal((await f.core.handleMessage(message('menu-'+i,command))).code,'SENT');
+    assert.equal(f.sent.at(-1).image.mimeType,'image/png');
+    assert.equal(f.sent.at(-1).text,'私聊使用指南');
+  }
+});
+
 test('upload timeout gets one text notice; uncertain submission never retries or sends a notice',async()=>{
   const image={buffer:Buffer.from([137,80,78,71,13,10,26,10]),mimeType:'image/png'};
   for(const submitted of [false,true]){

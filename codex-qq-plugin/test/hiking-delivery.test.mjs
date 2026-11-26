@@ -4,6 +4,7 @@ import {ConversationAgent} from '../src/conversation-agent.mjs';
 import {BridgeCore} from '../src/core.mjs';
 import {QQAdapter} from '../src/qq-adapter.mjs';
 import {defaultGroupFeatures} from '../src/group-features.mjs';
+import {renderHikingCard} from '../src/hiking-card-image.mjs';
 
 // Replace only the model/data response and remote SDK network. Exercise the
 // production renderer, agent, admission, reply deadline, upload and submission.
@@ -24,9 +25,13 @@ for(const scope of ['c2c','group'])for(const natural of [false,true]){
     const features={...defaultGroupFeatures('white'),chat:false};
     let state={version:1,ownerId:'OWNER',paused:false,pauseReason:null,attempts:[],deliveries:[],incoming:[],lastDeliveryCode:null,
       allowedGroups:[{id:'GROUP',name:'离线测试群',enabled:true,features}],grayGroups:[]};
-    const worker={async run(packet,rpc,finish){calls.push(packet.type);return finish({kind:'rag',requiredFeature:'weather',text:'',
-      hikingCard:{schema:'hiking.card.v1',topic:'库拉岗日',days:[],nights:[],message:'测试资料待补充。'}});}};
-    const agent=new ConversationAgent({worker,ragEnabled:true,toolbox:{handle:async()=>null},
+    const worker={async run(packet,_rpc,finish,authorize){
+      calls.push(packet.type);
+      assert.equal(packet.replyFormat,'attachment-v1');assert.equal(await authorize('weather','hiking_trip_card'),true);
+      const image=await renderHikingCard({schema:'hiking.card.v1',topic:'库拉岗日',days:[],nights:[],message:'测试资料待补充。'});
+      return finish({kind:'attachment',tool:'hiking_trip_card',reply:{text:'',image}});
+    }};
+    const agent=new ConversationAgent({worker,
       configStore:{read:async()=>({enabled:natural,apiKey:'offline-fixture'})},
       policyLoader:async()=>({enabled:false,topics:[],instructions:'',maxChars:600}),modelBudget:{acquire:async()=>({ok:true})}});
     let outcome,core;
@@ -43,7 +48,7 @@ for(const scope of ['c2c','group'])for(const natural of [false,true]){
         replyTarget:{scope,targetId,msgId:id}};
       await bot.emit('message',{},inbound);
       assert.equal(outcome?.code,'SENT',JSON.stringify(outcome));
-      assert.deepEqual(calls,[natural?'request':'rag']);
+      assert.deepEqual(calls,[natural?'request':'fixed_request']);
       assert.equal(bot.uploads.length,1);assert.equal(bot.messages.length,1);assert.equal(bot.texts.length,0);
       assert.equal(bot.uploads[0].path,scope==='group'?'/v2/groups/GROUP/files':'/v2/users/OWNER/files');
       assert.equal(bot.uploads[0].body.file_type,1);assert.equal(bot.uploads[0].body.srv_send_msg,false);

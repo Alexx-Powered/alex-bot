@@ -1112,7 +1112,7 @@ export class BridgeCore {
         return this.#notify({ text: '状态：已配对；发送已启用；支持本人天气查询。发送“帮助”查看命令。', idempotencyKey: `reply:${incomingKey}` }, replyTarget);
       }
       if (this.#state.paused || this.#pauseRequested) return result(false, 'PAUSED');
-      if (command === '/help') {
+      if (['帮助', '菜单', '/help'].includes(command)) {
         const budgetCode=this.#budgetCode(this.#time(),{reply:true,target:senderId});
         if (budgetCode) return result(false,budgetCode);
         const {renderHelpImage}=await import('./help-image.mjs');

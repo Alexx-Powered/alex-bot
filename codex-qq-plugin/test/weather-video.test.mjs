@@ -4,7 +4,7 @@ import {parseWeatherCommand,WeatherCommands} from '../src/weather-commands.mjs';
 import {parseGroupWake,DEFAULT_WAKE_WORDS} from '../src/wake-words.mjs';
 import {WeatherToolbox} from '../src/weather-tools.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
-import {defaultGroupFeatures} from '../src/group-features.mjs';
+import {defaultGroupFeatures,toolFeature} from '../src/group-features.mjs';
 import {validVideo} from '../src/video-media.mjs';
 import {validVideoTimeline,videoRegion,WeatherVideoService} from '../src/weather-video.mjs';
 import {checkChatInput} from '../src/chat-safety.mjs';
@@ -113,11 +113,19 @@ test('region requests reject a point video before reading its media and never re
  assert.deepEqual(calls,[{layer:'temperature',name:'新疆',region_id:'cn-65'},{layer:'temperature',name:'新疆',region_id:'cn-65'}]);
 });
 test('PM2.5 obeys air switch; other video layers obey weather switch before generation',async()=>{
- let generated=0;const a=new ConversationAgent({toolbox:{handle:async()=>{generated++;return {text:'',video}}},modelBudget:{acquire:()=>assert.fail()},configStore:{read:()=>assert.fail()}});
- for(const cmd of ['发 动态云图 广州','发 动态云图48h 华北','发 动态温度 广州','发 动态降水 广州','发 动态PM2.5 广州']){
+ let generated=0,selected;
+ const worker={run:async(packet,_execute,finish,authorize)=>{
+   assert.equal(packet.type,'fixed_request');assert.equal(packet.replyFormat,'attachment-v1');
+   if(!await authorize(toolFeature(selected),selected))return finish({kind:'clarify',reason:'restricted_access'});
+   generated++;return finish({kind:'attachment',tool:selected,reply:{text:'',video}});
+ }};
+ const a=new ConversationAgent({worker,modelBudget:{acquire:()=>assert.fail()},configStore:{read:async()=>({enabled:false})}});
+ for(const [cmd,tool] of [['发 动态云图 广州','cloud_video'],['发 动态云图48h 华北','cloud_video'],['发 动态温度 广州','temperature_video'],['发 动态降水 广州','precipitation_video'],['发 动态PM2.5 广州','pm25_video']]){
+  selected=tool;
   const r=await a.handle(cmd,{scope:'group',access:'white',features:{...defaultGroupFeatures('white'),weather:false,air:false}});assert.equal(r.video,undefined);
  }
  assert.equal(generated,0);
+ selected='pm25_video';
  const r=await a.handle('发 动态PM2.5 广州',{scope:'group',access:'white',features:{...defaultGroupFeatures('white'),weather:false}});assert.equal(r.video,video);assert.equal(r.requiredFeature,'air');assert.equal(generated,1);
 });
 test('video bytes reject URLs, file paths, wrong signatures and oversized buffers',()=>{

@@ -109,15 +109,15 @@ test('only trusted campus RPC gets its bounded longer deadline and campus result
   const bad=fakeWorker((v,out)=>out({type:'result',id:v.id,kind:'campus',data:{}}));
   try{await assert.rejects(bad.worker.run({type:'request'},async()=>null));}finally{bad.worker.close();}
 });
-test('exact weather and morning briefing fall back if Python missing, never require key',async()=>{
+test('missing weather worker returns a failure notice, while the scheduled briefing remains available',async()=>{
   const queries=[];const toolbox=new WeatherToolbox({execute:async command=>{queries.push(command);return {text:'',image:{buffer:Buffer.alloc(10)}};},briefing:async args=>({ok:true,cities:args.cities})},{run:async()=>{throw Error();}});
-  assert.ok((await toolbox.handle('发天气广州')).image);assert.deepEqual(queries[0],{type:'weather',city:'guangzhou'});assert.equal((await toolbox.briefing({cities:['beijing']})).ok,true);
+  assert.match((await toolbox.handle('发天气广州')).text,/暂不可用/);assert.deepEqual(queries,[]);assert.equal((await toolbox.briefing({cities:['beijing']})).ok,true);
   await assert.rejects(toolbox.execute('weather_image',{city:'https://example.com'}));await assert.rejects(toolbox.execute('notify',{text:'hi'}));
 });
-test('disabled natural language never starts worker; chat policy and mention filters enforced twice',async()=>{
-  let config={enabled:false,apiKey:''},started=0;
-  const agent=new ConversationAgent({modelBudget:{acquire:async()=>({ok:true})},toolbox:{handle:async()=>null},worker:{run:async(p,e,finish)=>{started++;return finish({kind:'chat',topic:'日常',text:'<@!123>@全体成员你好呀呀呀呀呀'});}},configStore:{read:async()=>config},policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:5,instructions:'简短'}),policyFile:'unused'});
-  assert.equal(await agent.handle('你好'),null);assert.equal(started,0);config={enabled:true,apiKey:'dummy-not-real'};
+test('disabled chat uses only model-free commands; online replies still pass policy and mention filters',async()=>{
+  let config={enabled:false,apiKey:''};const packets=[];
+  const agent=new ConversationAgent({modelBudget:{acquire:async()=>({ok:true})},worker:{run:async(p,e,finish)=>{packets.push(p);return finish(p.type==='fixed_request'?{kind:'ignore'}:{kind:'chat',topic:'日常',text:'<@!123>@全体成员你好呀呀呀呀呀'});}},configStore:{read:async()=>config},policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:5,instructions:'简短'}),policyFile:'unused'});
+  assert.equal(await agent.handle('你好'),null);assert.equal(packets[0].type,'fixed_request');assert.equal(packets[0].config,undefined);config={enabled:true,apiKey:'dummy-not-real'};
   const result=await agent.handle('你好');assert.equal(result.text.length,5);assert.doesNotMatch(result.text,/@/);
 });
 test('Markdown policy fails closed on malformed frontmatter',()=>{
