@@ -29,7 +29,8 @@ export function milkyTimeline(){
   };
 }
 const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip',...MORNING_OPERATIONS,...MILKY_EVENTS]);
-const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','router_model','chat_setup','chat_model','memory','tool','qq_send','qq_group_permission']);
+const modelStages=new Set(['router_model','chat_model','fuzzy_qa']);
+const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','chat_setup',...modelStages,'memory','tool','qq_send','qq_group_permission']);
 export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_gfs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
 export const campusWorkerStages=Object.freeze(['campus_browser_start','campus_navigation','campus_login_form','campus_login_fill_account',
   'campus_login_fill_password','campus_login_click','campus_login_result','campus_classroom_fetch','campus_render']);
@@ -230,11 +231,11 @@ function runPayload(trace,span,project,orders,request){
   orders.set(row.id,dottedOrder);
   const detail=span?remoteDetails.get(span):request;
   const params=detail.inputs;
-  const showMessage=!span||['agent','router_model','chat_model'].includes(span.name)||!Object.keys(params).length;
+  const showMessage=!span||span.name==='agent'||modelStages.has(span.name)||!Object.keys(params).length;
   const inputs={...(showMessage&&request.message!==undefined?{message:request.message}:{}),...params};
   if(MORNING_OPERATIONS.has(trace.operation))inputs.event=trace.operation;
   else if(!Object.keys(inputs).length)Object.assign(inputs,{event:trace.synthetic?'monitoring_test':'qq_event',...contextFields(trace)});
-  const result={id:row.id,trace_id:trace.id,dotted_order:dottedOrder,...span?{parent_run_id:parent}:{},name:span?span.name:'qq.'+(trace.operation??'response'),run_type:span&&['router_model','chat_model'].includes(span.name)?'llm':span?.name==='tool'?'tool':'chain',session_name:project,inputs,outputs:span?{}:request.outputs??{},start_time:row.startTime,end_time:row.endTime,extra:{metadata}};
+  const result={id:row.id,trace_id:trace.id,dotted_order:dottedOrder,...span?{parent_run_id:parent}:{},name:span?span.name:'qq.'+(trace.operation??'response'),run_type:span&&modelStages.has(span.name)?'llm':span?.name==='tool'?'tool':'chain',session_name:project,inputs,outputs:span?{}:request.outputs??{},start_time:row.startTime,end_time:row.endTime,extra:{metadata}};
   if(detail.failure)result.error=detail.failure.message;
   if(numeric(metrics.inputTokens,1e12)&&numeric(metrics.outputTokens,1e12))result.usage_metadata={input_tokens:metrics.inputTokens,output_tokens:metrics.outputTokens,total_tokens:metrics.inputTokens+metrics.outputTokens,...numeric(metrics.cachedInputTokens,metrics.inputTokens)?{input_token_details:{cache_read:metrics.cachedInputTokens}}:{}};
   return result;

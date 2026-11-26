@@ -66,7 +66,7 @@ export class CampusService{
   async workerGrant(tool,context){
     const denied={code:'CAMPUS_OWNER_ONLY'};
     if(!fullAccess(context,'campus'))return denied;
-    if(tool==='buaa_classroom_query'){
+    if(tool==='buaa_classroom_query'||tool==='buaa_classroom_data'){
       const grant=await this.#collectorGrant();
       // Session reuse is optional. Leave headroom for the shared worker's 64 KiB packet.
       if(grant.session_state&&Buffer.byteLength(JSON.stringify(grant))>60000)delete grant.session_state;

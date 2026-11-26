@@ -2,12 +2,15 @@
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image
 
-from campus_classrooms import CampusError, TZ, campus_stage, envelope
+from campus_cache import snapshots
+from campus_classrooms import CampusError, TZ, campus_stage, envelope, query_day
+from campus_evidence import classroom_evidence
+from campus_recommendations import timestamp
 from campus_worker import process
 from worker_artifacts import publish
 
@@ -50,12 +53,15 @@ def _media(request_id, artifact):
 
 def execute(name, args, packet, performance, grant):
     """Only the gateway supplies the account and can renew chat authorization."""
-    if name not in {'buaa_classroom_query', 'buaa_classroom_recommend'}:
+    evidence = name == 'buaa_classroom_data'
+    if not evidence and name not in {'buaa_classroom_query', 'buaa_classroom_recommend'}:
         raise ValueError('UNKNOWN_TOOL')
     code = grant.get('code', 'CAMPUS_CONFIG_UNAVAILABLE')
     if code == 'CAMPUS_OWNER_ONLY':
         return {'text': '', 'cancelled': True}
     if code != 'OK':
+        if evidence:
+            return {'text': '校园课表数据源暂不可用，无法核实教室安排。'}
         if name == 'buaa_classroom_recommend':
             return {'text': '校园查询未启用，请先在本机设置页启用。'}
         return _failure(envelope(code=code))
@@ -63,28 +69,41 @@ def execute(name, args, packet, performance, grant):
     def trace(stage, phase, **fields):
         performance.campus_event({'stage': stage, 'phase': phase, **fields})
 
+    def evidence_reply(snapshot, now):
+        return {'evidence': classroom_evidence(snapshot, args, now), 'still_allowed': performance.campus_allowed}
+
     lookup = {'type': 'campus', 'mode': 'recommend', 'args': args}
     try:
-        if name == 'buaa_classroom_query':
+        if evidence or name == 'buaa_classroom_query':
             compact = args.get('view') == 'compact'
             stage = 'campus-fetch-current' if compact else 'campus-fetch'
-            if not performance.campus_progress(stage):
+            if not (performance.campus_allowed() if evidence else performance.campus_progress(stage)):
                 return {'text': '', 'cancelled': True}
+            if evidence:
+                now = timestamp(packet['now'])
+                day = query_day(args.get('date', ''), now)
+                cached = snapshots(Path.cwd()/'.private').get(day)
+                if cached and timedelta(0) <= now - timestamp(cached['fetched_at']) <= timedelta(minutes=30):
+                    return evidence_reply(cached, now)
             region = {'building': args.get('building', '三号楼'), 'regions': args.get('regions', [])}
             result = process({
-                'type': 'campus', 'mode': 'query' if compact else 'report', 'cache_snapshot': True,
-                'args': {'date': args.get('date', '')}, 'credentials': grant.get('credentials', {}),
+                'type': 'campus', 'mode': 'query' if compact or evidence else 'report', 'cache_snapshot': True,
+                'args': {'date': day if evidence else args.get('date', '')}, 'credentials': grant.get('credentials', {}),
                 'session_state': grant.get('session_state'), **region,
             }, on_stage=trace, authorized=performance.campus_allowed)
             if result.get('cancelled'):
                 return {'text': '', 'cancelled': True}
             data = result['data']
             if not data['ok']:
+                if evidence:
+                    return {'text': '未能取得所查日期的校园课表，暂时无法核实。'}
                 return _failure(data)
             # A large cookie jar can still serve this request; it is optional on the 64 KiB gateway.
             state = result.get('session_state')
             if state is not None and len(json.dumps(state, ensure_ascii=False).encode()) <= 60_000:
                 performance.save_campus_session(state)
+            if evidence:
+                return evidence_reply(data, now)
             if not compact:
                 return _media(packet['id'], result.get('artifact_id'))
             # Use this collection even if a scheduled job immediately refreshes the shared snapshot.
@@ -105,4 +124,6 @@ def execute(name, args, packet, performance, grant):
             return _media(packet['id'], result['artifact_id'])
     except (OSError, ValueError, CampusError) as error:
         code = error.code if isinstance(error, CampusError) else 'CAMPUS_QUERY_FAILED'
+        if evidence:
+            return {'text': '校园接口只提供今天到未来七天的课表。' if code == 'CAMPUS_INVALID_DATE' else '未能取得可核实的校园课表。'}
         return _failure(envelope(code=code))

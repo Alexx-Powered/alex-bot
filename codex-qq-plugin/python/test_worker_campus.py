@@ -74,6 +74,23 @@ class CampusWorkerTests(unittest.TestCase):
             self.events.campus_progress.assert_not_called()
         self.assertFalse(self.private.exists())
 
+    def test_expired_evidence_fetches_the_requested_date_and_source_failures_stay_unknown(self):
+        with query_slot(self.private):
+            remember(self.private, normalize(SCHOOL, self.day, self.clock - timedelta(hours=1)))
+        args = {'date': self.day, 'rooms': ['主201']}
+        packet = {'id': 'lookup', 'now': self.clock.isoformat()}
+        updated = {'e': 0, 'd': {'list': {'主楼': [{'name': '主201', 'kxsds': '4,5'}]}}}
+        with patch('campus_worker.browser_collect', return_value=updated) as collect:
+            result = execute('buaa_classroom_data', args, packet, self.events, self.grant)
+            self.assertEqual(collect.call_args.args[2], self.day)
+            self.assertEqual(result['evidence']['rows'], [{'building': '主楼', 'room': '主201', 'free_periods': [4, 5]}])
+            self.assertIsNone(result['evidence']['current_period'])
+            self.events.campus_progress.assert_not_called()
+        with patch('campus_worker.browser_collect', side_effect=CampusError('CAMPUS_NETWORK_ERROR')):
+            failed = execute('buaa_classroom_data', {'rooms': ['主201']}, packet, self.events, self.grant)
+            self.assertNotIn('evidence', failed)
+            self.assertIn('无法核实', failed['text'])
+
     def test_revoked_query_does_not_open_browser_or_share_facts_with_advisor(self):
         args = {'date':self.day,'view':'compact','session':'evening'}
         self.events.campus_allowed.return_value=False

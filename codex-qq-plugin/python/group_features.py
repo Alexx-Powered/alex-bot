@@ -11,7 +11,7 @@ TOOL_FEATURES = {
     'living_cost_budget': 'budget', 'openai_service_status': 'status',
     'deepseek_service_status': 'status', 'ai_service_status': 'status', 'liang_status': 'status',
     'deepseek_account_balance': 'balance', 'buaa_classroom_query': 'campus',
-    'buaa_classroom_recommend': 'campus', 'reply_chat': 'chat',
+    'buaa_classroom_recommend': 'campus', 'buaa_classroom_data': 'campus', 'reply_chat': 'chat',
     'chat_memory': 'memory', 'lookup_current_slang': 'chat',
 }
 

@@ -26,7 +26,7 @@ test('a real LangChain recommendation reads a pre-migration snapshot and returns
   await writeFile(script,[
     'import sys','sys.path.insert(0,'+JSON.stringify(path.join(home,'python'))+')',
     'import agent_worker','from test_agent_worker import ScriptedModel, call','from langchain_core.messages import AIMessage',
-    "model=ScriptedModel(responses=[call('buaa_classroom_recommend',{'date':'"+tomorrow+"','regions':['新主楼A座'],'session':'evening'}),AIMessage(content='优先看看A101。')])",
+    "model=ScriptedModel(responses=[call('buaa_classroom_recommend',{'date':'"+tomorrow+"','regions':['新主楼A座'],'session':'evening'}),AIMessage(content='优先看看A101。'),call('buaa_classroom_data',{'date':'"+tomorrow+"','rooms':['A101']}),AIMessage(content='A101明天第3节按课表空闲。')])",
     'agent_worker.default_model_factory=lambda _:model','agent_worker.main()'
   ].join('\n'),'utf8');
   const worker=new PythonAgentWorker({home:folder,pythonPath:pythonExecutable(),workerPath:script});
@@ -35,8 +35,9 @@ test('a real LangChain recommendation reads a pre-migration snapshot and returns
   const data={...campusFailure('OK',tomorrow),ok:true,buildings:['新主楼'],rooms:[room]};
   const output=path.join(folder,'.private','campus-output');await mkdir(output,{recursive:true});
   await writeFile(path.join(output,'memory.json'),JSON.stringify({version:1,snapshots:[data]}));
+  let reads=0;
   const campus=new CampusService({home:folder,worker:{},configStore:{
-    status:async()=>({enabled:true,configured:true}),read:async()=>assert.fail('recommendation read credentials')
+    status:async()=>({enabled:true,configured:true}),read:async()=>{reads++;return {enabled:true,username:'fixture',password:'fixture'};}
   }});
   const context={scope:'group',access:'white',groupContext:[],currentSpeaker:'member-a'};
   const packet={type:'request',replyFormat:'attachment-v1',text:'明天晚上新主楼A座哪间教室能去？',sessionKey:'offline-school',
@@ -46,4 +47,11 @@ test('a real LangChain recommendation reads a pre-migration snapshot and returns
     (_feature,tool)=>campus.workerGrant(tool,context),{allowed:()=>true});
   assert.equal(outputReply.text,'');assert.equal(outputReply.image.mimeType,'image/png');
   assert.equal(outputReply.image.buffer.readUInt32BE(16),1080);
+  assert.equal(reads,0);
+  const agent=new ConversationAgent({worker,campusTools:campus,configStore:{read:async()=>packet.config},
+    policyLoader:async()=>packet.policy,modelBudget:{acquire:async()=>({ok:true})}});
+  const answer=await agent.handle('A101明天第3节空闲吗？',context);
+  assert.equal(reads,1);
+  assert.equal(answer.text,'A101明天第3节按课表空闲。');
+  assert.equal(answer.image,undefined);
 });

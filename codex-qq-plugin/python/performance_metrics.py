@@ -14,10 +14,10 @@ from uuid import UUID
 from langchain_core.callbacks import BaseCallbackHandler
 from trace_errors import error_fields
 
-STAGES = frozenset({"router_setup", "router_model", "chat_setup", "chat_model", "memory", "tool", "resolve_location", "weather_fetch", "air_fetch",
+STAGES = frozenset({"router_setup", "router_model", "chat_setup", "chat_model", "fuzzy_qa", "memory", "tool", "resolve_location", "weather_fetch", "air_fetch",
                     "morning_air_gefs", "warning_fetch", "weather_render", "hiking_render", "radar_query", "weather_video",
                     "video_cache_hit", "video_read_mp4", "heavy_queue"})
-MODEL_PHASES = frozenset({"router_model", "chat_model"})
+MODEL_PHASES = frozenset({"router_model", "chat_model", "fuzzy_qa"})
 TOKEN_FIELDS = frozenset({"inputTokens", "outputTokens", "cachedInputTokens"})
 STATUSES = frozenset({"ok", "error", "fallback"})
 MAX_EVENTS = 32

@@ -86,7 +86,7 @@ export class ConversationAgent{
       const authorize=async(feature,tool)=>{
         if(!fullAccess(context,feature))return false;
         if(feature==='balance'&&fixed)return {apiKey:config?.apiKey??''};
-        if(['buaa_classroom_query','buaa_classroom_recommend'].includes(tool))return this.campusTools?.workerGrant?.(tool,context)??{code:'CAMPUS_NOT_CONFIGURED'};
+        if(toolFeature(tool)==='campus')return this.campusTools?.workerGrant?.(tool,context)??{code:'CAMPUS_NOT_CONFIGURED'};
         return true;
       };
       const result=await this.worker.run({

@@ -20,7 +20,7 @@ const workerOperations=Object.freeze({
   cloud_video:'video.cloud_forecast',satellite_video:'video.satellite',pm25_video:'video.pm25',
   precipitation_video:'video.precipitation',temperature_video:'video.temperature',hiking_trip_card:'hiking.trip',
   ai_service_status:'service.status',liang_status:'service.status',deepseek_service_status:'service.status',
-  buaa_classroom_query:'campus.query',buaa_classroom_recommend:'campus.query',
+  buaa_classroom_query:'campus.query',buaa_classroom_recommend:'campus.query',buaa_classroom_data:'campus.query',
   deepseek_account_balance:'agent.request',
   search_domain_knowledge:'knowledge.query',prepare_outdoor_trip:'knowledge.query',request_outdoor_research:'knowledge.query',
   save_project_note:'knowledge.query',delete_project_note:'knowledge.query',recall_project_notes:'knowledge.query',
@@ -165,7 +165,8 @@ export class PythonAgentWorker{
       return;
     }
     if(value.type==='campus_session'||value.type==='campus_progress'){
-      if(task.authorizedTool!=='buaa_classroom_query'||!task.campusGrant||task.campusGrant.code!=='OK')throw failure();
+      const collecting=task.authorizedTool==='buaa_classroom_query'||(value.type==='campus_session'&&task.authorizedTool==='buaa_classroom_data');
+      if(!collecting||task.campusGrant?.code!=='OK')throw failure();
       const allowed=value.type==='campus_session'
         ?await task.campusEvents.saveSession?.(task.campusGrant,value.state)
         :['campus-fetch','campus-fetch-current'].includes(value.stage)&&await task.campusEvents.progress?.(value.stage);

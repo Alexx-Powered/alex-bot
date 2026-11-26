@@ -53,6 +53,6 @@ const tools = {
   ...Object.fromEntries(WEATHER_TOOLS.map(({tool,feature})=>[tool,feature])),
   hiking_trip_card:'weather',satellite_video:'weather',local_weather_briefing:'weather',convert_units:'conversion',convert_previous_result:'conversion',
   living_cost_budget:'budget',openai_service_status:'status',deepseek_service_status:'status',ai_service_status:'status',liang_status:'status',
-  deepseek_account_balance:'balance',buaa_classroom_query:'campus',buaa_classroom_recommend:'campus',
+  deepseek_account_balance:'balance',buaa_classroom_query:'campus',buaa_classroom_recommend:'campus',buaa_classroom_data:'campus',
 };
 export const toolFeature = name => tools[name];
