@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 RULES = {
-    "version": "outdoor-v9-20261126",
+    "version": "outdoor-v10-20261126",
     "observationDecayHours": 12,
     "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
     "pm25Knots": [[0, 0], [60, 5], [100, 25], [150, 65], [200, 100]],
@@ -175,9 +175,17 @@ def outdoor_index(date: str, hours: list[OutdoorHour], red_hazards: list[str] | 
         recommendation = {"word": "全天" if len(fair) == 2 else fair[0]["name"], "suffix": "户外条件尚可"}
     else:
         recommendation = {"word": "全天", "suffix": "不宜户外活动"}
+        labels = {"pm25": "雾霾（PM2.5 偏高）", "wind": "大风", "rain": "降雨", "cloud": "云量较多"}
+        losses = {key: sum(p["deductions"][key] for p in periods) for key in labels}
+        largest = max(losses.values())
+        recommendation["causes"] = [label for key, label in labels.items() if losses[key] == largest]
+    all_day = recommendation["word"] == "全天"
+    score = sum(p["score"] for p in periods) / len(periods) if all_day else best["score"]
+    gold = all(p["gold"] for p in periods) if all_day else best["gold"]
+    grade = "excellent" if best["gold"] and not gold else best["grade"]
     return {"date": date, "version": RULES["version"], "status": "complete", "periods": periods,
-            "bestPeriod": best["name"], "score": best["score"], "displayScore": best["displayScore"],
-            "grade": best["grade"], "character": best["character"], "gold": best["gold"],
+            "bestPeriod": best["name"], "score": score, "displayScore": round(score, 1),
+            "grade": grade, "character": best["character"], "gold": gold,
             "recommendation": recommendation}
 
 

@@ -38,6 +38,8 @@ export function validOutdoorIndex(value,date,city) {
       ['windPeak','gustPeak','rainTotal','rainPeak','wetHours'].every(k=>finite(d[k])&&d[k]>=0);
   })) return false;
   const recommendation=value.recommendation;
+  if (recommendation?.causes !== undefined && (!Array.isArray(recommendation.causes) ||
+      recommendation.causes.length > 4 || !recommendation.causes.every(safeText))) return false;
   if (value.status==='unknown') return recommendation?.word==='数据不足'&&recommendation.suffix==='暂不评级';
   if(danger)return rating(value)&&recommendation?.word==='全天'&&recommendation.suffix==='应当避免外出';
   return value.periods.every(row=>row.status==='complete')&&rating(value)&&periods.some(([name])=>name===value.bestPeriod)&&

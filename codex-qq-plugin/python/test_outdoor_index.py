@@ -133,7 +133,35 @@ class OutdoorIndexTests(unittest.TestCase):
         self.assertEqual(result['recommendation'],{'word':'下午','suffix':'宜户外活动'})
         self.assertEqual(self.invoke()['recommendation']['word'],'全天')
         self.assertEqual(self.invoke(rain=0.1,code=51)['recommendation']['suffix'],'户外条件尚可')
-        self.assertEqual(self.invoke(pm25=150.0)['recommendation'],{'word':'全天','suffix':'不宜户外活动'})
+        self.assertEqual(self.invoke(pm25=150.0)['recommendation'],
+                         {'word':'全天','suffix':'不宜户外活动','causes':['雾霾（PM2.5 偏高）']})
+
+    def test_advice_score_follows_its_period_and_dominant_causes(self):
+        data = sample(pm25=60.0)
+        for row in data['hours'][6:]:
+            row['cloud'] = 50.0
+        result = outdoor_index.invoke(data)
+        self.assertEqual([p['score'] for p in result['periods']], [95, 85])
+        self.assertEqual(result['recommendation']['word'], '全天')
+        self.assertEqual(result['score'], 90)
+        for row in data['hours'][:6]:
+            row['wind'] = 18.0
+        result = outdoor_index.invoke(data)
+        self.assertEqual((result['recommendation']['word'], result['score']), ('下午', 85))
+        for row in data['hours'][6:]:
+            row.update(rain=1.0, code=63)
+        result = outdoor_index.invoke(data)
+        self.assertEqual(result['score'], 12.5)
+        self.assertEqual(result['recommendation']['causes'], ['降雨'])
+        for row in data['hours'][:6]:
+            row['wind'] = 25.0
+        self.assertEqual(outdoor_index.invoke(data)['recommendation']['causes'], ['大风', '降雨'])
+        data = sample()
+        for row in data['hours'][6:]:
+            row['cloud'] = 100.0
+        result = outdoor_index.invoke(data)
+        self.assertFalse(result['gold'])
+        self.assertEqual((result['grade'], result['score']), ('excellent', 92.5))
 
     def test_missing_or_unrated_weather_is_not_zero_or_good(self):
         for changes in [dict(pm25=None),dict(code=95),dict(code=71)]:

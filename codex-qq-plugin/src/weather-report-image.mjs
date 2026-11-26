@@ -199,23 +199,37 @@ function dates(c, model, y) {
 }
 const points = (values, offset = 0) => values.map((y, i) => ({ x: i + offset, y }));
 function dailyAdvice(c, analysis, firstDay) {
-  if(analysis.dailyDanger){
-    rect(c,40,357,360,42,'#fff0f0',12);
-    text(c,'0 分 · 拉',52,384,17,'#af1930',700);
-    text(c,'全天应当避免外出',143,383,15,'#922036',650);
+  const { word, suffix, causes = [] } = analysis.recommendation;
+  const danger = analysis.dailyDanger;
+  const reasons = danger?.reasons ?? causes;
+  const ink = danger ? '#922036' : '#704437';
+  rect(c, 40, 357, 360, 42, danger ? '#fff0f0' : '#f5e7d9', 12);
+  if (analysis.status !== 'complete') {
+    text(c, firstDay + '预报数据不足，暂不评级', 52, 383, 13, ink, 600);
     return;
   }
-  const { word, suffix } = analysis.recommendation;
-  c.save(); c.font = '600 12px ' + FONT;
-  const width = Math.max(42, c.measureText(word).width + 16); c.restore();
-  // Leave the rounded highlight opening unpainted so the existing hero gradient shows through.
-  c.save(); c.fillStyle = '#f5e7d9'; c.beginPath();
-  c.roundRect(40, 357, 360, 42, 12);
-  c.roundRect(94, 365, width, 27, 8);
-  c.fill('evenodd'); c.restore();
-  text(c, firstDay + '：', 52, 383, 12, '#7f4a3d', 500);
-  text(c, word, 94 + width / 2, 383, 12, '#ffffff', 650, { align: 'center' });
-  text(c, suffix, 94 + width + 10, 383, 12, '#7f4a3d', 500);
+  if (danger || suffix === '不宜户外活动') {
+    text(c, firstDay + word + '不宜户外活动', 52, reasons.length ? 375 : 383, 14, ink, 650);
+  } else {
+    const suitable = suffix === '宜户外活动';
+    const prefix = firstDay + (suitable ? '宜' : '');
+    c.save(); c.font = '650 14px ' + FONT;
+    const badgeX = 52 + c.measureText(prefix).width + 3;
+    c.restore();
+    text(c, prefix, 52, 383, 14, ink, 650);
+    rect(c, badgeX, 365, 39, 26, '#19434a', 7);
+    text(c, word, badgeX + 19.5, 383, 14, '#ffffff', 650, { align: 'center' });
+    text(c, suitable ? '户外活动' : suffix, badgeX + 42, 383, 14, ink, 650);
+  }
+  if (reasons.length) {
+    const detail = reasons.join('、');
+    c.save(); c.font = '500 11px ' + FONT;
+    const label = c.measureText(detail).width > 251 && reasons.length > 1
+      ? reasons[0] + '等 ' + reasons.length + ' 项' : detail;
+    c.restore();
+    text(c, label, 52, 392, 11, ink, 500, { maxWidth: 251 });
+  }
+  text(c, number(analysis.displayScore) + ' 分', 388, 383, 16, ink, 700, { mono: true, align: 'right' });
 }
 
 function exercise(c, analysis, city, y) {
@@ -309,7 +323,6 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
     rect(c, x, 284, 114, 57, '#1c4651', 13); text(c, label, x + 10, 305, 10, '#a9c3c0');
     text(c, value, x + 10, 326, label === '风' ? 10.5 : 13, '#f7fbf9', 500, { mono: label !== '风', maxWidth: 96 });
   });
-  // The advice helper paints the plate around a transparent opening.
   dailyAdvice(c, analysis, firstDay);
   if(noticeHeight){
     rect(c,20,435,400,noticeHeight-12,'#fff1f1',16,'#ecc0c5');
@@ -380,7 +393,7 @@ export async function renderWeatherReportImage({ inputs, analysis: legacyAnalysi
   }else{
     text(c, inputs.places?.some(p=>/^(osm-|landmark-)/.test(p.id)) ? '代表坐标 · 地名 © OpenStreetMap contributors / Wikimedia' : '模型预报，非实测 · 北京时间 · open-meteo.com', 20, footer + 58, 9, '#7b8983', {maxWidth:400});
   }
-  if (analysis) text(c, (analysis.dailyDanger?'户外指数 · 全天清零':'户外指数为自定义评分 · 采用上午、下午中较高分')+
+  if (analysis) text(c, (analysis.dailyDanger?'户外指数 · 全天清零':'户外指数 · 单时段取该时段分，全天取上下午平均分')+
     (analysis.warningPartial?' · 官方红色预警覆盖不完整':''), 20, footer + 76, 9, '#7b8983');
   }
   // Draw into bounded pixel tiles; never allocate a full-height canvas or its
