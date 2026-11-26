@@ -62,17 +62,3 @@ test('day overview routed to cached-recommend tool still requests the full repor
   const stages=[];const result=await service.recommend({},{scope:'c2c',progress:async stage=>{stages.push(stage);return true;}},'今天三号楼的空教室情况');
   assert.equal(result.image,image);assert.deepEqual(calls,['report']);assert.deepEqual(stages,['campus-fetch']);
 });
-
-test('ignored-query recovery keeps dates and presentation, and refuses unrelated chat and gray access',async t=>{
-  const worker=new PythonAgentWorker({home,workerPath:path.join(home,'python','campus_worker.py')});t.after(()=>worker.close());
-  const service=new CampusService({home,worker,configStore:{},now:()=>Date.parse('2026-10-29T17:00:00Z')}),calls=[];
-  service.execute=async args=>{calls.push(['full',args]);return {image:{},requiredAccess:'white'};};
-  service.recommend=async args=>{calls.push(['compact',args]);return {campusRecommendation:{ok:true}};};
-  await service.recoverIgnored('明天主M和新主楼A座空教室情况',{scope:'c2c'});
-  assert.deepEqual(calls.at(-1),['full',{date:'2026-10-31',view:'full'}]);
-  await service.recoverIgnored('我现在去哪个教室自习',{scope:'group',access:'white'});
-  assert.deepEqual(calls.at(-1),['compact',{date:'2026-10-30',session:'now'}]);
-  for(const text of ['让Tibo升级服务器','教室英文怎么说','下周三号楼空教室'])assert.equal(await service.recoverIgnored(text,{scope:'c2c'}),null);
-  assert.equal(await service.recoverIgnored('今天三号楼空教室情况',{scope:'group',access:'gray'}),null);
-  assert.equal(calls.length,2);
-});

@@ -132,14 +132,6 @@ export class CampusService{
     if(!text)return {view:requested==='auto'?(origin==='query'?'full':'compact'):requested,session:'now'};
     return this.worker.run({type:'campus',mode:'intent',args:{text,requested,origin}},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>z.object({view:z.enum(['full','compact']),session:z.enum(['now','morning','afternoon','evening'])}).strict().parse(value.intent));
   }
-  async recoverIgnored(text,context){
-    if(!fullAccess(context,'campus'))return null;
-    const recovered=await this.worker.run({type:'campus',mode:'recognize',args:{text},now:new Date(this.now()).toISOString()},async()=>{throw Error('CAMPUS_RPC_DENIED');},value=>z.object({recognized:z.boolean(),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable()}).parse(value));
-    if(!recovered.recognized||!fullAccess(context,'campus'))return null;
-    const intent=await this.resolveIntent(text,'auto','query');
-    console.warn('[campus] RECOVERED_IGNORED_QUERY');
-    return intent.view==='full'?this.execute({date:recovered.date,view:'full'},context,text):this.recommend({date:recovered.date,session:intent.session},context,text);
-  }
   async execute(args,context,requestText){
     if(!fullAccess(context,'campus'))return {text:JSON.stringify(campusFailure('CAMPUS_OWNER_ONLY')),requiredAccess:'chat'};
     const {building,regions,view,...queryArgs}=args||{};

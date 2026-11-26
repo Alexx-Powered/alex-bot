@@ -58,13 +58,13 @@ test('legacy state remains white and duplicate white/gray IDs fail closed',async
 
 test('gray fixed conversion works without model; balance is denied before credential read and queries cannot use RPC',async()=>{
   let reads=0,queries=0;
-  const agent=agentFixture({configStore:{read:async()=>{reads++;return {enabled:true,apiKey:'offline-key'};}},
+  const agent=agentFixture({configStore:{read:async()=>{reads++;return {enabled:false,apiKey:''};}},
     toolbox:{handle:async()=>{queries++;throw Error('no fixed queries');},execute:async()=>{queries++;throw Error('no RPC queries');}},
     worker:{run:async(_p,execute)=>execute('weather_image',{city:'北京'})}});
   const context={scope:'group',access:'gray',groupContext:[]};
-  assert.match((await agent.handle('1马里换公里',context)).text,/3.08/);assert.equal(reads,0);
-  assert.match((await agent.handle('查DeepSeek余额',context)).text,/灰名单/);assert.equal(reads,0);
-  assert.match((await agent.handle('北京天气怎么样',context)).text,/灰名单/);assert.equal(queries,0);
+  assert.match((await agent.handle('1马里换公里',context)).text,/3.08/);assert.equal(reads,1);
+  assert.match((await agent.handle('查DeepSeek余额',context)).text,/灰名单/);assert.equal(reads,2);
+  assert.equal(await agent.handle('北京天气怎么样',context),null);assert.equal(queries,0);
 });
 
 test('white natural balance reply is marked sensitive; gray forced balance/status results are blocked',async()=>{

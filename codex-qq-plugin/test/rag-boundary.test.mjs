@@ -32,7 +32,7 @@ test('real Node stdio invokes canonical LangChain RAG tools without model or QQ'
     assert.equal(trip.kind,'rag');assert.equal(trip.requiredFeature,'weather');
     assert.match(trip.text,/季节参考/);assert.match(trip.text,/暂无可用预报/);assert.ok(trip.text.length<=1600);
     const directAgent=new ConversationAgent({worker,ragEnabled:true,toolbox:{handle:async()=>null},
-      configStore:{read:async()=>{throw Error('MODEL_CONFIG_MUST_NOT_BE_READ');}},
+      configStore:{read:async()=>({enabled:false})},
       modelBudget:{acquire:async()=>{throw Error('MODEL_BUDGET_MUST_NOT_BE_USED');}}});
     const saved=await directAgent.handle('保存项目 天气助手：使用 ECMWF 数据。',{scope:'c2c',sessionKey:'a'.repeat(64)});
     assert.match(saved.text,/已保存/);
@@ -76,13 +76,13 @@ test('outdoor completion rechecks weather permission and uses one routing budget
   assert.equal(acquired,1);assert.doesNotMatch(result.text,/private trip report/);
 });
 
-test('deterministic project routing falls back only when Python says not a command',async()=>{
+test('online routing asks the model about a project without first attempting a write',async()=>{
   const types=[];let acquired=0;
   const worker={run:async(payload,execute,finish)=>{types.push(payload.type);return finish(payload.type==='rag_control'?{kind:'ignore'}:{kind:'clarify',reason:'ignore'});}};
   const agent=new ConversationAgent({worker,ragEnabled:true,toolbox:{handle:async()=>null},configStore:{read:async()=>({enabled:true,apiKey:'offline-key'})},
     policyLoader:async()=>({enabled:false,topics:[],instructions:'',maxChars:600}),modelBudget:{acquire:async()=>{acquired++;return {ok:true};}}});
   await agent.handle('保存项目是否有必要？',{scope:'c2c',sessionKey:'a'.repeat(64)});
-  assert.deepEqual(types,['rag_control','request']);assert.equal(acquired,1);
+  assert.deepEqual(types,['request']);assert.equal(acquired,1);
 });
 
 test('RAG output rechecks live group permission and preserves complete sourced evidence',async()=>{

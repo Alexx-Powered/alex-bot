@@ -110,8 +110,8 @@ test('only trusted campus RPC gets its bounded longer deadline and campus result
   try{await assert.rejects(bad.worker.run({type:'request'},async()=>null));}finally{bad.worker.close();}
 });
 test('exact weather and morning briefing fall back if Python missing, never require key',async()=>{
-  const queries=[];const toolbox=new WeatherToolbox({handle:async text=>{queries.push(text);return {text:'',image:{buffer:Buffer.alloc(10)}};},briefing:async args=>({ok:true,cities:args.cities})},{run:async()=>{throw Error();}});
-  assert.ok((await toolbox.handle('发天气广州')).image);assert.equal(queries[0],'发 天气 guangzhou');assert.equal((await toolbox.briefing({cities:['beijing']})).ok,true);
+  const queries=[];const toolbox=new WeatherToolbox({execute:async command=>{queries.push(command);return {text:'',image:{buffer:Buffer.alloc(10)}};},briefing:async args=>({ok:true,cities:args.cities})},{run:async()=>{throw Error();}});
+  assert.ok((await toolbox.handle('发天气广州')).image);assert.deepEqual(queries[0],{type:'weather',city:'guangzhou'});assert.equal((await toolbox.briefing({cities:['beijing']})).ok,true);
   await assert.rejects(toolbox.execute('weather_image',{city:'https://example.com'}));await assert.rejects(toolbox.execute('notify',{text:'hi'}));
 });
 test('disabled natural language never starts worker; chat policy and mention filters enforced twice',async()=>{

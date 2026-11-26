@@ -290,7 +290,7 @@ test('weather location errors expose only fixed codes and bounded safe suggestio
 
 test('authenticated group enrollment binds an observed group; public notifications remain owner-only', async () => {
   const queries = [];
-  const f = await fixture({ handle: async text => { queries.push(text); return text === '发 天气 beijing' ? { text: 'weather fixture' } : null; } });
+  const f = await fixture({ execute: async command => { queries.push(command); return { text: 'weather fixture' }; } });
   const groupMessage = (id, text, groupId = 'PRIVATE_GROUP_OPENID') => ({ kind: 'group', id, groupId,
     senderId: 'MEMBER_OPENID', text, replyTarget: { scope: 'group', targetId: groupId, msgId: id } });
   try {
@@ -321,7 +321,7 @@ test('authenticated group enrollment binds an observed group; public notificatio
     assert.equal(f.sent.length, 0); assert.deepEqual(queries, []);
     await f.receive(groupMessage('weather-in-group', '梁祖 发 天气 北京'));
     assert.equal(f.sent.length, 1);
-    assert.deepEqual(queries, ['发 天气 beijing']);
+    assert.deepEqual(queries, [{type:'weather',city:'beijing'}]);
     assert.equal(f.sent[0].groupId, 'PRIVATE_GROUP_OPENID');
     assert.equal(f.sent[0].replyTarget.scope, 'group');
     const notify = await (await f.request('/api/notify', { text: 'private Codex report', idempotencyKey: 'private-report', groupId: 'PRIVATE_GROUP_OPENID', replyTarget: groupMessage('fake', '').replyTarget })).json();

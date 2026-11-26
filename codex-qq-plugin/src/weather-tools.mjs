@@ -6,6 +6,7 @@ const location=z.string().max(60).refine(isCityQuery);
 const target=z.string().trim().min(1).max(40).regex(/^[\p{Script=Han}\p{Script=Latin}0-9·（）() _.,'’-]+$/u);
 const day=z.union([z.enum(['today','tomorrow']),z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional();
 const schemas={
+  satellite_video:z.object({city:location}).strict(),
   cloud_video:z.object({city:location,day,hours:z.union([z.literal(24),z.literal(48)]).optional()}).strict(),pm25_video:z.object({city:location,day,hours:z.union([z.literal(24),z.literal(48)]).optional()}).strict(),precipitation_video:z.object({city:location,day,hours:z.union([z.literal(24),z.literal(48)]).optional()}).strict(),temperature_video:z.object({city:location,day,hours:z.union([z.literal(24),z.literal(48)]).optional()}).strict(),
   weather_image:z.object({city:location,day}).strict(),air_quality_image:z.object({city:location}).strict(),
   radar_image:z.object({target,source:z.enum(['auto','global']).optional()}).strict(),radar_catalog:z.object({query:z.string().max(40).regex(/^[\p{Script=Han}\p{Script=Latin}0-9·（）() _.,'’-]*$/u)}).strict(),
@@ -30,9 +31,11 @@ export class WeatherToolbox{
         return {text:timeoutNotice(error)||'预报数据暂不可用，请稍后查询。'};
       }
     }
-    if(name.endsWith('_video'))return this.handle((a.day?(a.day==='today'?'今天':a.day==='tomorrow'?'明天':a.day):'')+(a.hours===48?'发 48h动态':'发 动态')+({cloud_video:'云图',pm25_video:'PM2.5',precipitation_video:'降水',temperature_video:'温度'})[name]+' '+a.city);
-    const text=name==='weather_image'?'发 天气 '+a.city:name==='air_quality_image'?'发 雾霾 '+a.city:name==='radar_image'?(a.source==='global'?'发全球雷达 ':'发 雷达 ')+a.target:'雷达目录 '+a.query;
-    return this.commands.handle(text);
+    const layers={cloud_video:'cloud_cover',satellite_video:'cloud',pm25_video:'pm25',precipitation_video:'precipitation',temperature_video:'temperature'};
+    if(Object.hasOwn(layers,name))return this.commands.execute({type:'video',layer:layers[name],...a});
+    if(name==='radar_catalog')return this.commands.execute({type:'radar-list',query:a.query});
+    if(name==='radar_image')return this.commands.execute({type:'radar',city:a.target,...(a.source==='global'?{source:'global'}:{})});
+    return this.commands.execute({type:name==='air_quality_image'?'air':'weather',city:a.city});
   }
   async invoke(name,args){
     if(!Object.hasOwn(schemas,name))throw new Error('UNKNOWN_WEATHER_TOOL');

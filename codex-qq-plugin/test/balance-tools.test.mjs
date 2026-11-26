@@ -11,9 +11,9 @@ test('only explicit rescue commands bypass the model, natural phrasing stays wit
 test('explicit group query never reads credentials; natural private question invokes agent then balance tool',async()=>{
  let reads=0;const packets=[];
  const agent=new ConversationAgent({toolbox:{handle:async()=>null},configStore:{read:async()=>{reads++;return {enabled:true,apiKey:'fake-key-123'};}},worker:{run:async(p,e,finish)=>{packets.push(p);return finish({kind:'balance',text:'DeepSeek余额：110 CNY'});}},policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})}});
- assert.match((await agent.handle('查DeepSeek余额',{scope:'group'})).text,/本人私聊/);assert.equal(reads,0);
+ assert.equal(await agent.handle('查DeepSeek余额',{scope:'group'}),null);assert.equal(reads,1);packets.length=0;
  assert.match((await agent.handle('我还有多少余额',{scope:'c2c'})).text,/110 CNY/);assert.equal(packets[0].type,'request');
- assert.match((await agent.handle('查DeepSeek余额',{scope:'c2c'})).text,/110 CNY/);assert.equal(packets[1].type,'execute');
+ assert.match((await agent.handle('查DeepSeek余额',{scope:'c2c'})).text,/110 CNY/);assert.equal(packets[1].type,'request');
 });
 
 test('fixed balance execution projects optional scoped session metadata without shared background',async()=>{

@@ -36,10 +36,8 @@ class RagOutdoorAgentTests(unittest.TestCase):
 
     def test_real_agent_selects_one_composite_tool_and_skips_shortcut(self):
         self.model.responses.append(call('prepare_outdoor_trip',self.trip))
-        with patch.object(worker,'quick_weather_route',return_value=('weather_image',{'city':'党岭'})) as quick:
-            result=self.runner.run(packet(text='本周末去党岭徒步，季节合适吗，天气怎么样，需要什么装备？',
+        result=self.runner.run(packet(text='本周末去党岭徒步，季节合适吗，天气怎么样，需要什么装备？',
                 sessionKey='a'*64,context={'scope':'c2c'},now='2026-11-06T01:00:00Z'))
-        quick.assert_not_called()
         self.assertEqual(result['kind'],'rag')
         self.assertEqual(result['requiredFeature'],'weather')
         self.assertIn('最大阵风15m/s',result['text'])
@@ -61,14 +59,15 @@ class RagOutdoorAgentTests(unittest.TestCase):
         self.assertNotIn('prepare_outdoor_trip',[item.name for item in tools])
         self.forecast.daily.assert_not_called()
 
-    def test_single_weather_request_still_uses_fixed_route(self):
+    def test_single_weather_request_uses_model_without_composite_forecast(self):
+        self.model.responses.append(call('weather_image',{'city':'北京'}))
         rpc=Mock(return_value='已生成天气图')
         runner=worker.build_runner(model_factory=lambda _:self.model,rpc_callback=rpc,
             rag_retriever=self.retriever,outdoor_config=self.options)
         result=runner.run(packet(text='北京天气',sessionKey='a'*64,context={'scope':'c2c'}))
         self.assertEqual(result['kind'],'tool')
         self.assertEqual(rpc.call_args.args[2],'weather_image')
-        self.assertEqual(self.model.seen,[])
+        self.assertEqual(len(self.model.seen),1)
         self.forecast.daily.assert_not_called()
 
     def test_short_trip_followup_receives_only_minimal_scoped_constraints(self):

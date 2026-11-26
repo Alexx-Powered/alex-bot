@@ -9,12 +9,12 @@ import {PythonAgentWorker} from '../src/python-agent.mjs';
 import {ConversationAgent} from '../src/conversation-agent.mjs';
 import {ConversionToolbox} from '../src/conversion-tools.mjs';
 
-test('real Node→Python LangChain followups share typed facts, preserve sensitive permissions and fixed no-key conversions',async t=>{
+test('real Node→Python LangChain followups share typed facts, preserve sensitive permissions and carry forward conversions',async t=>{
  if(!existsSync(pythonExecutable())){t.skip('Install Python environment first');return;}
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'qq-tool-followups-'));
  t.after(async()=>{assert.equal(path.dirname(home),os.tmpdir());assert.ok(path.basename(home).startsWith('qq-tool-followups-'));await fs.rm(home,{recursive:true,force:true,maxRetries:10,retryDelay:50});});
  const launcher=path.join(home,'fixture.py');
- const fixture=`import sys\nsys.path.insert(0,${JSON.stringify(path.join(APP_ROOT,'python'))})\nimport agent_worker as worker\nfrom test_agent_worker import ScriptedModel,call\nmodel=ScriptedModel(responses=[call('convert_previous_result',{'to_unit':'HU$'}),call('convert_previous_result',{'to_unit':'m'}),call('convert_previous_result',{'to_unit':'HU$'}),call('convert_previous_result',{'to_unit':'HU$'})])\nworker.read_balance=lambda _: 'DeepSeek API 账户余额：\\n可用 4.09 CNY（赠金 0.00，充值余额 4.09）\\n可供 API 调用：是\\n查询时间：10-29 21:51（北京时间）'\noriginal=worker.build_runner\nworker.build_runner=lambda **kw: original(model_factory=lambda _:model,**kw)\nworker.main()\n`;
+ const fixture=`import sys\nsys.path.insert(0,${JSON.stringify(path.join(APP_ROOT,'python'))})\nimport agent_worker as worker\nfrom test_agent_worker import AIMessage,ScriptedModel,call\nmodel=ScriptedModel(responses=[call('deepseek_account_balance',{}),call('convert_previous_result',{'to_unit':'HU$'}),call('convert_units',{'amount':'1','from_unit':'马里','to_unit':'km'}),AIMessage(content='1 马里 = 3.08 km'),call('convert_previous_result',{'to_unit':'m'}),call('deepseek_account_balance',{}),call('convert_previous_result',{'to_unit':'HU$'}),call('convert_previous_result',{'to_unit':'HU$'})])\nworker.read_balance=lambda _: 'DeepSeek API 账户余额：\\n可用 4.09 CNY（赠金 0.00，充值余额 4.09）\\n可供 API 调用：是\\n查询时间：10-29 21:51（北京时间）'\noriginal=worker.build_runner\nworker.build_runner=lambda **kw: original(model_factory=lambda _:model,**kw)\nworker.main()\n`;
  await fs.writeFile(launcher,fixture);
  const worker=new PythonAgentWorker({home,workerPath:launcher});
  const conversionTools=new ConversionToolbox(worker);

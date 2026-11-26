@@ -4,7 +4,7 @@ FEATURE_KEYS = {
     'status', 'balance', 'images', 'voice', 'memory', 'morningWeather', 'morningCampus',
 }
 TOOL_FEATURES = {
-    'cloud_video':'weather','pm25_video':'air','precipitation_video':'weather','temperature_video':'weather',
+    'satellite_video':'weather','cloud_video':'weather','pm25_video':'air','precipitation_video':'weather','temperature_video':'weather',
     'weather_image': 'weather', 'air_quality_image': 'air',
     'radar_image': 'radar', 'radar_catalog': 'radar',
     'convert_units': 'conversion', 'convert_previous_result': 'conversion',

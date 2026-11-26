@@ -27,7 +27,7 @@ for(const scope of ['c2c','group'])for(const natural of [false,true]){
     const worker={async run(packet,rpc,finish){calls.push(packet.type);return finish({kind:'rag',requiredFeature:'weather',text:'',
       hikingCard:{schema:'hiking.card.v1',topic:'库拉岗日',days:[],nights:[],message:'测试资料待补充。'}});}};
     const agent=new ConversationAgent({worker,ragEnabled:true,toolbox:{handle:async()=>null},
-      configStore:{read:async()=>({enabled:true,apiKey:'offline-fixture'})},
+      configStore:{read:async()=>({enabled:natural,apiKey:'offline-fixture'})},
       policyLoader:async()=>({enabled:false,topics:[],instructions:'',maxChars:600}),modelBudget:{acquire:async()=>({ok:true})}});
     let outcome,core;
     const adapter=new QQAdapter({createBot:()=>bot,now:()=>now,

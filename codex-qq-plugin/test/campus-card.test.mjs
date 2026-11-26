@@ -11,14 +11,14 @@ import {ConversationAgent} from '../src/conversation-agent.mjs';
 const home=fileURLToPath(new URL('..',import.meta.url));
 const report=()=>({schema_version:'buaa-recommendations.v1',ok:true,code:'OK',building:'新主楼',date:'2026-10-29',now:'2026-10-29T16:36:00+08:00',fetched_at:'2026-10-29T15:00:00+08:00',session:'下午',message:'A101可用',candidates:[{building:'新主楼',room:'A101',small:false,tier:1,start_period:9,end_period:10,usable_from:'16:36',usable_until:'18:15',available_now:true,complete_remaining:true,period5_busy:false,full_afternoon:false,just_released:true,release_pending:false}]});
 
-test('model ignore can recover a confirmed campus image without an extra routing model call',async()=>{
+test('an ignored request does not trigger rule-based campus dispatch',async()=>{
   const image={mimeType:'image/png'};let calls=0,recovered=0;
   const agent=new ConversationAgent({campusTools:{handle:async()=>null,recoverIgnored:async(text,context)=>{recovered++;assert.equal(text,'今天三号楼的空教室情况');assert.equal(context.access,'white');return {image,text:'',requiredAccess:'white'};}},
     toolbox:{handle:async()=>null},configStore:{read:async()=>({enabled:true,apiKey:'offline-model-key'})},
     policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})},
     worker:{run:async(_packet,_execute,finish)=>{calls++;return finish({kind:'ignore'});}}});
   const result=await agent.handle('今天三号楼的空教室情况',{scope:'group',access:'white'});
-  assert.equal(result.image,image);assert.equal(result.requiredAccess,'white');assert.equal(calls,1);assert.equal(recovered,1);
+  assert.ok(result.ignored);assert.equal(result.requiredAccess,'chat');assert.equal(calls,1);assert.equal(recovered,0);
 });
 
 test('fresh multi-region query preserves the region array through cache and recommendation without leaking credentials',async t=>{
@@ -54,7 +54,7 @@ test('natural recommendation produces one image after model explanation, includi
     let rendered=0;
     const image={buffer:Buffer.alloc(16),mimeType:'image/png'};
     const agent=new ConversationAgent({
-      campusTools:{handle:async()=>null,recommend:async(args,_context,text)=>{assert.equal(text,'新主楼现在去哪个教室');return {text:'A101',campusRecommendation:report()};},
+      campusTools:{handle:async()=>null,recommend:async(args,_context,text)=>{assert.equal(args.building,'新主楼');assert.equal(text,undefined);return {text:'A101',campusRecommendation:report()};},
         renderRecommendation:async(data,explanation)=>{rendered++;assert.equal(data.building,'新主楼');assert.equal(explanation,failed?'':'去A101。');return {image,text:'',requiredAccess:'white'};}},
       toolbox:{handle:async()=>null},configStore:{read:async()=>({enabled:true,apiKey:'offline-model-key'})},
       policyLoader:async()=>({enabled:true,topics:['日常'],maxChars:600,instructions:''}),modelBudget:{acquire:async()=>({ok:true})},

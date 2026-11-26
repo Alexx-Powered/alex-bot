@@ -161,8 +161,10 @@ class VideoTests(unittest.TestCase):
    r=runner.run(packet(text='看广州的天气变化视频'));self.assertEqual(r['kind'],'tool');self.assertEqual(calls,[(name,{'city':'广州'})])
   model=ScriptedModel();model.responses.append(call('cloud_video',{'city':'广州'}));runner=build_runner(model_factory=lambda _:model,rpc_callback=lambda *a:'video')
   r=runner.run(packet(context={'scope':'group','access':'white','currentSpeaker':'member-abcdef123456','groupContext':[],'features':{k:k=='weather' for k in FEATURE_KEYS}}));self.assertNotIn('pm25_video',model.bound[0]);self.assertIn('cloud_video',model.bound[0])
- def test_video_time_windows_are_not_silently_substituted(self):
-  from agent_worker import _unsupported_time
-  for name,text,denied in [('cloud_video','过去6小时广州云图',True),('cloud_video','未来6小时广州云图',True),('cloud_video','近12小时广州云图',True),('temperature_video','未来24小时广州温度视频',False),('pm25_video','未来48小时广州PM2.5视频',False),('pm25_video','未来72小时广州PM2.5视频',True),('precipitation_video','明天广州降水视频',False)]:
-   self.assertEqual(_unsupported_time(text,name,'2026-11-03'),denied,(name,text))
+ def test_video_duration_contract(self):
+  from agent_worker import ForecastVideoArgs
+  from pydantic import ValidationError
+  for hours in (6,12,72):
+   with self.assertRaises(ValidationError):ForecastVideoArgs(city='广州',hours=hours)
+  for hours in (24,48):self.assertEqual(ForecastVideoArgs(city='广州',hours=hours).hours,hours)
 if __name__=='__main__':unittest.main()

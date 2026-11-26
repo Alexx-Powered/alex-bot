@@ -51,7 +51,7 @@ export function featureEnabled(context, feature) {
 }
 const tools = {
   ...Object.fromEntries(WEATHER_TOOLS.map(({tool,feature})=>[tool,feature])),
-  local_weather_briefing:'weather',convert_units:'conversion',convert_previous_result:'conversion',
+  satellite_video:'weather',local_weather_briefing:'weather',convert_units:'conversion',convert_previous_result:'conversion',
   living_cost_budget:'budget',openai_service_status:'status',deepseek_service_status:'status',ai_service_status:'status',liang_status:'status',
   deepseek_account_balance:'balance',buaa_classroom_query:'campus',buaa_classroom_recommend:'campus',
 };

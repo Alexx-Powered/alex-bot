@@ -105,7 +105,7 @@ class RagIntegrationTests(unittest.TestCase):
         self.assertIn('当期管理公告',result['text'])
 
     def test_explicit_project_save_bypasses_model_and_old_memory(self):
-        result=self.runner.run(packet(text='保存项目 天气助手：采用 ECMWF 数据。',
+        result=self.runner.run(packet(type='rag_control',text='保存项目 天气助手：采用 ECMWF 数据。',
             sessionKey='a'*64,context={'scope':'c2c'}))
         self.assertEqual(result['kind'],'rag')
         self.assertIn('已保存',result['text'])

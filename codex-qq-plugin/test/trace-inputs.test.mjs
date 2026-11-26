@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
@@ -76,7 +77,7 @@ test('fallback and partial success keep specific child diagnostics while success
 });
 
 test('real LangChain tool round trip retains the user question and the handled location failure',async t=>{
-  const f=await fixture(t),worker=new PythonAgentWorker({home:process.cwd()});
+  const f=await fixture(t),worker=new PythonAgentWorker({home:process.cwd(),workerPath:fileURLToPath(new URL('./fixtures/model-weather-worker.py',import.meta.url))});
   t.after(()=>worker.close());
   const commands=new WeatherCommands({locations:{resolve:async()=>{throw new LocationError('LOCATION_SOURCE_TIMEOUT');}},videos:{},radar:{}});
   const toolbox=new WeatherToolbox(commands,worker),question='北京天气如何';

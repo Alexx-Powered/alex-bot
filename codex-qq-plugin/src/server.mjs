@@ -63,7 +63,7 @@ export async function createBridgeServer({ home = process.env.QQ_BRIDGE_HOME || 
   const monitoring=telemetry||new Telemetry({home,configStore:monitoringConfigStore});
   await store.init();
   let configured = Boolean(await readTransportCredentials());
-  const worker = agentWorker || new PythonAgentWorker({home,toolTimeouts:{cloud_video:190000,pm25_video:190000,precipitation_video:190000,temperature_video:190000,buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
+  const worker = agentWorker || new PythonAgentWorker({home,toolTimeouts:{satellite_video:190000,cloud_video:190000,pm25_video:190000,precipitation_video:190000,temperature_video:190000,buaa_classroom_query:120000,liang_status:75000,radar_image:150000}});
   const ragHealth = new RagHealthCheck({worker,enabled:ragEnabled});
   const researchHealth = new ResearchHealthCheck({worker,enabled:ragEnabled,configStore:agentConfigStore});
   const hikingHealth = new HikingHealthCheck({worker,enabled:ragEnabled,configStore:agentConfigStore});

@@ -38,7 +38,7 @@ class ToolFollowupTests(unittest.TestCase):
             reverse = self.request('再换回人民币呢', 'convert_previous_result', {'to_unit': 'CNY'})
             self.assertIn('4.09 元 = 4.09 元', reverse['text'])
             fetch.assert_called_once()
-        self.assertEqual(len(self.model.seen), 1, 'Explicit followups invoke the fixed tool without another model call')
+        self.assertEqual(len(self.model.seen), 3, 'Each turn selects its own tool; amounts stay in the trusted store')
         self.assertNotIn('4.09', str(self.model.seen))
         self.assertNotIn('offline-test-key', str(self.model.seen))
         self.assertNotIn('4.09', str(self.runner.sessions[self.session].turns))

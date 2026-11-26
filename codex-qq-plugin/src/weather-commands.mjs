@@ -78,7 +78,10 @@ export class WeatherCommands {
     this.videos=videos;this.radar=radar; this.locations=locations; this.weather=weather; this.air=air; this.chart=chart; this.weatherChart=weatherChart; this.now=now;
   }
   async handle(text, previousCity) {
-    const command=parseWeatherCommand(text,this.now()); if(!command)return null;
+    const command=parseWeatherCommand(text,this.now());
+    return command?this.execute(command,previousCity):null;
+  }
+  async execute(command, previousCity) {
     if(command.type==='help')return {text:'发 天气 城市或区县\n发 雾霾 城市或区县\n发 雷达 站名或区域\n雷达目录 [省名] [页码]\n换算 0.6 HU$ 人民币（也支持马里、马时）\n同名地点请加省市，例如：辽宁 朝阳。\n/pause 暂停；/status 状态\n每天08:00发送北京天气合成图。'};
     try {
       if(command.type==='video'){
