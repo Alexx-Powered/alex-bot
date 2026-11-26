@@ -64,7 +64,7 @@ class OutdoorIndexTests(unittest.TestCase):
         for row in data['hours'][:4]:
             row['observed'] = 18.0
         morning, afternoon = outdoor_index.invoke(data)['periods']
-        self.assertGreaterEqual(morning['score'], 95)
+        self.assertEqual(morning['grade'], 'excellent')
         self.assertGreater(morning['score'], afternoon['score'])
         self.assertIn('09:00实测 18', morning['reason'])
         data['red_hazards'] = ['大风']
@@ -75,15 +75,23 @@ class OutdoorIndexTests(unittest.TestCase):
         data['hours'][0]['observed'] = 18.0
         self.assertEqual(outdoor_index.invoke(data)['grade'], 'gold')
 
-    def test_observation_correction_expires_at_eighteen_hours(self):
+    def test_observed_and_hourly_forecast_blend_until_twelve_hours(self):
         base = sample(pm25=120.0)['hours'][0]
-        def hour(h, obs=None):
-            return OutdoorHour(**{**base,'time':f'2026-11-03T{h:02}:00:00+08:00','observed':obs})
-        anchor = hour(0, 30.0)
-        # A 90-unit bias decays by 5 per hour. Corrected values are 80, 115, 120.
-        for h, expected in [(10, 15), (17, 37), (18, 41), (19, 41)]:
-            row = assess_period('测试', h, h+1, [hour(h)], anchor)
-            self.assertAlmostEqual(row['deductions']['pm25'],expected)
+        def hour(h, forecast, observed=None):
+            return OutdoorHour(**{**base, 'time':f'2026-11-03T{h:02}:00:00+08:00',
+                                  'pm25':forecast, 'observed':observed})
+        anchor = hour(7, 80.0, 40.0)
+        # At 13:00 the observation weighs 25% against that hour's forecast of 120.
+        for row, loss in [(hour(5, 120.0), 41), (hour(6, 80.0, 20.0), 50/12),
+                          (anchor, 5), (hour(13, 120.0), 25), (hour(19, 120.0), 41),
+                          (hour(20, 120.0), 41), (hour(6, None, 60.0), 5)]:
+            h = int(row.time[11:13])
+            with self.subTest(hour=h):
+                period = assess_period('测试', h, h+1, [row], anchor)
+                self.assertAlmostEqual(period['deductions']['pm25'], loss)
+        missing_forecast = hour(7, None, 40.0)
+        self.assertEqual(assess_period('测试', 13, 14, [hour(13, 120.0)], missing_forecast)['deductions']['pm25'], 25)
+        self.assertEqual(assess_period('测试', 13, 14, [hour(13, None)], anchor)['status'], 'unknown')
 
     def test_wind_thresholds_and_gusts(self):
         for wind, gust, score in [(10.7,13.8,100),(10.8,13.8,78),(1,13.9,78),

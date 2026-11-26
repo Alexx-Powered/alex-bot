@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 
 RULES = {
-    "version": "outdoor-v8-20261125",
-    "observationDecayHours": 18,
+    "version": "outdoor-v9-20261126",
+    "observationDecayHours": 12,
     "cloudKnots": [[0, 0], [10, 3], [20, 6], [50, 10], [100, 15]],
     "pm25Knots": [[0, 0], [60, 5], [100, 25], [150, 65], [200, 100]],
     "windLoss": {"none": 0, "blue": 22, "yellow": 70, "orange": 100},
@@ -75,12 +75,13 @@ def assess_period(name, start, end, rows, latest=None):
     for row in rows:
         value = row.pm25
         if row.observed is not None:
-            value = row.observed
-        elif latest and latest.pm25 is not None and value is not None:
-            gap = (datetime.fromisoformat(row.time)-datetime.fromisoformat(latest.time)).total_seconds()/3600
+            value = row.observed if value is None else (value + row.observed) / 2
+        elif latest and value is not None:
+            gap = (datetime.fromisoformat(row.time) - datetime.fromisoformat(latest.time)).total_seconds() / 3600
             duration = RULES["observationDecayHours"]
             if 0 < gap < duration:
-                value = max(0, value + (latest.observed-latest.pm25)*(1-gap/duration))
+                observation_weight = 0.5 * (1 - gap / duration)
+                value = observation_weight * latest.observed + (1 - observation_weight) * value
         if value is None and row.wind >= 3.4:
             value = 30.0
         scoring_pm25.append(value)
