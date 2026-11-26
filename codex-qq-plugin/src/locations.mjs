@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import {searchOutdoorPlaces} from './outdoor-places.mjs';
+import {hasAmapKey,searchOutdoorPlaces} from './outdoor-places.mjs';
 
 export const CITIES = Object.freeze({
   beijing: Object.freeze({ id: 'beijing', name: '北京', latitude: 39.9042, longitude: 116.4074 }),
@@ -117,12 +117,14 @@ export class LocationService {
     }
     const key = compact(query);
     const rank = preferBest ? query : undefined;
-    if (aliases.has(key)) return choose([...aliases.get(key).values()], rank);
+    const districtLookup = preferBest && /[县区旗乡镇]$/u.test(key) &&
+      hasAmapKey();
+    if (!districtLookup && aliases.has(key)) return choose([...aliases.get(key).values()], rank);
     // The published CSV often omits the conventional suffix (e.g. 海淀).
     // Prefer an exact alias; only then retry the same qualified name without
     // one trailing suffix. Do not select a candidate from an ambiguous set.
     const withoutSuffix = key.replace(/[市区县旗]$/u, '');
-    if (withoutSuffix !== key && aliases.has(withoutSuffix)) return choose([...aliases.get(withoutSuffix).values()], rank);
+    if (!districtLookup && withoutSuffix !== key && aliases.has(withoutSuffix)) return choose([...aliases.get(withoutSuffix).values()], rank);
     if (/^qweather-[A-Za-z0-9]+$/.test(id)) throw new LocationError('LOCATION_NOT_FOUND');
     const time = this.#now();
     if (!Number.isSafeInteger(time) || time < 0) throw invalid();
@@ -130,7 +132,8 @@ export class LocationService {
     const cached = this.#cache.get(cacheKey);
     if (cached && cached.expiresAt > time) return choose(cached.places, rank);
     if (!this.#inflight.has(cacheKey)) {
-      const pending = this.#lookup(query, preferBest).then((places) => {
+      const localFallback = districtLookup && (aliases.get(key) ?? aliases.get(withoutSuffix));
+      const pending = this.#lookup(query, preferBest, localFallback).then((places) => {
         if (this.#cache.size >= MAX_CACHE) this.#cache.delete(this.#cache.keys().next().value);
         this.#cache.set(cacheKey, { places, expiresAt: this.#now() + (places.length ? 24 * 3600_000 : 10 * 60_000) });
         return places;
@@ -139,7 +142,7 @@ export class LocationService {
     }
     return choose(await this.#inflight.get(cacheKey), rank);
   }
-  async #lookup(query, preferBest) {
+  async #lookup(query, preferBest, localFallback) {
     const outdoor=async()=>{
       const rows=await this.outdoorLookup(query,{expanded:preferBest});
       if(!Array.isArray(rows)||rows.length>8)throw new LocationError('LOCATION_SOURCE_UNAVAILABLE');
@@ -150,7 +153,15 @@ export class LocationService {
       const poi=/村|峰|山|岭|峡|沟|湖|岛|景区|公园|古道|步道|寺|车站|机场|大学|博物馆|trail|peak|mount/i.test(query);
       const gazetteer=()=>this.#legacyLookup(query,poi);
       let unavailable=false;
-      for(const lookup of poi?[outdoor,gazetteer]:[gazetteer,outdoor]){
+      const chinese = /\p{Script=Han}/u.test(query);
+      if(localFallback){
+        try {
+          const places=(await outdoor()).filter(p=>p.id.startsWith('amap-'));
+          if(places.length)return places;
+        } catch { /* The catalog remains available while the service is offline. */ }
+        return [...localFallback.values()];
+      }
+      for(const lookup of (poi||chinese)?[outdoor,gazetteer]:[gazetteer,outdoor]){
         try { const places=await lookup(); if(places.length)return places; }
         catch { unavailable=true; }
       }

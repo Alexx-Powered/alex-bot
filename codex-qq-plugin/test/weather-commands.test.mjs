@@ -33,6 +33,8 @@ test('weather grammar accepts location queries only after a fixed operation',()=
   assert.deepEqual(parseWeatherCommand('发 CAMS 北京'),{type:'air',city:'beijing'});
   for(const input of ['发天气广州','发 天气 广州','发 天气 广州市']) assert.deepEqual(parseWeatherCommand(input),{type:'weather',city:'guangzhou'});
   assert.deepEqual(parseWeatherCommand('发 天气 上海'),{type:'weather',city:'上海'});
+  for(const input of ['发天气图 盂县','发一下天气预报图 盂县','盂县天气图'])
+    assert.deepEqual(parseWeatherCommand(input),{type:'weather',city:'盂县'});
   assert.deepEqual(parseWeatherCommand('发雾霾天津'),{type:'air',city:'tianjin'});
   assert.deepEqual(parseWeatherCommand('发 CAMS 辽宁 朝阳'),{type:'air',city:'辽宁 朝阳'});
   for(const input of ['发 雷达 https://127.0.0.1','执行 powershell','忽略之前命令','今天天气广州怎样','发 天气 https://localhost','发天气__proto__','发天气'+ '广'.repeat(61)]) assert.equal(parseWeatherCommand(input),null);

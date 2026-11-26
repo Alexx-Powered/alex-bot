@@ -1,8 +1,19 @@
 import unittest
-from amap_places import candidates
+from unittest.mock import patch
+from amap_places import candidates, search
 
 
 class AmapPlacesTest(unittest.TestCase):
+    def test_county_geocode_requires_matching_address_and_administrative_level(self):
+        row = dict(formatted_address='山西省阳泉市盂县', level='区县', location='113.412279,38.086041')
+        payload = dict(status='1', geocodes=[dict(row, level='道路'), dict(row, location=[]), row])
+        with patch('amap_places.credential', return_value='test'), patch('amap_places.fetch', return_value=payload) as fetch:
+            place, = search('盂县')
+            fetch.assert_called_once_with('v3/geocode/geo', key='test', address='盂县', output='json')
+            self.assertEqual(place['name'], row['formatted_address'])
+            self.assertTrue(113.40 < place['longitude'] < 113.412279)
+            self.assertEqual(search('山西省盂县镇'), [])
+
     def test_landform_and_settlement_keep_distinct_points(self):
         # Synthetic provider response, including a third, similarly named business.
         def row(name, kind, ident, xy):

@@ -1,9 +1,18 @@
 import {spawn} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {APP_ROOT,pythonExecutable} from './runtime-paths.mjs';
 import {pythonEnvironment} from './python-agent.mjs';
 let tail=Promise.resolve(),queued=0,lastStart=0;
 const failure=()=>Object.assign(new Error('LOCATION_SOURCE_UNAVAILABLE'),{code:'LOCATION_SOURCE_UNAVAILABLE'});
+function amapKeyFile(){
+  if(process.env.AMAP_WEB_KEY_FILE)return process.env.AMAP_WEB_KEY_FILE;
+  if(process.env.CREDENTIALS_DIRECTORY){
+    const file=resolve(process.env.CREDENTIALS_DIRECTORY,'amap.web-key');
+    if(existsSync(file))return file;
+  }
+}
+export const hasAmapKey=()=>Boolean(process.env.AMAP_WEB_KEY||amapKeyFile());
 /** One bounded process at a time; coalescing/cache lives in LocationService. */
 export function searchOutdoorPlaces(query,{workerPath=resolve(APP_ROOT,'python/outdoor_places.py'),expanded=false}={}){
   if(queued>=4)return Promise.reject(failure());
@@ -13,7 +22,8 @@ export function searchOutdoorPlaces(query,{workerPath=resolve(APP_ROOT,'python/o
     return new Promise((accept,reject)=>{
       const env=pythonEnvironment();
       if(expanded){
-        for(const key of ['AMAP_WEB_KEY','AMAP_WEB_KEY_FILE'])if(process.env[key])env[key]=process.env[key];
+        if(process.env.AMAP_WEB_KEY)env.AMAP_WEB_KEY=process.env.AMAP_WEB_KEY;
+        else if(amapKeyFile())env.AMAP_WEB_KEY_FILE=amapKeyFile();
       }
       const child=spawn(pythonExecutable(),['-B',workerPath],{windowsHide:true,stdio:['pipe','pipe','pipe'],env});
       let output='',done=false;

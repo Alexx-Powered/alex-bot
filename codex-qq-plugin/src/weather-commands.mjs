@@ -67,9 +67,9 @@ export function parseWeatherCommand(text, now=Date.now()) {
   if(m) return {type:'radar',city:m[1].trim()};
   m=/^发\s*(?:雾霾|CAMS|PM2\.?5|空气(?:质量)?)(?:\s*曲线)?\s*(.*)$/i.exec(input);
   if(m && (!m[1] || isCityQuery(m[1]))) return {type:'air',city:m[1]?cityQuery(m[1]):'beijing'};
-  m=/^发\s*天气\s*(.+)$/u.exec(input);
+  m=/^发\s*天气(?:预报图|预报|图)?\s*(.+)$/u.exec(normalized);
   if(m && isCityQuery(m[1])) return {type:'weather',city:cityQuery(m[1])};
-  m=/^([\p{Script=Han}A-Za-z· ]+?)(?:的)?天气(?:预报)?[？?]?$/u.exec(input);
+  m=/^([\p{Script=Han}A-Za-z· ]+?)(?:的)?天气(?:预报图|预报|图)?[？?]?$/u.exec(input);
   if(m && isCityQuery(m[1]) && !/今天|明天|后天|下周|查|看看|帮我|最近|未来/.test(m[1]))return {type:'weather',city:cityQuery(m[1])};
   return null;
 }

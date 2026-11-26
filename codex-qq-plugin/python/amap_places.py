@@ -89,20 +89,27 @@ def search(query):
     key = credential('AMAP_WEB_KEY')
     if not key:
         return []
-    rows = candidates(fetch('v5/place/text',key=key,keywords=query,page_size=20,output='json'),query)
-    if rows or not query.endswith('村'):
-        return rows
+    levels = {'县': ('区县',), '区': ('区县','开发区'), '旗': ('区县',), '镇': ('乡镇',),
+              '乡': ('乡镇',), '市': ('市','区县','省'), '省': ('省',), '村': ('村庄',)}
+    expected = levels.get(query[-1:])
+    if not expected or query.endswith('村'):
+        rows = candidates(fetch('v5/place/text',key=key,keywords=query,page_size=20,output='json'),query)
+        if rows or not expected:
+            return rows
     data = fetch('v3/geocode/geo',key=key,address=query,output='json')
     if data.get('status') != '1':
         raise ValueError('AMAP_UNAVAILABLE')
     for item in data.get('geocodes',[]):
         address = item.get('formatted_address')
-        if item.get('level') != '村庄' or not isinstance(address,str) or not address.endswith(re.sub(r'[\s·]','',query)):
+        if item.get('level') not in expected or not isinstance(address,str) or not address.endswith(re.sub(r'[\s·]','',query)):
             continue
-        coords=item.get('location','').split(',')
+        coords=str(item.get('location','')).split(',')
         if len(coords)!=2:
             continue
-        lon,lat=forecast_coords(*map(float,coords))
+        try:
+            lon,lat=forecast_coords(*map(float,coords))
+        except ValueError:
+            continue
         ident=hashlib.sha256(address.encode()).hexdigest()[:24]
         return [dict(id='amap-geo'+ident,name=address,longitude=lon,latitude=lat)]
     return []
