@@ -19,7 +19,7 @@ class RegionTests(unittest.TestCase):
         self.assertIsNone(room_region('新主楼','未识别教室'))
 
     def test_alias_and_each_region_is_independent(self):
-        for text,region in [('老主楼现在哪空闲','主楼'),('主楼推荐','主楼'),('主m推荐','主M'),('主北推荐','主北'),('主南推荐','主南')]:
+        for text,region in [('老主楼现在哪空闲','主楼'),('主楼推荐','主楼'),('主118附近','主楼'),('主m推荐','主M'),('主中推荐','主M'),('主北推荐','主北'),('主南推荐','主南')]:
             report=recommend(data(),{},'2026-10-29T16:36:00+08:00',text)
             self.assertEqual(report['regions'],[region]);self.assertEqual({r['region'] for r in report['candidates']},{region})
 

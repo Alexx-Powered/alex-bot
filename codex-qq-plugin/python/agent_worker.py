@@ -605,7 +605,7 @@ class Runner:
             tools.append(buaa_classroom_query)
             @tool(args_schema=RecommendationArgs,return_direct=True)
             def buaa_classroom_recommend(date: str='', session: str='now', limit: int=8, exclude_room: str='',building: str='三号楼',regions: list[str]=[]) -> str:
-                """按教学楼和整个上午/下午/晚上或当前时段生成缓存推荐卡。指定楼层、钟点区间或连续时长的推荐用 buaa_classroom_data。默认三号楼；date为空查今天。"""
+                """按教学楼和整个上午/下午/晚上或当前时段生成缓存推荐卡。指定参照教室附近、楼层、钟点区间或连续时长的推荐用 buaa_classroom_data。默认三号楼；date为空查今天。"""
                 # Omit additive optional defaults so a just-restarted Python
                 # worker stays compatible with the preceding Node contract.
                 return remote('buaa_classroom_recommend',dict(date=date,session=session,limit=limit,exclude_room=exclude_room,
@@ -614,7 +614,7 @@ class Runner:
             if packet.get('type') == 'request' and packet.get('replyFormat') == 'attachment-v1':
                 @tool(args_schema=ClassroomDataArgs, return_direct=True)
                 def buaa_classroom_data(date: str = '', rooms: list[str] = [], building: str = '') -> str:
-                    """把需要按具体条件查课表的问题交给教室问答 Agent，包括按楼层、起止时刻、连续时长推荐教室或比较指定教室。它会读取原问题，自行查数据并回答。date默认今天，rooms只填用户点名的教室。"""
+                    """把需要按具体条件查课表的问题交给教室问答 Agent，包括找某教室附近的空教室、按楼层、起止时刻、连续时长推荐或比较教室。它会读取原问题，自行查数据并回答。date默认今天。"""
                     return remote('buaa_classroom_data', {'date': date, 'rooms': rooms, 'building': building})
 
                 tools.append(buaa_classroom_data)

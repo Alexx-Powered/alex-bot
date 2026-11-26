@@ -167,8 +167,8 @@ class FuzzyQATests(unittest.TestCase):
             return classroom_evidence(source, ClassroomLookupArgs(**{**args, **overrides}).model_dump(), NOW)
         facts = read()
         self.assertEqual(facts['window'], {'start':'07:30','end':'09:50','overlapping_periods':[1,2],
-                                           'rooms_in_scope':4,'rooms_free_for_all_periods':3})
-        self.assertEqual([r['room'] for r in facts['rows']], ['主102','主103','主M101'])
+                                           'rooms_in_scope':3,'rooms_free_for_all_periods':2})
+        self.assertEqual([r['room'] for r in facts['rows']], ['主102','主103'])
         self.assertEqual(read(end_time='09:51')['rows'], [{'room':'主103','building':'主楼'}])
         self.assertEqual(read(rooms=['主109'])['named_room_conflicts'][0]['busy_in_window'], [1])
         self.assertEqual(read(floor=9)['window']['rooms_in_scope'], 0)
@@ -194,3 +194,40 @@ class FuzzyQATests(unittest.TestCase):
                     result = runner.run(request)
                 self.assertEqual(source.call_count, 2 if refine else 0)
                 self.assertEqual(result['text'], '主201第3、4节无排课。' if refine else '这次未能查到指定条件的课表，暂时无法推荐教室。')
+
+    def test_nearby_uses_distinct_building_floor_direction_and_actual_clock(self):
+        source = normalize({'e':0, 'd':{'list':{'主楼':[
+            {'name':room, 'kxsds':free} for room,free in (
+                ('主109','2,3'), ('主112','3,4'), ('主117','4'), ('主119','2,3,4'),
+                ('主121','2,3'), ('主218','3,4'), ('主北119','3'), ('主南119','3'),
+                ('主M118','3'), ('主M119','3'), ('主中120','3'))]}}}, NOW.date().isoformat(), NOW)
+        def read(ref, when=NOW, **kwargs):
+            return classroom_evidence(source, {'near_room':ref, **kwargs}, when)
+        def rooms(data):
+            return [r['room'] for r in data['rows']]
+        for ref in ('主118','老主楼１１８','主楼118'):
+            result = read(ref, rooms=[ref])
+            self.assertEqual(rooms(result), ['主119','主121','主112','主109'])
+            self.assertEqual([r['side'] for r in result['rows']], ['北','北','南','南'])
+            self.assertEqual(result['window']['overlapping_periods'], [3])
+        self.assertEqual(rooms(read('主119')), ['主121','主112','主109'])
+        interval = read('主118', start_time='10:00',end_time='11:00')
+        self.assertEqual(rooms(interval), ['主119','主112'])
+        self.assertEqual(interval['verified_class_segments'], [
+            {'period':3,'from':'10:00','until':'10:35'}, {'period':4,'from':'10:40','until':'11:00'}])
+        self.assertFalse(interval['nearby']['reference_has_timetable_row'])
+        self.assertIn('老主楼', interval['nearby']['names_for_same_building'])
+        gap = read('主118', NOW.replace(hour=10,minute=36))
+        self.assertEqual(gap['window']['overlapping_periods'], [4])
+        self.assertEqual(gap['nearby']['schedule_position']['phase'], 'break')
+        self.assertEqual(rooms(gap), ['主117','主119','主112'])
+        self.assertEqual(rooms(read('主118', NOW.replace(hour=22,minute=30))), [])
+        for alias in ('主M118','主中118'):
+            result = read(alias)
+            self.assertEqual(rooms(result), ['主M119','主中120'])
+            self.assertTrue(all(r['building']=='主M' and 'side' not in r for r in result['rows']))
+        self.assertIn('clarification',read('118'))
+        self.assertIn('clarification',read('主118',building='主北'))
+        self.assertEqual(rooms(read('118',building='主')), ['主119','主121','主112','主109'])
+        exact = classroom_evidence(source, {'rooms':['主中119']}, NOW)
+        self.assertEqual(rooms(exact), ['主M119'])

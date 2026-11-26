@@ -92,7 +92,7 @@ def _classroom_source(args, packet, performance, grant, trace):
 
     @tool(args_schema=ClassroomLookupArgs)
     def lookup_classroom_schedule(**filters) -> dict:
-        """查询学院路实际课表。building 可填主楼（又称老主楼）、主M、主北、主南、新主楼及其分座、三号楼；层数单独填 floor。用户给出时间区间时同时传 start_time 和 end_time，按同一间教室筛选。省略 date 沿用本轮查询日，其余条件省略表示不筛选。"""
+        """查询学院路课表。rooms 查点名的教室，near_room 找参照教室周边的其他空教室（保留楼名前缀）。层数单独填 floor。给出时段时传 start_time 和 end_time。省略 date 沿用本轮查询日。"""
         nonlocal remaining
         # LangChain may issue parallel calls. The gateway uses serial request/reply I/O.
         with lock:

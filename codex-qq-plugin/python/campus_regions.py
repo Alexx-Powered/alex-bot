@@ -4,6 +4,29 @@ import unicodedata
 
 REGIONS=['三号楼','主楼','主M','主北','主南']+[f'新主楼{letter}座' for letter in 'ABCDEFG']
 
+_ALIASES = {'主': '主楼', '老主楼': '主楼', '旧主楼': '主楼', '主中': '主M',
+            '3号楼': '三号楼', '第三教学楼': '三号楼', '(三)': '三号楼'}
+
+
+def building_names(region):
+    return [region, *(alias for alias, dest in _ALIASES.items() if dest == region)]
+
+
+def room_address(value):
+    """An optional building prefix and a floor/door number, independent of timetable presence."""
+    value = re.sub(r'\s+', '', unicodedata.normalize('NFKC', value).upper())
+    match = re.fullmatch(r'([^0-9]*|3号楼)([1-9]\d{2,3})([A-Z]?)', value)
+    if not match:
+        return None
+    prefix, number, suffix = match.groups()
+    region = _ALIASES.get(prefix, prefix)
+    seat = re.fullmatch(r'(?:新主楼)?([A-G])(?:座|区)?', region)
+    if seat:
+        region = '新主楼' + seat[1] + '座'
+    if region and region not in REGIONS:
+        return None
+    return region, int(number), suffix
+
 
 def resolve_regions(snapshot,building='三号楼',regions=None,text=None):
     def normalize(value):
@@ -12,8 +35,7 @@ def resolve_regions(snapshot,building='三号楼',regions=None,text=None):
         value=normalize(value)
         if value in ('全部','所有','全部教学楼'):return REGIONS[:]
         if value=='新主楼':return REGIONS[5:]
-        if value in ('老主楼','旧主楼'):return ['主楼']
-        if value in ('3号楼','第三教学楼'):return ['三号楼']
+        if value in _ALIASES:return [_ALIASES[value]]
         match=re.fullmatch(r'新主楼\s*([A-G])(?:座|区)?',value)
         return ['新主楼'+match[1]+'座'] if match else [value]
     if text is None:
@@ -35,9 +57,9 @@ def resolve_regions(snapshot,building='三号楼',regions=None,text=None):
         if letters:selected.extend('新主楼'+letter+'座' for letter in letters)
         elif '新主楼' in text:selected.extend(REGIONS[5:])
         masked=text.replace('新主楼','')
-        for pattern,region in [(r'主(?:楼)?\s*M(?:座|区)?','主M'),(r'主(?:楼)?北(?:座|区)?','主北'),(r'主(?:楼)?南(?:座|区)?','主南')]:
+        for pattern,region in [(r'主(?:楼)?\s*(?:M|中)(?:座|区)?','主M'),(r'主(?:楼)?北(?:座|区)?','主北'),(r'主(?:楼)?南(?:座|区)?','主南')]:
             if re.search(pattern,masked):selected.append(region);masked=re.sub(pattern,'',masked)
-        if re.search('老主楼|旧主楼|主楼',masked):selected.append('主楼')
+        if re.search(r'老主楼|旧主楼|主楼|主\s*\d',masked):selected.append('主楼')
         if re.search('三号楼|3号楼|第三教学楼',text):selected.append('三号楼')
         if not selected and building!='三号楼' and normalize(building) in text:selected=direct(building)
         if not selected:
@@ -49,14 +71,15 @@ def resolve_regions(snapshot,building='三号楼',regions=None,text=None):
 
 
 def room_region(building,room):
-    source=unicodedata.normalize('NFKC',building).strip()
+    source=unicodedata.normalize('NFKC',building).strip().upper()
+    source=_ALIASES.get(source,source)
     name=unicodedata.normalize('NFKC',room).upper().strip()
     if source=='三号楼':return '三号楼'
     if source=='主楼':
-        if re.match(r'主M\d',name):return '主M'
-        if re.match(r'主北\d',name):return '主北'
-        if re.match(r'主南\d',name):return '主南'
-        if re.match(r'(?:主)?\d',name):return '主楼'
+        address=room_address(name)
+        if address and address[0] in ('','主楼','主M','主北','主南'):
+            return address[0] or '主楼'
+        return None
     if source=='新主楼':
         match=re.match(r'(?:新主楼)?([A-G])\d',name)
         return '新主楼'+match[1]+'座' if match else None
