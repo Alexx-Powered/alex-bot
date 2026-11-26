@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createCanvas} from '@napi-rs/canvas';
+import {renderWeatherReportImage} from '../src/weather-report-image.mjs';
 import {summarizeOutdoor,validOutdoorIndex} from '../src/outdoor-summary.mjs';
 import {WeatherCommands} from '../src/weather-commands.mjs';
 import {MorningReportService} from '../src/morning-report.mjs';
@@ -14,6 +16,34 @@ function sample(date='2026-11-03') {
   const air={city:{id:city},timezone:'Asia/Shanghai',hourly:weather.hourly.map(row=>({time:row.time,pm25:10}))};
   return {date,city,weather,air};
 }
+
+test('tomorrow advice uses 全天宜 and keeps the reason between the verdict and score on one line',async t=>{
+  const context=Object.getPrototypeOf(createCanvas(1,1).getContext('2d'));
+  const draw=context.fillText, labels=new Map();
+  t.mock.method(context,'fillText',function(value,x,y,maxWidth){
+    const width=Math.min(this.measureText(value).width,maxWidth??Infinity);
+    const left=this.textAlign==='right'?x-width:this.textAlign==='center'?x-width/2:x;
+    if(!labels.has(value))labels.set(value,{left,right:left+width,y});
+    return draw.apply(this,arguments);
+  });
+  const input=sample(),now=Date.parse(input.date+'T00:00:00+08:00')-3600_000;
+  for(const pm25 of [10,165,240]){
+    for(const row of input.air.hourly)row.pm25=pm25;
+    const index=await summarizeOutdoor({...input,warning:{hazards:[]}});
+    labels.clear();
+    await renderWeatherReportImage({inputs:{date:input.date,cities:[input.city],weather:[input.weather],air:input.air,now,outdoorIndex:index}});
+    const reason=index.dailyDanger?.reasons[0]??index.recommendation.causes?.[0];
+    const words=reason?['明天全天不宜户外活动',reason]:['明天','全天','宜户外活动'];
+    const boxes=[...words,index.displayScore+' 分'].map(word=>{
+      assert.ok(labels.has(word),word);
+      return labels.get(word);
+    });
+    for(let i=1;i<boxes.length;i++){
+      assert.equal(boxes[i].y,boxes[0].y);
+      assert.ok(boxes[i-1].right<boxes[i].left);
+    }
+  }
+});
 
 test('real LangChain bridge scores first day and rejects mismatched or incomplete air',async()=>{
   const input=sample(),result=await summarizeOutdoor(input);

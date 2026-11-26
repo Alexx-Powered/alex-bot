@@ -5,6 +5,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import tempfile
 import zipfile
 
@@ -16,7 +17,7 @@ CURRENT = ROOT / 'current'
 RUNTIMES = ('.ifs-runtime', '.pm25-runtime')
 
 
-def stage(archive, expected_commit):
+def stage(archive, expected_commit, *, link_runtime=False):
     releases = ROOT / 'releases'
     releases.mkdir(exist_ok=True)
     with zipfile.ZipFile(archive) as package:
@@ -57,11 +58,19 @@ def stage(archive, expected_commit):
                             raise ValueError('INVALID_RUNTIME_PATH')
                         dest = root / name
                         dest.parent.mkdir(parents=True, exist_ok=True)
-                        with original.open('rb') as reader, dest.open('xb') as writer:
-                            shutil.copyfileobj(reader, writer)
+                        if link_runtime:
+                            # Both releases are root-owned. The service cannot modify a shared inode.
+                            metadata = original.lstat()
+                            if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0
+                                    or metadata.st_mode & 0o7022):
+                                raise ValueError('RUNTIME_NOT_SHAREABLE')
+                            os.link(original, dest, follow_symlinks=False)
+                        else:
+                            with original.open('rb') as reader, dest.open('xb') as writer:
+                                shutil.copyfileobj(reader, writer)
+                            dest.chmod(original.stat().st_mode & 0o755)
                         if digest(dest) != checksum:
                             raise ValueError('RUNTIME_HASH_MISMATCH')
-                        dest.chmod(original.stat().st_mode & 0o755)
                         carried[name] = checksum
             manifest['files'] = {**source, **carried}
             manifest['runtimeFiles'] = len(carried)
@@ -88,8 +97,10 @@ def main():
     parser.add_argument('--archive', type=Path, default=Path('/tmp/alex-release.zip'))
     parser.add_argument('--expected-commit')
     parser.add_argument('--stage-only', action='store_true')
+    parser.add_argument('--link-runtime', action='store_true',
+                        help='Hard-link verified root-owned runtime files on the same filesystem.')
     args = parser.parse_args()
-    target, commit = stage(args.archive, args.expected_commit)
+    target, commit = stage(args.archive, args.expected_commit, link_runtime=args.link_runtime)
     if not args.stage_only:
         require_map_review(target / 'codex-qq-plugin', CURRENT / 'codex-qq-plugin')
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:

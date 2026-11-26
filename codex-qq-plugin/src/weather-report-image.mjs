@@ -208,28 +208,36 @@ function dailyAdvice(c, analysis, firstDay) {
     text(c, firstDay + '预报数据不足，暂不评级', 52, 383, 13, ink, 600);
     return;
   }
+  const score = number(analysis.displayScore) + ' 分';
   if (danger || suffix === '不宜户外活动') {
-    text(c, firstDay + word + '不宜户外活动', 52, reasons.length ? 375 : 383, 14, ink, 650);
+    const advice = firstDay + word + '不宜户外活动';
+    text(c, advice, 52, 383, 14, ink, 650);
+    if (reasons.length) {
+      c.save();
+      c.font = '650 14px ' + FONT;
+      const reasonX = 52 + c.measureText(advice).width + 6;
+      c.font = '700 16px ' + MONO;
+      const reasonWidth = 388 - c.measureText(score).width - 8 - reasonX;
+      c.font = '500 11px ' + FONT;
+      let label = reasons.join('、');
+      if (danger && reasons.length > 1 && c.measureText(label).width > reasonWidth) {
+        label = reasons[0] + '等 ' + reasons.length + ' 项';
+      }
+      c.restore();
+      text(c, label, reasonX, 383, 11, ink, 500, { maxWidth: reasonWidth });
+    }
   } else {
-    const suitable = suffix === '宜户外活动';
-    const prefix = firstDay + (suitable ? '宜' : '');
+    const suitableHalfDay = suffix === '宜户外活动' && word !== '全天';
+    const prefix = firstDay + (suitableHalfDay ? '宜' : '');
     c.save(); c.font = '650 14px ' + FONT;
     const badgeX = 52 + c.measureText(prefix).width + 3;
     c.restore();
     text(c, prefix, 52, 383, 14, ink, 650);
     rect(c, badgeX, 365, 39, 26, '#19434a', 7);
     text(c, word, badgeX + 19.5, 383, 14, '#ffffff', 650, { align: 'center' });
-    text(c, suitable ? '户外活动' : suffix, badgeX + 42, 383, 14, ink, 650);
+    text(c, suitableHalfDay ? '户外活动' : suffix, badgeX + 42, 383, 14, ink, 650);
   }
-  if (reasons.length) {
-    const detail = reasons.join('、');
-    c.save(); c.font = '500 11px ' + FONT;
-    const label = c.measureText(detail).width > 251 && reasons.length > 1
-      ? reasons[0] + '等 ' + reasons.length + ' 项' : detail;
-    c.restore();
-    text(c, label, 52, 392, 11, ink, 500, { maxWidth: 251 });
-  }
-  text(c, number(analysis.displayScore) + ' 分', 388, 383, 16, ink, 700, { mono: true, align: 'right' });
+  text(c, score, 388, 383, 16, ink, 700, { mono: true, align: 'right' });
 }
 
 function exercise(c, analysis, city, y) {
