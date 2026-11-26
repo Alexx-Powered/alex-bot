@@ -4,12 +4,13 @@ from datetime import datetime
 from unittest.mock import patch
 
 import httpx
+from langchain_core.messages import AIMessage
 
 import agent_worker
 from campus_classrooms import TZ, normalize
-from campus_evidence import classroom_evidence
+from campus_evidence import ClassroomLookupArgs, classroom_evidence
 from group_reply_graph import build_reply_graph
-from test_agent_worker import packet
+from test_agent_worker import ScriptedModel, call, packet
 
 
 NOW = datetime(2026, 11, 26, 10, 5, tzinfo=TZ)
@@ -83,11 +84,11 @@ class FuzzyQATests(unittest.TestCase):
         self.assertNotIn('nearest_free_block', other['rows'][0])
 
     def test_authorized_json_reaches_only_high_effort_subagent(self):
-        for revoked in (False, True):
-            with self.subTest(revoked=revoked):
-                self.check_protocol(revoked)
+        for revoke_at in (None, 2, 4, 5):
+            with self.subTest(revoke_at=revoke_at):
+                self.check_protocol(revoke_at)
 
-    def check_protocol(self, revoked):
+    def check_protocol(self, revoke_at):
         calls = []
         question = '主201空闲吗'
         answer = '按学院路课表，主201现在第3节空闲。'
@@ -99,10 +100,14 @@ class FuzzyQATests(unittest.TestCase):
                 message = {'role': 'assistant', 'content': '', 'reasoning_content': 'route',
                            'tool_calls': [{'type': 'function', 'id': 'lookup', 'function': {
                                'name': 'buaa_classroom_data', 'arguments': '{"rooms":["主201"]}'}}]}
+            elif len(calls) == 2:
+                message = {'role':'assistant', 'content':'', 'reasoning_content':'lookup',
+                           'tool_calls':[{'type':'function','id':'read-schedule','function':{
+                               'name':'lookup_classroom_schedule','arguments':'{"rooms":["主201"]}'}}]}
             else:
                 message = {'role': 'assistant', 'content': answer}
             return httpx.Response(200, json={'id': 'test', 'model': 'deepseek-flash', 'created': 0,
-                'choices': [{'index': 0, 'finish_reason': 'tool_calls' if len(calls) == 1 else 'stop', 'message': message}]})
+                'choices': [{'index': 0, 'finish_reason': 'tool_calls' if 'tool_calls' in message else 'stop', 'message': message}]})
 
         grants = []
 
@@ -112,7 +117,7 @@ class FuzzyQATests(unittest.TestCase):
                 return {'allowed': True, 'grant': {'code': 'OK', 'credentials': {'password': 'fixture-private'}}}
             self.assertEqual(operation, 'campus_continue')
             grants.append(True)
-            return {'allowed': len(grants) == 1 or not revoked}
+            return {'allowed': revoke_at is None or len(grants) < revoke_at}
 
         runner = agent_worker.build_runner(profiling=True)
         runner.gateway = gateway
@@ -124,20 +129,68 @@ class FuzzyQATests(unittest.TestCase):
         self.assertEqual(result['kind'], 'attachment', result)
         self.assertEqual(result['tool'], 'buaa_classroom_data')
         self.assertEqual(calls[0]['reasoning_effort'], 'low')
-        if revoked:
+        if revoke_at:
             self.assertTrue(result['cancelled'])
-            self.assertEqual(len(calls), 1)
+            if revoke_at == 2:
+                self.assertEqual(len(calls), 1)
+            if revoke_at == 4:
+                self.assertNotIn('free_periods', calls[-1]['messages'][-1]['content'])
             return
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         self.assertEqual(calls[1]['reasoning_effort'], 'high')
         self.assertEqual(calls[1]['thinking'], {'type': 'enabled'})
-        self.assertFalse(calls[1].get('tools'))
+        self.assertEqual([tool['function']['name'] for tool in calls[1]['tools']], ['lookup_classroom_schedule'])
         material = json.loads(calls[1]['messages'][-1]['content'])
         self.assertEqual(material['question'], question)
-        self.assertEqual(len(material['source_data']['rows']), 1)
-        row = material['source_data']['rows'][0]
+        self.assertTrue(material['source_data']['query_required'])
+        tool_message = calls[2]['messages'][-1]
+        self.assertEqual(tool_message['role'], 'tool')
+        self.assertEqual(tool_message['tool_call_id'], 'read-schedule')
+        facts = json.loads(tool_message['content'])
+        self.assertEqual(len(facts['rows']), 1)
+        row = facts['rows'][0]
         self.assertEqual((row['building'], row['room'], row['free_periods']), ('主楼', '主201', [3, 4]))
         self.assertEqual(row['nearest_free_block']['end'], '11:25')
         self.assertNotIn('fixture-private', str(calls))
         self.assertIn('fuzzy_qa', [t['name'] for t in result['timings']])
         self.assertEqual(result['text'], answer)
+
+    def test_floor_and_whole_window_are_filtered_before_sampling(self):
+        from pydantic import ValidationError
+        source = normalize({'e': 0, 'd': {'list': {
+            '主楼': [{'name': f'主2{i:02}', 'kxsds':'1,2,3'} for i in range(70)] + [
+                {'name':'主102','kxsds':'1,2'}, {'name':'主103','kxsds':'1,2,3'},
+                {'name':'主109','kxsds':'2'}, {'name':'主M101','kxsds':'1,2'}],
+            '新主楼':[{'name':'B101','kxsds':'1,2,3'}]}}}, '2026-11-27', NOW)
+        args = {'date':'2026-11-27','building':'老主楼','floor':1,'start_time':'7:30','end_time':'09:50'}
+        def read(**overrides):
+            return classroom_evidence(source, ClassroomLookupArgs(**{**args, **overrides}).model_dump(), NOW)
+        facts = read()
+        self.assertEqual(facts['window'], {'start':'07:30','end':'09:50','overlapping_periods':[1,2],
+                                           'rooms_in_scope':4,'rooms_free_for_all_periods':3})
+        self.assertEqual([r['room'] for r in facts['rows']], ['主102','主103','主M101'])
+        self.assertEqual(read(end_time='09:51')['rows'], [{'room':'主103','building':'主楼'}])
+        self.assertEqual(read(rooms=['主109'])['named_room_conflicts'][0]['busy_in_window'], [1])
+        self.assertEqual(read(floor=9)['window']['rooms_in_scope'], 0)
+        self.assertEqual(read(end_time='07:55')['window']['overlapping_periods'], [])
+        self.assertEqual(read(end_time='07:55')['rows'], [])
+        for invalid in ({'start_time':'25:00'}, {'end_time':None}, {'end_time':'06:00'}, {'floor':0}):
+            with self.assertRaises(ValidationError):
+                read(**invalid)
+
+    def test_reader_can_refine_its_query_but_cannot_answer_without_a_read(self):
+        request = packet(text='主楼的201是哪间？', now=NOW.isoformat(), replyFormat='attachment-v1',
+                         context={'scope':'group','access':'white','currentSpeaker':'member-a','groupContext':[]})
+        draft = AIMessage(content='未经课表核实的回答')
+        for refine in (False, True):
+            with self.subTest(refine=refine):
+                lookups = [call('lookup_classroom_schedule', {'rooms':['201']}, 'first'),
+                           call('lookup_classroom_schedule', {'rooms':['主201']}, 'second'),
+                           AIMessage(content='主201第3、4节无排课。')]
+                model = ScriptedModel(responses=[call('buaa_classroom_data', {})] + (lookups if refine else [draft, draft]))
+                runner = agent_worker.build_runner(model_factory=lambda _: model, profiling=True)
+                runner.gateway = lambda _id, op, **kwargs: {'allowed':True, 'grant':{'code':'OK'}}
+                with patch('worker_campus.snapshots', return_value={ROWS['date']: ROWS}) as source:
+                    result = runner.run(request)
+                self.assertEqual(source.call_count, 2 if refine else 0)
+                self.assertEqual(result['text'], '主201第3、4节无排课。' if refine else '这次未能查到指定条件的课表，暂时无法推荐教室。')

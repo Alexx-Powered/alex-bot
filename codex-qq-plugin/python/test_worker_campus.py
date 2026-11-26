@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -32,7 +32,7 @@ class CampusWorkerTests(unittest.TestCase):
         self.private = Path('.private')
         self.clock = datetime.now(TZ)
         self.day = (self.clock.date() + timedelta(days=1)).isoformat()
-        self.events = Mock()
+        self.events = MagicMock()
         self.events.campus_allowed.return_value = True
         self.events.campus_progress.return_value = True
         self.events.campus_advice.return_value = '看看 A102。'
@@ -82,14 +82,15 @@ class CampusWorkerTests(unittest.TestCase):
         updated = {'e': 0, 'd': {'list': {'主楼': [{'name': '主201', 'kxsds': '4,5'}]}}}
         with patch('campus_worker.browser_collect', return_value=updated) as collect:
             result = execute('buaa_classroom_data', args, packet, self.events, self.grant)
+            collect.assert_not_called()
+            facts = result['source_tool'].invoke(args)
             self.assertEqual(collect.call_args.args[2], self.day)
-            self.assertEqual(result['evidence']['rows'], [{'building': '主楼', 'room': '主201', 'free_periods': [4, 5]}])
-            self.assertIsNone(result['evidence']['current_period'])
+            self.assertEqual(facts['rows'], [{'building': '主楼', 'room': '主201', 'free_periods': [4, 5]}])
+            self.assertIsNone(facts['current_period'])
             self.events.campus_progress.assert_not_called()
         with patch('campus_worker.browser_collect', side_effect=CampusError('CAMPUS_NETWORK_ERROR')):
             failed = execute('buaa_classroom_data', {'rooms': ['主201']}, packet, self.events, self.grant)
-            self.assertNotIn('evidence', failed)
-            self.assertIn('无法核实', failed['text'])
+            self.assertIn('无法核实', failed['source_tool'].invoke({'rooms':['主201']})['error'])
 
     def test_revoked_query_does_not_open_browser_or_share_facts_with_advisor(self):
         args = {'date':self.day,'view':'compact','session':'evening'}

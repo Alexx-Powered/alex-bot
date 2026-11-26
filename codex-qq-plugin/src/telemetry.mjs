@@ -30,7 +30,7 @@ export function milkyTimeline(){
 }
 const OPERATIONS=new Set(['video.cloud_forecast','video.satellite','video.temperature','video.precipitation','video.pm25','weather.report','weather.air','weather.radar','campus.query','service.status','tools.convert','agent.request','knowledge.query','hiking.trip',...MORNING_OPERATIONS,...MILKY_EVENTS]);
 const modelStages=new Set(['router_model','chat_model','fuzzy_qa']);
-const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','chat_setup',...modelStages,'memory','tool','qq_send','qq_group_permission']);
+const STAGES=new Set(['core_queue','agent','worker_queue','worker_startup','worker_total','router_setup','chat_setup',...modelStages,'fuzzy_source_lookup','memory','tool','qq_send','qq_group_permission']);
 export const videoWorkerStages=Object.freeze(['video_prepare_worker','video_fetch_gdps','video_fetch_ifs','video_fetch_gfs','video_fetch_cams','video_fetch_forecast','video_fetch_satellite','video_render_frames','video_encode_h264']);
 export const campusWorkerStages=Object.freeze(['campus_browser_start','campus_navigation','campus_login_form','campus_login_fill_account',
   'campus_login_fill_password','campus_login_click','campus_login_result','campus_classroom_fetch','campus_render']);

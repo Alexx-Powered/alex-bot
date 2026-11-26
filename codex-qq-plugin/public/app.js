@@ -84,6 +84,7 @@ function feedback(data) {
 }
 const stageNames={core_queue:'消息排队',agent:'业务处理',worker_queue:'Python排队',worker_startup:'Python启动',worker_total:'Python总耗时',router_setup:'路由初始化',router_model:'模型路由',chat_setup:'口吻初始化',chat_model:'聊天表达',memory:'记忆',tool:'工具查询',qq_send:'QQ发送'};
 Object.assign(stageNames,{warning_fetch:'获取官方预警',warning_area:'预警地区匹配',warning_render:'预警卡片绘制'});
+Object.assign(stageNames,{fuzzy_qa:'模糊问答推理',fuzzy_source_lookup:'模糊问答查课表'});
 Object.assign(stageNames,{morning_weather_prepare:'准备早间天气',morning_campus_prepare:'准备自习简报',
   morning_outdoor_index:'计算户外指数',morning_weather_delivery:'投递早间天气',morning_campus_delivery:'投递自习简报'});
 Object.assign(stageNames,{weather_forecast_primary:'主预报接口',weather_metadata_primary:'主起报元数据',

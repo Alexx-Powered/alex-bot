@@ -26,7 +26,7 @@ test('a real LangChain recommendation reads a pre-migration snapshot and returns
   await writeFile(script,[
     'import sys','sys.path.insert(0,'+JSON.stringify(path.join(home,'python'))+')',
     'import agent_worker','from test_agent_worker import ScriptedModel, call','from langchain_core.messages import AIMessage',
-    "model=ScriptedModel(responses=[call('buaa_classroom_recommend',{'date':'"+tomorrow+"','regions':['新主楼A座'],'session':'evening'}),AIMessage(content='优先看看A101。'),call('buaa_classroom_data',{'date':'"+tomorrow+"','rooms':['A101']}),AIMessage(content='A101明天第3节按课表空闲。')])",
+    "model=ScriptedModel(responses=[call('buaa_classroom_recommend',{'date':'"+tomorrow+"','regions':['新主楼A座'],'session':'evening'}),AIMessage(content='优先看看A101。'),call('buaa_classroom_data',{'date':'"+tomorrow+"','rooms':['A101']}),call('lookup_classroom_schedule',{'rooms':['A101']}),AIMessage(content='A101明天第3节按课表空闲。')])",
     'agent_worker.default_model_factory=lambda _:model','agent_worker.main()'
   ].join('\n'),'utf8');
   const worker=new PythonAgentWorker({home:folder,pythonPath:pythonExecutable(),workerPath:script});

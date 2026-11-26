@@ -379,8 +379,8 @@ class Runner:
             if now < session.updated or now - session.updated >= SESSION_TTL:
                 del self.sessions[key]
 
-    def _answer_from_evidence(self, config, question, evidence, history, group_context):
-        reader = create_fuzzy_subagent(self.model_factory, config)
+    def _answer_from_evidence(self, config, question, evidence, history, group_context, source_tool):
+        reader = create_fuzzy_subagent(self.model_factory, config, source_tool)
         messages = []
         if history:
             for user, assistant in history.turns:
@@ -390,7 +390,17 @@ class Runner:
         payload = json.dumps({'question': question, 'source_data': evidence}, ensure_ascii=False, separators=(',', ':'))
         messages.append(HumanMessage(content=payload))
         result = reader.invoke({'messages': messages}, config={
-            'recursion_limit': 3, 'callbacks': [self.performance.callback('fuzzy_qa')]})
+            'recursion_limit': 8, 'callbacks': [self.performance.callback('fuzzy_qa')]})
+        reads = [msg for msg in result['messages'] if isinstance(msg, ToolMessage) and msg.name == source_tool.name]
+        if reads:
+            try:
+                facts = json.loads(reads[-1].content)
+                if 'rows' not in facts:
+                    return facts.get('error') or '未能取得符合这些条件的课表。'
+            except (ValueError, TypeError):
+                return '未能核实指定的课表条件。'
+        elif evidence.get('query_required'):
+            return '这次未能查到指定条件的课表，暂时无法推荐教室。'
         last = result['messages'][-1]
         if isinstance(last, AIMessage) and isinstance(last.content, str) and not last.tool_calls:
             return _bound_chat_reply(last.content, 600)
@@ -440,8 +450,9 @@ class Runner:
                 except Exception as exc:
                     reply = {"text": error_reply(name, exc)}
                 if 'evidence' in reply:
-                    selected.update(kind='attachment', tool=name, evidence=reply['evidence'], still_allowed=reply['still_allowed'])
-                    return '已取得数据源记录。'
+                    selected.update(kind='attachment', tool=name, evidence=reply['evidence'], still_allowed=reply['still_allowed'],
+                                    source_tool=reply['source_tool'])
+                    return '已委托课表问答。'
                 if reply.get("media") and args.get("city") and packet.get("sessionKey"):
                     key = (packet["sessionKey"], context.get("currentSpeaker"))
                     self.weather_places[key] = (self.clock(), args["city"])
@@ -594,7 +605,7 @@ class Runner:
             tools.append(buaa_classroom_query)
             @tool(args_schema=RecommendationArgs,return_direct=True)
             def buaa_classroom_recommend(date: str='', session: str='now', limit: int=8, exclude_room: str='',building: str='三号楼',regions: list[str]=[]) -> str:
-                """根据最近采集的学院路教室缓存推荐，默认三号楼，本轮显式提及其他楼宇时用building参数，不重新爬取。用户问‘推荐晚上的教室，多推荐几个’‘现在想换教室推荐去哪’‘现在去哪个教室’或追问推荐时使用。session=now按服务器真实北京时间，或morning/afternoon/evening；默认8个、最多12个，不能编造数量。date为空今天；exclude_room仅用户明确提到当前所在教室时填写三位号。只向本人或白名单群开放。"""
+                """按教学楼和整个上午/下午/晚上或当前时段生成缓存推荐卡。指定楼层、钟点区间或连续时长的推荐用 buaa_classroom_data。默认三号楼；date为空查今天。"""
                 # Omit additive optional defaults so a just-restarted Python
                 # worker stays compatible with the preceding Node contract.
                 return remote('buaa_classroom_recommend',dict(date=date,session=session,limit=limit,exclude_room=exclude_room,
@@ -603,7 +614,7 @@ class Runner:
             if packet.get('type') == 'request' and packet.get('replyFormat') == 'attachment-v1':
                 @tool(args_schema=ClassroomDataArgs, return_direct=True)
                 def buaa_classroom_data(date: str = '', rooms: list[str] = [], building: str = '') -> str:
-                    """读取北航学院路指定日期的教室课表，让模型按原问题回答。适合教室是否空闲、何时有课、比较时段等需要查数据的问题。教室号可单独指代教室。日期默认今天，楼宇、教室均可省略。"""
+                    """把需要按具体条件查课表的问题交给教室问答 Agent，包括按楼层、起止时刻、连续时长推荐教室或比较指定教室。它会读取原问题，自行查数据并回答。date默认今天，rooms只填用户点名的教室。"""
                     return remote('buaa_classroom_data', {'date': date, 'rooms': rooms, 'building': building})
 
                 tools.append(buaa_classroom_data)
@@ -1004,10 +1015,12 @@ class Runner:
                     if not selected['still_allowed']():
                         return {'reply': {'text': '', 'cancelled': True}}
                     try:
-                        answer = self._answer_from_evidence(config, text, state['evidence'], history, group_context)
+                        answer = self._answer_from_evidence(config, text, state['evidence'], history, group_context, selected['source_tool'])
                     except Exception:
                         answer = ''
-                    return {'reply': {'text': answer or '已取得查询数据，但这次未能完成解读。'}}
+                    if not selected['still_allowed']():
+                        return {'reply': {'text': '', 'cancelled': True}}
+                    return {'reply': {'text': answer or '这次未能完成课表核查。'}}
 
                 outcome = build_reply_graph(route_and_tools, fuzzy_qa).invoke({})
                 if 'reply' in outcome:

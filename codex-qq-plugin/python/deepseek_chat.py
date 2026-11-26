@@ -6,7 +6,7 @@ from langchain_deepseek import ChatDeepSeek
 class ThinkingDeepSeek(ChatDeepSeek):
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
-        if payload.get('tools'):
+        if payload.get('tools') or any(message.get('tool_calls') for message in payload['messages']):
             # The SDK reads reasoning_content but does not send it back. DeepSeek
             # requires it for prior tool calls in the same invocation.
             messages = self._convert_input(input_).to_messages()
